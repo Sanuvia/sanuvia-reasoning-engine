@@ -1,0 +1,14 @@
+.venv/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+*.sqlite
+*.db
+reasoning_trace.md
+reasoning_graph.md
+reasoning_graph.dot

@@ -1,0 +1,27 @@
+# Engineering review harness for the Sanuvia Persistent Reasoning Core.
+# Bring it up with:  docker compose up
+#
+# No cloud-vendor assumptions: this runs anywhere Docker runs. The core has zero
+# runtime dependencies; the image is stdlib-only.
+
+services:
+  review-harness:
+    build: .
+    image: sanuvia-review-harness:latest
+    ports:
+      - "${SANUVIA_PORT:-8000}:8000"
+    environment:
+      # memory = ephemeral per-process session (default). sqlite = durable.
+      SANUVIA_BACKEND: "${SANUVIA_BACKEND:-memory}"
+      SANUVIA_DB_PATH: "/data/sanuvia.db"
+      # Durable saved Test Case definitions (on the volume). Unset = in-memory.
+      SANUVIA_TESTCASE_DIR: "/data/testcases"
+      SANUVIA_PORT: "8000"
+      SANUVIA_HOST: "0.0.0.0"
+    volumes:
+      # Persists the SQLite database when SANUVIA_BACKEND=sqlite.
+      - sanuvia-data:/data
+    restart: unless-stopped
+
+volumes:
+  sanuvia-data:

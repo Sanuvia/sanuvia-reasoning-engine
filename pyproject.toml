@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sanuvia"
+version = "0.0.0"
+description = "Sanuvia Persistent Reasoning Core (Phase 0) — the reasoning engine that owns persistent state, not the LLM."
+requires-python = ">=3.11"
+# Intentionally zero runtime dependencies in the core.
+# The domain and application layers must not depend on any framework, cloud SDK,
+# or foundation model. Infrastructure (web, DB, FM) enters only via adapters,
+# which may declare their own optional dependencies under [project.optional-dependencies].
+dependencies = []
+
+[project.optional-dependencies]
+# Adapter-only dependencies are added here in later increments (e.g. api = ["fastapi", ...]).
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.mypy]
+# The core is meant to typecheck under strict settings.
+strict = true
+packages = ["sanuvia"]
+mypy_path = "src"
