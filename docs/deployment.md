@@ -7,7 +7,7 @@ This is a **deployment/operations** layer only. It runs the existing
 stdlib-only application unchanged:
 
 ```
-Browser ──HTTPS──> Caddy (reverse proxy, TLS) ──HTTP──> systemd service
+Browser ──HTTPS──> nginx (reverse proxy, TLS) ──HTTP──> systemd service
                                                           (127.0.0.1:8000)
                                                                 │
                                                           SQLite on disk
@@ -16,8 +16,11 @@ Browser ──HTTPS──> Caddy (reverse proxy, TLS) ──HTTP──> systemd 
 
 - The application is a **systemd service** running the built-in
   `ThreadingHTTPServer`, bound to `127.0.0.1` only.
-- **Caddy** terminates HTTPS for `buyafraction.com` and reverse-proxies to the
-  local service. It sets the `X-Forwarded-*` headers automatically.
+- **nginx** terminates HTTPS for `buyafraction.com` and reverse-proxies to the
+  local service, forwarding the `X-Forwarded-*` headers. This host already runs
+  nginx, so we use it (installing Caddy would conflict on ports 80/443). A
+  ready-to-use Caddy config also ships (`deploy/Caddyfile`) if you ever move to
+  a host without an existing proxy.
 - Reasoning state and saved Review Datasets persist in **SQLite** under
   `/var/lib/sanuvia`, which survives restarts and updates.
 - No Docker. No cloud SDK. No framework. The core has zero runtime dependencies.
@@ -33,11 +36,11 @@ byte-identical (the hash seed is pinned — see *Determinism* below).
 | Item | Requirement |
 | --- | --- |
 | OS | Ubuntu 22.04 LTS or newer |
-| Python | 3.11+ (`python3`, `python3-venv`) — installed by `deploy.sh` |
+| Python | **3.11+** required. Ubuntu 22.04 ships 3.10, so `deploy.sh` installs `python3.11` from the deadsnakes PPA automatically (it does not touch the system `python3`). |
 | Privileges | `sudo`/root for first-time provisioning |
-| Reverse proxy | Caddy 2.x (for HTTPS) |
+| Reverse proxy | nginx (already present on this host) — see `deploy/nginx/`. Caddy config also provided as an alternative. |
 | Disk | ~200 MB for the app + venv; SQLite data grows slowly |
-| Network | Inbound 443 (and 80 for ACME) to Caddy; the app itself stays on localhost |
+| Network | Inbound 443 (and 80 for ACME) to nginx; the app itself stays on localhost |
 | DNS | `buyafraction.com` resolving to this host (see *Troubleshooting → TLS*) |
 
 Canonical paths (override in `/etc/sanuvia/deploy.conf` if needed):
@@ -49,7 +52,7 @@ Canonical paths (override in `/etc/sanuvia/deploy.conf` if needed):
 | `/etc/sanuvia/sanuvia.env` | Service environment (from `.env.example`) |
 | `/var/backups/sanuvia` | Backup archives |
 | `/etc/systemd/system/sanuvia.service` | systemd unit |
-| `/etc/caddy/Caddyfile` | Reverse-proxy config |
+| `/etc/nginx/sites-available/buyafraction.com.conf` | Reverse-proxy config |
 
 ---
 
@@ -86,8 +89,8 @@ ones:
 
 | Variable | Production value | Meaning |
 | --- | --- | --- |
-| `SANUVIA_HOST` | `127.0.0.1` | Bind localhost only; Caddy fronts it |
-| `SANUVIA_PORT` | `8000` | Local port Caddy proxies to |
+| `SANUVIA_HOST` | `127.0.0.1` | Bind localhost only; nginx fronts it |
+| `SANUVIA_PORT` | `8000` | Local port nginx proxies to |
 | `SANUVIA_BACKEND` | `sqlite` | Durable persistence (required) |
 | `SANUVIA_DB_PATH` | `/var/lib/sanuvia/sanuvia.db` | SQLite database base path |
 | `SANUVIA_TESTCASE_DIR` | `/var/lib/sanuvia/testcases` | Saved Review Datasets |
@@ -107,18 +110,20 @@ This installs prerequisites, creates the `sanuvia` service user, the data
 directory, the virtualenv, the env file, and the systemd unit, then
 `enable --now`s the service and waits for `/health` to return `ok`.
 
-Then put Caddy in front for HTTPS:
+Then put **nginx** in front for HTTPS (nginx is already installed on this host):
 
 ```bash
-# Install Caddy (official apt repo) if not already present:
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update && sudo apt install -y caddy
+# Install the site config and enable it:
+sudo cp /opt/sanuvia/deploy/nginx/buyafraction.com.conf \
+        /etc/nginx/sites-available/buyafraction.com.conf
+sudo ln -sf /etc/nginx/sites-available/buyafraction.com.conf \
+            /etc/nginx/sites-enabled/buyafraction.com.conf
 
-# Install the site config and reload:
-sudo cp /opt/sanuvia/deploy/Caddyfile /etc/caddy/Caddyfile
-sudo systemctl reload caddy
+# Obtain a TLS certificate (edits the server block + sets up auto-renewal):
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d buyafraction.com
+
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 Verify:
@@ -126,8 +131,12 @@ Verify:
 ```bash
 /opt/sanuvia/scripts/status.sh
 curl -s http://127.0.0.1:8000/health       # {"status":"ok","version":"phase0","backend":"sqlite"}
-curl -s https://buyafraction.com/health    # same, through Caddy
+curl -s https://buyafraction.com/health    # same, through nginx
 ```
+
+> **Alternative — Caddy** (only on a host with no existing proxy): install Caddy
+> and `sudo cp /opt/sanuvia/deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy`.
+> Do **not** run both nginx and Caddy — they will fight over ports 80/443.
 
 ---
 
@@ -191,8 +200,8 @@ and the service is restarted and health-checked.
 ```
 
 Application logs go to **journald** (rotated by systemd-journald;
-cap with `SystemMaxUse=` in `/etc/systemd/journald.conf` if desired). Caddy
-access logs rotate by size/count under `/var/log/caddy/` (see the `Caddyfile`).
+cap with `SystemMaxUse=` in `/etc/systemd/journald.conf` if desired). nginx
+access logs live under `/var/log/nginx/` and are rotated by the system logrotate.
 
 ---
 
@@ -215,23 +224,44 @@ sudo systemctl status sanuvia --no-pager
 Common causes: `/var/lib/sanuvia` not writable by `sanuvia` (fix ownership), or a
 bad value in `/etc/sanuvia/sanuvia.env`.
 
-**`/health` works locally but not via the domain** — Caddy isn't reaching the
-app or TLS isn't issued:
+**`python -m build` / pip fails with "requires a different Python"** — the box
+has Python 3.10 (Ubuntu 22.04 default) but the package needs 3.11+. `deploy.sh`
+now installs `python3.11` from deadsnakes and builds the venv with it
+automatically; re-run `sudo scripts/deploy.sh` (it recreates a wrong-version
+venv in place). To do it by hand:
 ```bash
-sudo systemctl status caddy --no-pager
-sudo journalctl -u caddy -n 100 --no-pager
-curl -s http://127.0.0.1:8000/health     # app up?
+sudo apt install -y software-properties-common
+sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt update
+sudo apt install -y python3.11 python3.11-venv
+sudo rm -rf /opt/sanuvia/.venv
+sudo -u sanuvia python3.11 -m venv /opt/sanuvia/.venv
+sudo -u sanuvia /opt/sanuvia/.venv/bin/pip install /opt/sanuvia
+sudo systemctl restart sanuvia
 ```
 
-**TLS / certificate issues (private IP `192.168.160.98`).** Caddy's automatic
-HTTPS needs a public ACME challenge (public DNS + reachable 80/443). Options,
-documented at the bottom of [`deploy/Caddyfile`](../deploy/Caddyfile):
-1. Public DNS for `buyafraction.com` + port-forward 80/443 → this host (config
-   works as-is; real trusted cert).
-2. Internal only: add `tls internal` to the site block — Caddy issues a cert from
-   its own local CA; reviewers trust Caddy's root once
-   (`caddy trust` on the client, or import `/var/lib/caddy/.local/share/caddy/pki/`).
-3. DNS-01 challenge with a Caddy DNS-provider build (public cert, no open 80/443).
+**`/health` works locally but not via the domain** — nginx isn't reaching the
+app or TLS isn't issued:
+```bash
+sudo nginx -t
+sudo systemctl status nginx --no-pager
+sudo tail -n 100 /var/log/nginx/buyafraction.error.log
+curl -s http://127.0.0.1:8000/health     # app up?
+```
+If nginx already serves other sites, make sure this server block's `server_name`
+(`buyafraction.com`) doesn't collide with an existing default server.
+
+**TLS / certificate issues (private IP `192.168.160.98`).** certbot's HTTP-01
+challenge needs `buyafraction.com` to resolve publicly with port 80 reachable.
+If this host isn't publicly reachable, pick one:
+1. **Public DNS + port-forward 80/443** to this host → `certbot --nginx` works
+   as shown (real, trusted certificate).
+2. **DNS-01 challenge** (public cert, nothing to open): `sudo certbot certonly
+   --manual --preferred-challenges dns -d buyafraction.com`, then point the
+   `ssl_certificate*` lines at the issued files and reload nginx.
+3. **Internal / self-signed** for a closed network: generate a cert with
+   `openssl`, set the `ssl_certificate*` paths, reload nginx, and have reviewers
+   trust it once. (Caddy's `tls internal` is the equivalent if you use the Caddy
+   config instead.)
 
 **Reasoning looks wrong after an update** — the Exit Test gate should have caught
 it. Re-run it and, if it fails, roll back:
@@ -241,7 +271,7 @@ sudo /opt/sanuvia/scripts/restore.sh latest      # if needed
 ```
 
 **Port already in use** — change `SANUVIA_PORT` in `/etc/sanuvia/sanuvia.env`,
-update the `reverse_proxy` target in the `Caddyfile`, then restart both.
+update the `proxy_pass`/`upstream` target in the nginx config, then reload both.
 
 ---
 

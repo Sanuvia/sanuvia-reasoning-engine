@@ -40,13 +40,13 @@ Target: **https://buyafraction.com** (`192.168.160.98`).
 
 ## Data & functionality (against the running service)
 
-Use the local port (bypasses Caddy) or the public URL — both must work.
+Use the local port (bypasses nginx) or the public URL — both must work.
 
 - [ ] **Health endpoint working**
   ```bash
   curl -s http://127.0.0.1:8000/health
   # {"status":"ok","version":"phase0","backend":"sqlite"}
-  curl -s https://buyafraction.com/health      # same, through Caddy
+  curl -s https://buyafraction.com/health      # same, through nginx
   ```
 
 - [ ] **Review datasets available** — all 12 (`D1…D12`) present.
@@ -99,7 +99,7 @@ Use the local port (bypasses Caddy) or the public URL — both must work.
 - [ ] **Logs reachable** — `/opt/sanuvia/scripts/logs.sh -n 20` shows startup line.
 - [ ] **HTTPS valid** — browser shows a valid certificate for `buyafraction.com`
   (or the internal-CA path is documented for reviewers).
-- [ ] **App not directly exposed** — `SANUVIA_HOST=127.0.0.1`; only Caddy is public.
+- [ ] **App not directly exposed** — `SANUVIA_HOST=127.0.0.1`; only nginx is public.
 
 ---
 

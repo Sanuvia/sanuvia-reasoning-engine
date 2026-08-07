@@ -22,10 +22,41 @@ if [[ "${REPO_ROOT}" != "${APP_DIR}" ]]; then
 	VENV_DIR="${APP_DIR}/.venv"
 fi
 
-log "Installing OS prerequisites (python3, venv, pip, git)…"
+log "Installing OS prerequisites (git, ca-certificates)…"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip git ca-certificates
+apt-get install -y -qq git ca-certificates
+
+# --- ensure a Python interpreter that meets the package's floor (>=3.11) ------
+# Ubuntu 22.04 ships 3.10; the package requires >=3.11. Find a suitable
+# interpreter, or install python3.11 from the deadsnakes PPA (non-disruptive:
+# it does not replace the system python3).
+py_ok() { "$1" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 11) else 1)' >/dev/null 2>&1; }
+
+PYTHON_BIN=""
+for cand in python3.13 python3.12 python3.11 python3; do
+	if command -v "${cand}" >/dev/null 2>&1 && py_ok "${cand}"; then
+		PYTHON_BIN="$(command -v "${cand}")"; break
+	fi
+done
+
+if [[ -z "${PYTHON_BIN}" ]]; then
+	log "No Python >= 3.11 found; installing python3.11 (deadsnakes PPA)…"
+	apt-get install -y -qq software-properties-common
+	add-apt-repository -y ppa:deadsnakes/ppa
+	apt-get update -qq
+	apt-get install -y -qq python3.11 python3.11-venv
+	py_ok python3.11 || die "python3.11 install did not yield a usable interpreter."
+	PYTHON_BIN="$(command -v python3.11)"
+fi
+
+# Ensure the venv module for the chosen interpreter is present (e.g. python3.11-venv).
+py_ver="$("${PYTHON_BIN}" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+if ! "${PYTHON_BIN}" -m venv --help >/dev/null 2>&1; then
+	log "Installing python${py_ver}-venv…"
+	apt-get install -y -qq "python${py_ver}-venv" || apt-get install -y -qq python3-venv
+fi
+ok "Using ${PYTHON_BIN} (Python ${py_ver})."
 
 # --- service account ---------------------------------------------------------
 if ! id -u "${SANUVIA_USER}" >/dev/null 2>&1; then
@@ -44,8 +75,15 @@ chown -R "${SANUVIA_USER}:${SANUVIA_GROUP}" "${APP_DIR}"
 git config --system --add safe.directory "${APP_DIR}" 2>/dev/null || true
 
 # --- virtualenv + package ----------------------------------------------------
-log "Creating virtualenv and installing the package (stdlib-only core)…"
-as_service python3 -m venv "${VENV_DIR}"
+# Recreate the venv if it is missing or was built with an unsuitable Python
+# (e.g. a previous run that picked up the system 3.10).
+if [[ -x "${VENV_DIR}/bin/python" ]] && ! py_ok "${VENV_DIR}/bin/python"; then
+	warn "Existing venv uses an unsupported Python; recreating it."
+	rm -rf "${VENV_DIR}"
+fi
+
+log "Creating virtualenv with ${PYTHON_BIN} and installing the package…"
+as_service "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 as_service "${VENV_DIR}/bin/pip" install --quiet --upgrade pip
 as_service "${VENV_DIR}/bin/pip" install --quiet "${APP_DIR}"
 
