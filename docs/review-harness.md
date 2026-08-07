@@ -50,6 +50,42 @@ deterministically.)
 7. **Duplicate** a Test Case to branch an experiment.
 8. **Save** a Test Case definition.
 
+## Guided Engineering Review (the recommended reviewer path)
+
+For validating the engine against the official dataset, the harness surfaces a
+**Guided Engineering Review** — a visible, numbered walkthrough with a persistent
+**progress indicator** (Dataset Loaded · Sequence Executed · Expected vs Actual
+Reviewed · Trace Generated · Graph Generated · Exit Test Passed · Review
+Completed). Follow it top to bottom:
+
+1. **Load a Review Dataset case** — pick a `D1…D12` case from the Sample library.
+2. **Read the Dataset Purpose** — the *Dataset Purpose* panel states, before you
+   run anything, the case's purpose, expected behaviour, expected reasoning
+   outcome, and expected exit-test outcome.
+3. **Run Full Sequence** — reset-and-run the whole sequence (deterministic).
+4. **Review Expected vs Actual** — confirm every step matches the documented
+   expectation (target: 100% match).
+5. **Read the Automatic Reasoning Summary** — a concise engineering narrative,
+   generated entirely from engine state, of how the reasoning evolved.
+6. **Inspect the WorldModel Evolution Summary** — the compact per-version view
+   (`wm-N`: hypotheses / predictions / uncertainty).
+7. **Inspect Hypothesis Evolution** — support per hypothesis over time, and the
+   *Explain Why* panel for each winning hypothesis.
+8. **Open the Reasoning Trace** — the human-readable step-by-step trace.
+9. **Open the Reasoning Lineage Graph** — the provenance/lineage graph.
+10. **Review the Final Engineering Verdict** — the *Engineering Review Result*
+    panel (Dataset · Overall · Expected vs Actual % · Reasoning Correct ·
+    Deterministic · Exit Test · Ready for Phase 1).
+11. **Download the Engineering Review Package** — one `.zip` with `review-report.md`,
+    `reasoning_trace.md`, `reasoning_graph.md`, `reasoning_graph.dot`,
+    `test_case.json`, and `exit_test.json`.
+
+Every item in this walkthrough is derived **solely from engine state**: no random
+values, no heuristic prose, no foundation model. Running the same dataset twice
+produces byte-identical summaries, charts, progress, reasons, verdict, and
+package artifacts. The walkthrough sits entirely above the API — the browser and
+HTTP layer contain no reasoning; the engine remains the single source of truth.
+
 ## The canonical EvidenceRecord form
 
 Every submission authors a complete structured `EvidenceRecord` — no JSON typing:
@@ -95,16 +131,20 @@ changes, these outputs change automatically.
 
 ## Reviewer tools
 
-- **Sample library** — a curated catalogue of static engineering Test Cases
-  (Relationship Distance, Contradictory Evidence, Failed Acquisition, Competing
-  Hypotheses, Trust Recovery, Mixed Signals, Anxiety vs Avoidance, Reassurance
-  Seeking, Escalation (model holds), Prediction Revision). These are **not**
-  engine-generated. Load one with a click — it becomes a new editable Test Case;
-  the originals are never modified. Then duplicate, modify, save, or run it.
+- **Sample library** — a curated catalogue of static engineering Test Cases.
+  It contains quick scenarios (Relationship Distance, Contradictory Evidence,
+  Failed Acquisition, …) **and the official engineering review dataset** (the
+  `D1…D12` cases tagged *Review Dataset*), which exercise every major reasoning
+  behaviour with per-step expected evolution documented in
+  [`engineering-review-dataset.md`](engineering-review-dataset.md). These are
+  **not** engine-generated. Load one with a click — it becomes a new editable
+  Test Case; the originals are never modified. Then duplicate, modify, save, or
+  run it.
 - **Import / Export** — Export the current Test Case (JSON), the Reasoning Trace
   (Markdown), the Lineage Graph (Mermaid `.mmd` and Graphviz `.dot`), or a
-  complete **Review Report** (Markdown). Import a Test Case (JSON), which becomes
-  a normal editable Test Case.
+  complete **Review Report** (Markdown), or the **Complete Review Package** (a
+  single `.zip` of report, trace, graph (Mermaid + DOT), test case, and exit
+  test). Import a Test Case (JSON), which becomes a normal editable Test Case.
 - **Engineering Summary** — a compact panel above the details: Test Case name,
   EvidenceRecords, interactions executed, WorldModel versions, revision events,
   active hypotheses, predictions, inquiries, current model uncertainty, exit-test
@@ -125,6 +165,60 @@ changes, these outputs change automatically.
   regression review.
 - **Search** — across saved/open Test Cases by name, evidence text, hypothesis,
   tags, or creation date, with an optional tag filter.
+
+## Review panels (understand the reasoning without reading code)
+
+Every panel below is generated **exclusively from engine outputs** — no reasoning
+is duplicated, and reasoning results are byte-identical before and after these
+views:
+
+- **Dataset Purpose** — for Review Dataset cases, the case's purpose, expected
+  behaviour, expected reasoning outcome, and expected exit-test outcome, shown
+  *before* the sequence is run.
+- **Reviewer Verdict** — an auto-generated reasoning-correctness summary
+  (competing hypotheses retained · uncertainty revised · predictions grounded in
+  hypotheses · provenance preserved · immutable model respected) with an overall
+  **PASS / FAIL**.
+- **Automatic Reasoning Summary** — a concise engineering narrative generated
+  from engine state (initial competing explanations, which hypotheses gained or
+  weakened, the uncertainty trend, which hypothesis predictions converged toward,
+  and inquiry status). Templated and deterministic — never free-text or LLM.
+- **Explain Why** — per winning hypothesis, *why the engine reached this
+  conclusion*: supporting and contradicting evidence, the support progression,
+  current support, and a deterministic reason derived from the evidence counts.
+- **WorldModel Evolution Summary** — a compact per-version strip (`wm-N`:
+  hypotheses / predictions / uncertainty), complementing the detailed timeline.
+- **Engineering Review Result** — the final verdict panel: Dataset, Overall
+  Result, Expected vs Actual %, Reasoning Correct, Deterministic, Exit Test, and
+  **Ready for Phase 1**. Backed by `/api/review-result`.
+- **Complete Review Package** — one click downloads a deterministic `.zip`
+  (`review-report.md`, `reasoning_trace.md`, `reasoning_graph.md`,
+  `reasoning_graph.dot`, `test_case.json`, `exit_test.json`) via
+  `/api/export/package`.
+- **Expected vs Actual** — for Review Dataset cases, each step compares the
+  documented expectation (WorldModel version, hypotheses, uncertainty trend,
+  prediction, inquiry) against the actual engine output, with ✅ Match / ❌
+  Difference and the differing fields highlighted.
+- **Uncertainty chart** — ModelUncertainty over interactions, drawn from the real
+  uncertainty history (no fake data).
+- **Hypothesis evolution chart** — every hypothesis's support over time, one line
+  each with a legend.
+- **Prediction lifecycle** — per hypothesis: created → strengthened → weakened →
+  invalidated, with the version at each transition.
+- **WorldModel Timeline** — `wm-1 → wm-2 → …`, each node showing uncertainty,
+  active-hypothesis count, prediction count, and inquiry count.
+- **Revisions by Interaction** — RevisionEvents grouped by the interaction that
+  produced them (`Evidence → Hypothesize H1 → Hypothesize H2 → WorldModel wm-1`).
+- **Provenance Viewer** — expand any evidence record to trace its immutable chain
+  `Evidence → Revision → WorldModel → Prediction → Inquiry`.
+- **Review Report** — Export produces a professional Markdown report: executive
+  summary and overall PASS/FAIL, dataset used, step-by-step reasoning, hypothesis
+  and prediction evolution, uncertainty and revision history, WorldModel history,
+  exit-test status, and determinism.
+
+The interface is collapsible, responsive, and engineering-focused, with a
+global "search everywhere" highlight and keyboard shortcuts (`/` search, `n`
+run-next, `a` run-all, `r` reset).
 
 ## Run locally
 

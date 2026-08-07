@@ -1,0 +1,69 @@
+# Sanuvia Engineering Review Harness — Caddy reverse proxy.
+#
+# Terminates HTTPS for buyafraction.com and forwards to the local systemd
+# service on 127.0.0.1:8000. Caddy obtains and auto-renews the TLS certificate,
+# so the application never handles certificates or ports 80/443 directly.
+#
+# Install:
+#   sudo cp /opt/sanuvia/deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Caddy sets X-Forwarded-For / X-Forwarded-Proto / X-Forwarded-Host and preserves
+# the original Host header automatically, so HTTPS termination is transparent to
+# the app (no code changes, no absolute-URL assumptions).
+
+buyafraction.com {
+	encode zstd gzip
+
+	# Never cache dynamic engine output (reasoning state, exports, health probe).
+	# The app already sends Cache-Control: no-store; this enforces it at the edge.
+	@dynamic path /api/* /health
+	header @dynamic Cache-Control "no-store"
+
+	# Cache static assets aggressively. The dashboard currently inlines its CSS/JS,
+	# so this is future-proofing for when assets are served as separate files.
+	@assets path *.css *.js *.mjs *.svg *.png *.jpg *.jpeg *.gif *.ico *.woff *.woff2 *.map
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	reverse_proxy 127.0.0.1:8000 {
+		# Belt-and-suspenders: make the forwarded scheme/host explicit.
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		# Fail fast if the app is down so Caddy returns 502 rather than hanging.
+		transport http {
+			dial_timeout 5s
+		}
+	}
+
+	# Access log with built-in rotation (size + count capped).
+	log {
+		output file /var/log/caddy/buyafraction.access.log {
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 336h
+		}
+		format json
+	}
+}
+
+# ---------------------------------------------------------------------------
+# NOTE ON PRIVATE / INTERNAL DEPLOYMENTS
+#
+# Caddy's automatic HTTPS uses a public ACME challenge, which requires
+# buyafraction.com to resolve publicly and ports 80/443 to be reachable from
+# the internet. This host has a private IP (192.168.160.98), so pick the option
+# that matches your network:
+#
+#   1. Public DNS + port-forward 80/443 to this host  -> the config above works
+#      as-is (recommended; real, trusted certificate).
+#
+#   2. Internal-only (no public reachability): terminate with Caddy's internal
+#      CA by adding, inside the site block:
+#
+#          tls internal
+#
+#      Reviewers must trust Caddy's local root CA once (docs/deployment.md).
+#
+#   3. DNS-01 challenge (public cert without opening 80/443): use a Caddy build
+#      with your DNS provider plugin and add a `tls { dns <provider> ... }` block.
+# ---------------------------------------------------------------------------

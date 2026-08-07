@@ -8,6 +8,10 @@ no natural-language understanding, and no duplicated reasoning logic here.
 
 from __future__ import annotations
 
+import base64
+import io
+import json
+import zipfile
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,6 +20,7 @@ from sanuvia.exit_test.reasoning_graph import (
     build_canonical_graph,
     build_graph,
     render_dot,
+    render_markdown,
     render_mermaid,
 )
 from sanuvia.exit_test.trace import render_canonical_trace, render_trace
@@ -23,7 +28,26 @@ from sanuvia.exit_test.trace import render_canonical_trace, render_trace
 from . import samples
 from .manager import TestCaseManager
 from .report import build_review_report
-from .testcase import EvidenceSpec, ProposalInput
+from .testcase import EvidenceSpec, ProposalInput, TestCase
+
+
+def _reruns_identically(case: TestCase) -> bool:
+    """Two independent reruns of the sequence reproduce identical reasoning."""
+    spec = case.spec_dict()
+
+    def key(tc: TestCase) -> Any:
+        tc.run_all()
+        s = tc.snapshot()
+        return (
+            s["model_uncertainty"],
+            None if s["world_model"] is None else s["world_model"]["version"],
+            tuple((h["hypothesis_id"], h["support"]) for h in s["hypotheses"]),
+            tuple(x["event"]["outcome"] for x in s["revision_ledger"]),
+        )
+
+    a = TestCase.from_spec_dict(spec, backend="memory", db_path=":memory:")
+    b = TestCase.from_spec_dict(spec, backend="memory", db_path=":memory:")
+    return bool(key(a) == key(b))
 
 _PANEL_KEYS = [
     "evidence", "world_model", "hypotheses", "predictions", "inquiries",
@@ -214,8 +238,80 @@ def export_report(manager: TestCaseManager) -> dict[str, Any]:
             for c in report.checks
         ],
     }
-    markdown = build_review_report(state, trace, mermaid, exit_result, _now())
+    determinism = _reruns_identically(case) if case.sequence else None
+    markdown = build_review_report(
+        state, trace, mermaid, exit_result, _now(), determinism
+    )
     return {"markdown": markdown, "filename": f"{case.id}-review-report.md"}
+
+
+def get_review_result(manager: TestCaseManager) -> dict[str, Any]:
+    """The final engineering review verdict for the current test case."""
+    case = manager.current()
+    state = case.snapshot()
+    eva = state.get("expected_vs_actual")
+    eva_pct: int | None = None
+    if eva:
+        eva_pct = round(100 * sum(1 for r in eva if r["match"]) / len(eva))
+    reasoning_correct = state["verdict"]["overall"] == "PASS"
+    determinism = _reruns_identically(case) if case.sequence else None
+    report = run_exit_test()
+    case.last_exit_passed = report.passed
+    exit_pass = report.passed
+    ready = (
+        reasoning_correct
+        and determinism is True
+        and exit_pass
+        and (eva_pct is None or eva_pct == 100)
+    )
+    return {
+        "dataset": state["metadata"]["test_case_name"],
+        "overall": "PASS" if ready else "FAIL",
+        "expected_vs_actual": "n/a" if eva_pct is None else f"{eva_pct}%",
+        "expected_vs_actual_pct": eva_pct,
+        "reasoning_correct": "YES" if reasoning_correct else "NO",
+        "deterministic": "—" if determinism is None else ("YES" if determinism else "NO"),
+        "exit_test": "PASS" if exit_pass else "FAIL",
+        "ready_for_phase_1": "YES" if ready else "NO",
+    }
+
+
+def export_package(manager: TestCaseManager) -> dict[str, Any]:
+    """One-click complete engineering review package (a deterministic .zip)."""
+    case = manager.current()
+    state = case.snapshot()
+    reasoning_state = case.reasoning_state()
+    trace = render_trace(reasoning_state)
+    graph = build_graph(reasoning_state)
+    report = run_exit_test()
+    case.last_exit_passed = report.passed
+    exit_result = {
+        "passed": report.passed,
+        "checks": [
+            {"name": c.name, "passed": c.passed, "detail": c.detail}
+            for c in report.checks
+        ],
+    }
+    determinism = _reruns_identically(case) if case.sequence else None
+    files = {
+        "review-report.md": build_review_report(
+            state, trace, render_mermaid(graph), exit_result, _now(), determinism
+        ),
+        "reasoning_trace.md": trace,
+        "reasoning_graph.md": render_markdown(reasoning_state),
+        "reasoning_graph.dot": render_dot(graph),
+        "test_case.json": json.dumps(case.spec_dict(), indent=2),
+        "exit_test.json": json.dumps(exit_result, indent=2),
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, content in files.items():
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            zf.writestr(info, content)
+    return {
+        "filename": f"{case.id}-engineering-review.zip",
+        "zip_base64": base64.b64encode(buf.getvalue()).decode("ascii"),
+    }
 
 
 # -- comparison & search -------------------------------------------------------

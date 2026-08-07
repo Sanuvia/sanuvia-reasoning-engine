@@ -420,7 +420,13 @@ class SqliteReasoningStore:
     """
 
     def __init__(self, path: str = ":memory:") -> None:
-        self._conn = sqlite3.connect(path)
+        # check_same_thread=False: under the threading HTTP adapter the store may
+        # be constructed in one worker thread and read in another. Access is
+        # externally serialised (the server guards every request with a single
+        # lock), so sharing one connection across threads is safe. This is a
+        # transport/threading concern only — it does not alter any reasoning
+        # behaviour or the stored data.
+        self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
         self.evidence = SqliteEvidenceStore(self._conn)

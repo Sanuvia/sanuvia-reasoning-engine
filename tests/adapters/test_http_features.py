@@ -17,12 +17,16 @@ def _run_sample(mgr: TestCaseManager, sample_id: str) -> dict[str, Any]:
 # -- 1. sample library ---------------------------------------------------------
 
 
-def test_sample_library_has_ten_curated_cases() -> None:
+def test_sample_library_includes_quick_samples_and_review_dataset() -> None:
     listed = controllers.list_samples()["samples"]
-    assert len(listed) == 10
     names = {s["name"] for s in listed}
+    # the quick curated samples
     assert {"Relationship Distance", "Failed Acquisition", "Escalation (model holds)",
             "Prediction Revision"} <= names
+    # the official engineering review dataset (12 cases, prefixed "D1..D12")
+    dataset = [s for s in listed if "Review Dataset" in s["tags"]]
+    assert len(dataset) == 12
+    assert len(listed) == 22
 
 
 def test_loading_a_sample_creates_an_editable_copy() -> None:
@@ -79,7 +83,7 @@ def test_export_trace_graph_report() -> None:
     assert controllers.export_graph_dot(mgr)["dot"].startswith("digraph reasoning {")
 
     report = controllers.export_report(mgr)["markdown"]
-    for section in ("# Sanuvia Review Report", "## Summary", "## Evidence Sequence",
+    for section in ("# Sanuvia Engineering Review Report", "## Summary", "## Evidence Sequence",
                     "## Uncertainty Timeline", "## Reasoning Trace",
                     "## Reasoning Lineage Graph", "## Exit Test"):
         assert section in report

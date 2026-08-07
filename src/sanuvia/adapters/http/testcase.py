@@ -263,6 +263,9 @@ class TestCase:
         tags: list[str] | None = None,
         notes: list[str] | None = None,
         created_at: str | None = None,
+        dataset_id: str | None = None,
+        expectations: list[dict[str, Any]] | None = None,
+        dataset_purpose: dict[str, Any] | None = None,
     ) -> None:
         self.id = id
         self.name = name
@@ -270,6 +273,12 @@ class TestCase:
         self.tags = list(tags or [])
         self.notes = list(notes or [])
         self.created_at = created_at or datetime.now(timezone.utc).isoformat()
+        # review metadata only (never sent to the engine): documented expected
+        # per-step evolution for Review Dataset cases, the source dataset id, and
+        # the dataset purpose shown before running.
+        self.dataset_id = dataset_id
+        self.expectations = list(expectations or [])
+        self.dataset_purpose = dataset_purpose
         self.last_exit_passed: bool | None = None
         self._backend = backend
         self._db_path = db_path
@@ -289,6 +298,9 @@ class TestCase:
             tags=[str(t) for t in d.get("tags", [])],
             notes=[str(n) for n in d.get("notes", [])],
             created_at=d.get("created_at"),
+            dataset_id=d.get("dataset_id"),
+            expectations=d.get("expectations") or d.get("step_expectations"),
+            dataset_purpose=d.get("dataset_purpose") or d.get("purpose_block"),
         )
         case.load_sequence(
             [EvidenceSpec.from_dict(s) for s in d.get("evidence_specs", [])]
@@ -416,8 +428,382 @@ class TestCase:
             "tags": list(self.tags),
             "notes": list(self.notes),
             "created_at": self.created_at,
+            "dataset_id": self.dataset_id,
+            "expectations": list(self.expectations),
+            "dataset_purpose": self.dataset_purpose,
             "evidence_specs": [spec.to_dict() for spec in self._sequence],
         }
+
+    # -- review analyses (all derived from engine outputs; no reasoning) ----
+
+    def hypothesis_evolution(self) -> dict[str, Any]:
+        """Each hypothesis's support at every step (None before it exists)."""
+        order: list[str] = []
+        seen: set[str] = set()
+        per_step: list[dict[str, float]] = []
+        for r in self._history:
+            m = {str(h.hypothesis_id): round(h.support.value, 3) for h in r.active_hypotheses}
+            for hid in m:
+                if hid not in seen:
+                    seen.add(hid)
+                    order.append(hid)
+            per_step.append(m)
+        n = len(per_step)
+        return {
+            "steps": n,
+            "series": [
+                {
+                    "hypothesis_id": hid,
+                    "support": [per_step[i].get(hid) for i in range(n)],
+                }
+                for hid in order
+            ],
+        }
+
+    def prediction_lifecycle(self) -> list[dict[str, Any]]:
+        """Created / strengthened / weakened / invalidated events per hypothesis,
+        by committed version."""
+        prev: dict[str, float] = {}
+        events: dict[str, list[dict[str, Any]]] = {}
+        for i, r in enumerate(self._history, start=1):
+            if not r.committed or r.model is None:
+                continue  # held step: predictions unchanged
+            version = r.model.model_version_id
+            cur = {
+                str(p.derived_from_hypothesis_ids[0]): round(p.likelihood.value, 3)
+                for p in r.predictions
+                if p.derived_from_hypothesis_ids
+            }
+            for hid, lk in cur.items():
+                bucket = events.setdefault(hid, [])
+                if hid not in prev:
+                    bucket.append({"event": "created", "version": version, "likelihood": lk, "step": i})
+                elif lk > prev[hid]:
+                    bucket.append({"event": "strengthened", "version": version, "likelihood": lk, "step": i})
+                elif lk < prev[hid]:
+                    bucket.append({"event": "weakened", "version": version, "likelihood": lk, "step": i})
+            for hid in prev:
+                if hid not in cur:
+                    events.setdefault(hid, []).append(
+                        {"event": "invalidated", "version": version, "step": i}
+                    )
+            prev = cur
+        return [{"hypothesis_id": hid, "events": evs} for hid, evs in events.items()]
+
+    def world_model_timeline(self) -> list[dict[str, Any]]:
+        """One node per committed version with its key state."""
+        out: list[dict[str, Any]] = []
+        for i, r in enumerate(self._history, start=1):
+            if r.committed and r.model is not None:
+                out.append(
+                    {
+                        "step": i,
+                        "version": r.model.model_version_id,
+                        "uncertainty": (
+                            None if r.model_uncertainty is None
+                            else round(r.model_uncertainty, 3)
+                        ),
+                        "active_hypotheses": [h.hypothesis_id for h in r.active_hypotheses],
+                        "prediction_count": len(r.predictions),
+                        "inquiry_count": 1 if r.inquiry is not None else 0,
+                        "triggered_evidence": [e.id for e in r.ingested_evidence],
+                    }
+                )
+        return out
+
+    def revisions_by_interaction(self) -> list[dict[str, Any]]:
+        """RevisionEvents grouped by the interaction that produced them."""
+        out: list[dict[str, Any]] = []
+        for i, r in enumerate(self._history, start=1):
+            out.append(
+                {
+                    "step": i,
+                    "evidence": [e.id for e in r.ingested_evidence],
+                    "committed": r.committed,
+                    "version": (
+                        r.model.model_version_id if (r.committed and r.model) else None
+                    ),
+                    "revisions": [
+                        {"id": ev.id, "outcome": ev.outcome.value,
+                         "affected": ev.affected_object_id}
+                        for ev in r.revision_result.revision_events
+                    ],
+                    "anomalies": [
+                        {"id": a.id, "disposition": a.disposition.value}
+                        for a in r.revision_result.anomaly_resolutions
+                    ],
+                    "hypothesized": [
+                        ev.affected_object_id
+                        for ev in r.revision_result.revision_events
+                        if ev.outcome.value == "hypothesize"
+                    ],
+                }
+            )
+        return out
+
+    def evidence_chains(self) -> list[dict[str, Any]]:
+        """Per evidence record: the revisions it triggered, the version(s) it
+        produced, and the predictions/inquiries in those versions."""
+        view = self._service.view()
+        subject = self.subject
+        ver_predictions: dict[str, list[str]] = {}
+        ver_inquiry: dict[str, str] = {}
+        for r in self._history:
+            if r.committed and r.model is not None:
+                v = r.model.model_version_id
+                ver_predictions[v] = [p.id for p in r.predictions]
+                if r.inquiry is not None:
+                    ver_inquiry[v] = r.inquiry.id
+        chains: list[dict[str, Any]] = []
+        ledger = list(view.revision_history(subject))
+        for e in view.evidence(subject):
+            revs = [
+                {"id": x.revision_event.id, "outcome": x.revision_event.outcome.value,
+                 "affected": x.revision_event.affected_object_id,
+                 "version": x.revision_event.to_model_version_id}
+                for x in ledger
+                if e.id in x.revision_event.triggering_evidence_ids
+            ]
+            versions = []
+            for rv in revs:
+                if rv["version"] and rv["version"] not in versions:
+                    versions.append(rv["version"])
+            preds = [p for v in versions for p in ver_predictions.get(v, [])]
+            inqs = [ver_inquiry[v] for v in versions if v in ver_inquiry]
+            chains.append(
+                {
+                    "evidence_id": e.id,
+                    "evidence_class": e.evidence_class.value,
+                    "content": e.content,
+                    "revisions": revs,
+                    "versions": versions,
+                    "predictions": preds,
+                    "inquiries": inqs,
+                }
+            )
+        return chains
+
+    def verdict(self) -> dict[str, Any]:
+        """Auto-generated reasoning-correctness verdict from engine outputs.
+
+        These are Blueprint invariants that must hold for any correct run; they
+        read only what the engine produced (no reasoning, no re-derivation)."""
+        view = self._service.view()
+        subject = self.subject
+        if not self._history:
+            return {"overall": "PENDING", "checks": []}
+        ledger = list(view.revision_history(subject))
+        model = view.current_model(subject)
+
+        # hypotheses retained: no hypothesis disappears once introduced
+        seen: set[str] = set()
+        retained = True
+        for r in self._history:
+            cur = {str(h.hypothesis_id) for h in r.active_hypotheses}
+            if any(h not in cur for h in seen):
+                retained = False
+            seen |= cur
+
+        # uncertainty tracked: present and revised across versions
+        us = [round(r.model_uncertainty, 3) for r in self._history if r.model_uncertainty is not None]
+        uncertainty_ok = bool(us) and (len(set(us)) > 1 or len(us) == 1)
+
+        # predictions grounded: every active prediction traces to hypothesis+version
+        preds = view.active_predictions(subject)
+        grounded = all(p.derived_from_hypothesis_ids and p.model_version_id for p in preds)
+
+        # provenance preserved: current model has provenance; revisions cite evidence
+        prov_ok = (model is None) or (
+            model.provenance_record_id is not None
+            and all(x.revision_event.triggering_evidence_ids for x in ledger)
+        )
+
+        # immutable model respected: append-only, contiguous, all committed
+        seqs = [x.sequence_no for x in ledger]
+        immutable = seqs == list(range(len(ledger))) and all(
+            x.revision_event.status.value == "committed" for x in ledger
+        )
+
+        checks = [
+            {"label": "competing hypotheses retained", "pass": retained},
+            {"label": "uncertainty revised", "pass": uncertainty_ok},
+            {"label": "predictions grounded in hypotheses", "pass": grounded},
+            {"label": "provenance preserved", "pass": prov_ok},
+            {"label": "immutable model respected", "pass": immutable},
+        ]
+        overall = "PASS" if all(c["pass"] for c in checks) else "FAIL"
+        return {"overall": overall, "checks": checks}
+
+    def expected_vs_actual(self) -> list[dict[str, Any]] | None:
+        """Per-step Expected vs Actual comparison for Review Dataset cases."""
+        if not self.expectations or not self._step_snapshots:
+            return None
+        # expected cumulative hypotheses from authored proposals
+        cumulative: list[str] = []
+        seen: set[str] = set()
+        expected_hyps_by_step: list[list[str]] = []
+        for spec in self._sequence:
+            for p in spec.proposals:
+                if p.hypothesis_id not in seen:
+                    seen.add(p.hypothesis_id)
+                    cumulative.append(p.hypothesis_id)
+            expected_hyps_by_step.append(list(cumulative))
+
+        rows: list[dict[str, Any]] = []
+        prev_u: float | None = None
+        for i, snap in enumerate(self._step_snapshots):
+            exp = self.expectations[i] if i < len(self.expectations) else {}
+            wm = snap["world_model"]
+            actual_version = None if wm is None else wm["version"]
+            actual_inquiry = bool(snap["inquiries"])
+            actual_preds = sorted({p["from_hypotheses"][0] for p in snap["predictions"]})
+            actual_hyps = sorted(h["hypothesis_id"] for h in snap["hypotheses"])
+            u = snap["model_uncertainty"]
+            if prev_u is None:
+                actual_trend = "first"
+            elif u > prev_u + 1e-9:
+                actual_trend = "up"
+            elif u < prev_u - 1e-9:
+                actual_trend = "down"
+            else:
+                actual_trend = "flat"
+            prev_u = u
+            exp_hyps = sorted(expected_hyps_by_step[i]) if i < len(expected_hyps_by_step) else []
+
+            def cmp(exp_v: Any, act_v: Any) -> dict[str, Any]:
+                return {"expected": exp_v, "actual": act_v, "match": exp_v == act_v}
+
+            fields = {
+                "version": cmp(exp.get("version"), actual_version),
+                "hypotheses": cmp(exp_hyps, actual_hyps),
+                "uncertainty_trend": cmp(exp.get("uncertainty"), actual_trend),
+                "prediction": cmp(sorted(exp.get("predictions", [])), actual_preds),
+                "inquiry": cmp(exp.get("inquiry"), actual_inquiry),
+            }
+            rows.append(
+                {
+                    "step": i + 1,
+                    "fields": fields,
+                    "match": all(f["match"] for f in fields.values()),
+                }
+            )
+        return rows
+
+    def reasoning_summary(self) -> str:
+        """A concise, deterministic engineering narrative built from reasoning
+        state — templated from actual values, never hardcoded, no randomness."""
+        if not self._history:
+            return "No interactions have been run yet."
+        view = self._service.view()
+        subject = self.subject
+        series = self.hypothesis_evolution()["series"]
+
+        parts: list[str] = []
+        initial = [h.hypothesis_id for h in self._history[0].active_hypotheses]
+        if len(initial) >= 2:
+            parts.append(
+                f"The evidence initially supported {len(initial)} competing "
+                f"explanations ({', '.join(sorted(initial))})."
+            )
+        elif len(initial) == 1:
+            parts.append(f"The evidence initially suggested a single explanation ({initial[0]}).")
+
+        gained, weakened = [], []
+        for s in series:
+            vals = [v for v in s["support"] if v is not None]
+            if len(vals) >= 2 and vals[-1] > vals[0] + 1e-9:
+                gained.append((s["hypothesis_id"], vals[0], vals[-1]))
+            elif len(vals) >= 2 and vals[-1] < vals[0] - 1e-9:
+                weakened.append((s["hypothesis_id"], vals[0], vals[-1]))
+        if gained:
+            parts.append(
+                "As evidence accumulated, "
+                + ", ".join(f"{h} gained support ({a}→{b})" for h, a, b in gained)
+                + ("; " if weakened else ".")
+            )
+        if weakened:
+            prefix = "" if gained else "As evidence accumulated, "
+            parts.append(
+                prefix
+                + ", ".join(f"{h} weakened ({a}→{b})" for h, a, b in weakened)
+                + "."
+            )
+
+        us = [round(r.model_uncertainty, 3) for r in self._history if r.model_uncertainty is not None]
+        if len(us) >= 2:
+            if us[-1] < us[0] - 1e-9:
+                monotone = all(us[i + 1] <= us[i] + 1e-9 for i in range(len(us) - 1))
+                word = "consistently decreased" if monotone else "decreased overall"
+                parts.append(f"Model uncertainty {word} ({us[0]}→{us[-1]}).")
+            elif us[-1] > us[0] + 1e-9:
+                parts.append(f"Model uncertainty increased overall ({us[0]}→{us[-1]}).")
+            else:
+                parts.append(f"Model uncertainty remained around {us[-1]}.")
+
+        pred_hyps = sorted({
+            p.derived_from_hypothesis_ids[0]
+            for p in view.active_predictions(subject)
+            if p.derived_from_hypothesis_ids
+        })
+        if pred_hyps:
+            parts.append("Predictions converged toward " + ", ".join(pred_hyps) + ".")
+        else:
+            parts.append("No predictions are currently active.")
+
+        parts.append(
+            "An inquiry remains open."
+            if view.active_inquiries(subject)
+            else "No inquiry remained."
+        )
+        parts.append(
+            "The engine behaved consistently with the supplied evidence."
+            if self.verdict()["overall"] == "PASS"
+            else "Review the differences above."
+        )
+        return " ".join(parts)
+
+    def explain_why(self) -> list[dict[str, Any]]:
+        """For each currently dominant hypothesis, why it leads — entirely from
+        engine state (supporting/contradicting evidence, support progression)."""
+        view = self._service.view()
+        subject = self.subject
+        active = list(view.active_hypotheses(subject))
+        if not active:
+            return []
+        series = {s["hypothesis_id"]: s["support"] for s in self.hypothesis_evolution()["series"]}
+        pred_hyps = {
+            p.derived_from_hypothesis_ids[0]
+            for p in view.active_predictions(subject)
+            if p.derived_from_hypothesis_ids
+        }
+        winners = [h for h in active if h.hypothesis_id in pred_hyps]
+        if not winners:
+            winners = [max(active, key=lambda h: h.support.value)]
+
+        others_weakened = any(
+            len([v for v in series.get(h.hypothesis_id, []) if v is not None]) >= 2
+            and [v for v in series[h.hypothesis_id] if v is not None][-1]
+            < [v for v in series[h.hypothesis_id] if v is not None][0] - 1e-9
+            for h in active
+        )
+        out: list[dict[str, Any]] = []
+        for h in sorted(winners, key=lambda x: x.support.value, reverse=True):
+            prog = [v for v in series.get(h.hypothesis_id, []) if v is not None]
+            n_support = len(h.supporting_evidence_ids)
+            reason = f"Received {n_support} piece(s) of strengthening evidence"
+            if others_weakened:
+                reason += " while competing explanations weakened"
+            reason += "."
+            out.append({
+                "hypothesis_id": h.hypothesis_id,
+                "statement": h.statement,
+                "supporting_evidence": list(h.supporting_evidence_ids),
+                "contradicting_evidence": list(h.contradicting_evidence_ids),
+                "support_progression": prog,
+                "current_support": round(h.support.value, 3),
+                "reason": reason,
+            })
+        return out
 
     # -- reads --------------------------------------------------------------
 
@@ -537,6 +923,17 @@ class TestCase:
             "recognition_conditions": [
                 _recognition_dto(r) for r in view.recognition_events(subject)
             ],
+            # review analyses (all derived from engine outputs; no reasoning)
+            "verdict": self.verdict(),
+            "reasoning_summary": self.reasoning_summary(),
+            "explain_why": self.explain_why(),
+            "dataset_purpose": self.dataset_purpose,
+            "hypothesis_evolution": self.hypothesis_evolution(),
+            "prediction_lifecycle": self.prediction_lifecycle(),
+            "world_model_timeline": self.world_model_timeline(),
+            "revisions_by_interaction": self.revisions_by_interaction(),
+            "evidence_chains": self.evidence_chains(),
+            "expected_vs_actual": self.expected_vs_actual(),
         }
 
     def _sequence_dto(self) -> list[dict[str, Any]]:

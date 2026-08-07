@@ -12,7 +12,7 @@ import json
 import threading
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from sanuvia.adapters.http import controllers
 from sanuvia.adapters.http.appraiser import HarnessAppraiser
@@ -244,6 +244,11 @@ def test_live_server_end_to_end() -> None:
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health") as r:
             assert json.loads(r.read())["status"] == "ok"
+        # Operational /health probe: fixed shape + no-store, backend reflected.
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health") as r:
+            assert r.headers.get("Cache-Control") == "no-store"
+            health = json.loads(r.read())
+        assert health == {"status": "ok", "version": "phase0", "backend": "memory"}
         add = urllib.request.Request(
             f"http://127.0.0.1:{port}/api/evidence/add",
             data=json.dumps(_ev1()).encode(),
@@ -258,6 +263,54 @@ def test_live_server_end_to_end() -> None:
         with urllib.request.urlopen(run) as r:
             state = json.loads(r.read())
         assert state["world_model"]["version"] == "wm-1"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_live_server_sqlite_backend_across_threads(tmp_path: Any) -> None:
+    """Regression: the durable sqlite backend must work under the threading
+    HTTP server, where each request runs in a different worker thread.
+
+    A single shared sqlite connection created in one thread and read in another
+    raises ``ProgrammingError`` unless ``check_same_thread=False`` — this is the
+    production default (``SANUVIA_BACKEND=sqlite``), so it must round-trip cleanly.
+    """
+    manager = TestCaseManager(
+        backend="sqlite",
+        db_base=str(tmp_path / "sanuvia.db"),
+        spec_store=InMemoryTestCaseSpecStore(),
+    )
+    assert manager.backend == "sqlite"
+    server = ReviewServer(("127.0.0.1", 0), ReviewHandler, manager)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def post(path: str, body: dict[str, Any]) -> dict[str, Any]:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as r:  # separate TCP conn => new thread
+            return cast(dict[str, Any], json.loads(r.read()))
+
+    def get(path: str) -> dict[str, Any]:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as r:
+            return cast(dict[str, Any], json.loads(r.read()))
+
+    try:
+        assert get("/health")["backend"] == "sqlite"
+        # Load a dataset, run it, and read results — each call a distinct thread.
+        assert "error" not in post("/api/samples/load", {"sample_id": "dataset-competing-resolve"})
+        run_state = post("/api/run-all", {})
+        assert "error" not in run_state, run_state
+        assert run_state["world_model"]["version"] == "wm-5"
+        assert "error" not in get("/api/state")
+        assert get("/api/review-result")["overall"] == "PASS"
     finally:
         server.shutdown()
         server.server_close()

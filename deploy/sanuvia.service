@@ -1,0 +1,52 @@
+[Unit]
+Description=Sanuvia Phase 0 Engineering Review Harness
+Documentation=https://github.com/eelitedesire/sanuvia
+Documentation=file:///opt/sanuvia/docs/deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@APP_DIR@
+
+# All SANUVIA_* configuration comes from the env file (KEY=value).
+EnvironmentFile=@ENV_FILE@
+
+# Determinism: pin the hash seed so every rendered artifact (trace, graph,
+# report, review package) is byte-identical across restarts and machines.
+# Do not remove — it is part of the deterministic guarantee.
+Environment=PYTHONHASHSEED=0
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=@VENV_DIR@/bin/python -m sanuvia.adapters.http.server
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+# stdout/stderr -> journald (view with scripts/logs.sh). journald rotates itself.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sanuvia
+
+# --- Sandboxing: the app only reads its code and writes its data directory. ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@DATA_DIR@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# Only local TCP is needed (Caddy talks to 127.0.0.1); no raw sockets.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

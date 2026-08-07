@@ -38,6 +38,11 @@ class TestCaseManager:
         if not self._cases:
             self.new_test_case()
 
+    @property
+    def backend(self) -> str:
+        """The configured persistence backend (``memory`` or ``sqlite``)."""
+        return self._backend
+
     # -- construction helpers ----------------------------------------------
 
     def _db_path_for(self, test_case_id: str) -> str:
@@ -101,6 +106,11 @@ class TestCaseManager:
             "tags": list(sample["tags"]),
             "notes": [f"Loaded from sample: {sample['description']}"],
             "evidence_specs": sample["evidence_specs"],
+            # carry the documented expectations for Review Dataset cases so the
+            # Expected-vs-Actual panel can compare (review metadata only).
+            "dataset_id": sample_id,
+            "expectations": sample.get("step_expectations", []),
+            "dataset_purpose": sample.get("purpose_block"),
         }
         case = self._from_spec(spec)
         self._register(case)

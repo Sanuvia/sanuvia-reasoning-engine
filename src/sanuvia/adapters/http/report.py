@@ -31,11 +31,54 @@ def build_review_report(
     graph_mermaid: str,
     exit_result: dict[str, Any] | None,
     generated_at: str,
+    determinism: bool | None = None,
 ) -> str:
     meta = state["metadata"]
     summary = state["summary"]
+    verdict = state.get("verdict", {"overall": "PENDING", "checks": []})
+    exit_pass = None if exit_result is None else exit_result["passed"]
+    overall = (
+        "PASS"
+        if (verdict.get("overall") == "PASS" and exit_pass is not False and determinism is not False)
+        else "FAIL"
+    )
+
     out: list[str] = [
-        f"# Sanuvia Review Report — {meta['test_case_name']}",
+        f"# Sanuvia Engineering Review Report — {meta['test_case_name']}",
+        "",
+        f"## Executive Summary",
+        "",
+        f"**Overall: {overall}**",
+        "",
+        f"- Reasoning correctness (verdict): **{verdict.get('overall', 'PENDING')}**",
+        f"- Determinism: **{'PASS' if determinism else ('—' if determinism is None else 'FAIL')}**",
+        f"- Canonical Exit Test: **{'PASS' if exit_pass else ('—' if exit_pass is None else 'FAIL')}**",
+        f"- Interactions: {summary['interactions_executed']} · "
+        f"WorldModel versions: {summary['world_model_versions']} · "
+        f"Revisions: {summary['revision_events']} · "
+        f"Active hypotheses: {summary['active_hypotheses']} · "
+        f"Uncertainty: {_fmt(summary['model_uncertainty'])}",
+        "",
+    ]
+    out += ["Reasoning-correctness checks:", ""]
+    for c in verdict.get("checks", []):
+        out.append(f"- {'✅' if c['pass'] else '❌'} {c['label']}")
+    out.append("")
+
+    # Dataset used
+    out += ["## Dataset", ""]
+    dataset_id = meta.get("test_case_id")
+    origin = state.get("metadata", {}).get("dataset_id") or "—"
+    out += [
+        f"- Test Case: `{dataset_id}` · Subject: `{meta['subject']}` · "
+        f"Source dataset: `{origin}`",
+        f"- Backend: {meta['backend']} · Deterministic mode: {meta['deterministic_mode']}",
+        f"- Engine: {summary['engine_version']}",
+        "",
+    ]
+
+    out += [
+        f"## Report Metadata",
         "",
         f"- Generated: {generated_at}",
         f"- Engine: {meta['engine_version']}",
@@ -90,6 +133,60 @@ def build_review_report(
             for t in state.get("timeline", [])
         ],
     )
+
+    # Step-by-step reasoning (revisions grouped by interaction)
+    out += ["## Step-by-Step Reasoning", ""]
+    for r in state.get("revisions_by_interaction", []):
+        pipe = ["Evidence " + (", ".join(r["evidence"]) or "—")]
+        for rev in r["revisions"]:
+            pipe.append(f"{rev['outcome']} {rev['affected']}")
+        for a in r["anomalies"]:
+            pipe.append(f"anomaly:{a['disposition']}")
+        pipe.append("WorldModel " + (r["version"] or "hold"))
+        out += [f"**Interaction {r['step']}** — " + " → ".join(pipe), ""]
+
+    # Hypothesis evolution
+    out += ["## Hypothesis Evolution", ""]
+    for s in state.get("hypothesis_evolution", {}).get("series", []):
+        vals = " → ".join("—" if v is None else str(v) for v in s["support"])
+        out.append(f"- `{s['hypothesis_id']}`: {vals}")
+    out.append("")
+
+    # Prediction evolution (lifecycle)
+    out += ["## Prediction Evolution", ""]
+    lifecycle = state.get("prediction_lifecycle", [])
+    if lifecycle:
+        for p in lifecycle:
+            evs = " → ".join(f"{e['event']}@{e.get('version', '—')}" for e in p["events"])
+            out.append(f"- `{p['hypothesis_id']}`: {evs}")
+    else:
+        out.append("_no predictions_")
+    out.append("")
+
+    # WorldModel history
+    out += ["## WorldModel History", ""]
+    out += _table(
+        ["version", "uncertainty", "#hyp", "#pred", "#inq", "triggered evidence"],
+        [
+            [n["version"], _fmt(n["uncertainty"]), str(len(n["active_hypotheses"])),
+             str(n["prediction_count"]), str(n["inquiry_count"]),
+             ", ".join(n["triggered_evidence"])]
+            for n in state.get("world_model_timeline", [])
+        ],
+    )
+
+    # Expected vs Actual (Review Dataset cases only)
+    eva = state.get("expected_vs_actual")
+    if eva:
+        out += ["## Expected vs Actual", ""]
+        out += _table(
+            ["step", "field", "expected", "actual", "match"],
+            [
+                [str(r["step"]), f, str(fd["expected"]), str(fd["actual"]),
+                 "✅" if fd["match"] else "❌"]
+                for r in eva for f, fd in r["fields"].items()
+            ],
+        )
 
     # Current world model
     out += ["## Current World Model", ""]

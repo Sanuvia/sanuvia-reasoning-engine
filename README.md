@@ -215,12 +215,18 @@ must never become the Phase 1 conversation experience.
 
 ```bash
 python -m sanuvia.adapters.http.server   # then open http://localhost:8000
-# or
-docker compose up
 ```
 
 See `docs/review-harness.md` for the full guide (purpose, how it differs from
-Phase 1, reviewer workflow, local run, deployment).
+Phase 1, reviewer workflow, local run), and
+`docs/engineering-review-dataset.md` for the official engineering review
+dataset — 12 deterministic Test Cases (`D1…D12`) that exercise every major
+reasoning behaviour, with machine-verified per-step expected evolution.
+
+**Production deployment** (systemd + Caddy, HTTPS, durable SQLite, backups):
+see `docs/deployment.md` and the pre-release `docs/release-checklist.md`. The
+deployment is operations-only — it exposes the existing app unchanged and stays
+fully deterministic.
 
 ## Roadmap (next increments)
 

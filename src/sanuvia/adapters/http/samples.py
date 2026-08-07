@@ -12,6 +12,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from . import review_dataset
+
 
 def _ev(
     content: str,
@@ -189,8 +191,11 @@ _SAMPLES: list[dict[str, Any]] = [
 
 
 def list_samples() -> list[dict[str, Any]]:
-    """Browsable catalogue: id, name, description, tags, number of steps."""
-    return [
+    """Browsable catalogue: id, name, description, tags, number of steps.
+
+    Includes the quick sample scenarios plus the official engineering review
+    dataset (see ``review_dataset``)."""
+    quick = [
         {
             "id": s["id"],
             "name": s["name"],
@@ -200,11 +205,12 @@ def list_samples() -> list[dict[str, Any]]:
         }
         for s in _SAMPLES
     ]
+    return review_dataset.catalogue() + quick
 
 
 def get_sample(sample_id: str) -> dict[str, Any] | None:
-    """A deep copy of a sample definition (originals are never mutated)."""
+    """A deep copy of a sample/dataset definition (originals are never mutated)."""
     for s in _SAMPLES:
         if s["id"] == sample_id:
             return copy.deepcopy(s)
-    return None
+    return review_dataset.get_case(sample_id)

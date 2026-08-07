@@ -63,6 +63,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        # API responses are dynamic engine output — never cache them, so a
+        # reverse proxy or browser always sees current reasoning state.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -71,6 +74,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        # The dashboard shell (with its inline CSS/JS) may be revalidated so a
+        # redeploy is picked up immediately; a fronting proxy can cache assets.
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -88,8 +94,12 @@ class ReviewHandler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 self._send_html(INDEX_HTML)
                 return
-            if path == "/api/health":
-                self._send_json({"status": "ok"})
+            if path in ("/health", "/api/health"):
+                # Operational health probe (container HEALTHCHECK / reverse
+                # proxy / uptime monitor). Static, cheap, no reasoning touched.
+                self._send_json(
+                    {"status": "ok", "version": "phase0", "backend": m.backend}
+                )
                 return
             if path == "/api/samples":
                 self._send_json(controllers.list_samples())
@@ -110,6 +120,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 "/api/export/graph-mermaid": controllers.export_graph_mermaid,
                 "/api/export/graph-dot": controllers.export_graph_dot,
                 "/api/export/report": controllers.export_report,
+                "/api/export/package": controllers.export_package,
+                "/api/review-result": controllers.get_review_result,
             }
             handler = get_routes.get(path)
             if handler is None:
