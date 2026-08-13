@@ -15,7 +15,8 @@ dependencies = []
 
 [project.optional-dependencies]
 # Adapter-only dependencies are added here in later increments (e.g. api = ["fastapi", ...]).
-dev = ["pytest>=8"]
+# Dev tooling only — the core runtime still has zero dependencies.
+dev = ["pytest>=8", "mypy>=1.8"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

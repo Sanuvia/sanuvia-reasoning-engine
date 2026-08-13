@@ -23,6 +23,8 @@ from datetime import datetime
 from sanuvia.application.reasoning.core_loop import CoreLoop, InteractionResult
 from sanuvia.application.reasoning.dependencies import ReasoningDependencies
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
+    ActorId,
     ClassificationConfidence,
     EvidenceClass,
     EvidenceRecord,
@@ -30,6 +32,7 @@ from sanuvia.domain import (
     EvidenceReliability,
     Provenance,
     ProvenanceConfidence,
+    SpaceId,
     SubjectId,
 )
 
@@ -55,6 +58,10 @@ class EvidenceInput:
     provenance_confidence: float = 1.0
     occurred_at: datetime | None = None
     acquisition_metadata: tuple[tuple[str, str], ...] = field(default=())
+    # Isolation boundary (Finding 1). None -> the interaction's space is used.
+    space_id: SpaceId | None = None
+    # Who contributed this observation (a.k.a. member id) — optional.
+    actor_id: ActorId | None = None
 
 
 class ReasoningService:
@@ -66,12 +73,21 @@ class ReasoningService:
         self._loop = CoreLoop(deps)
 
     def record_interaction(
-        self, subject_id: SubjectId, inputs: Sequence[EvidenceInput]
+        self,
+        subject_id: SubjectId,
+        inputs: Sequence[EvidenceInput],
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> InteractionResult:
         """Ingest a batch of observations as one interaction and return the
-        resulting reasoning state."""
-        records = tuple(self._to_record(i) for i in inputs)
-        return self._loop.ingest(subject_id, records)
+        resulting reasoning state.
+
+        The interaction is scoped to ``(space_id, subject_id)`` (Finding 1). Each
+        observation is stamped with that scope; an ``EvidenceInput`` that names a
+        different subject or space is rejected by the Core Loop's ownership gate.
+        """
+        records = tuple(self._to_record(i, space_id=space_id) for i in inputs)
+        return self._loop.ingest(subject_id, records, space_id=space_id)
 
     def view(self) -> WorldModelView:
         """A read-only projection of current understanding. The returned view has
@@ -87,7 +103,9 @@ class ReasoningService:
             recognition=d.recognition,
         )
 
-    def _to_record(self, item: EvidenceInput) -> EvidenceRecord:
+    def _to_record(
+        self, item: EvidenceInput, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> EvidenceRecord:
         return EvidenceRecord(
             id=EvidenceRecordId(self._deps.ids.new_id("evidence")),
             subject_id=item.subject_id,
@@ -103,4 +121,6 @@ class ReasoningService:
                 item.classification_confidence
             ),
             occurred_at=item.occurred_at or self._deps.clock.now(),
+            space_id=item.space_id or space_id,
+            actor_id=item.actor_id,
         )

@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
     AnomalyResolution,
     AnomalyResolutionId,
     CurrentModelSnapshot,
@@ -45,11 +46,17 @@ from sanuvia.domain import (
     RecognitionEvent,
     RevisionEvent,
     RevisionLedgerEntry,
+    SpaceId,
     SubjectId,
     SystemModellingContext,
     WorldModel,
     WorldModelVersionId,
 )
+
+# Isolation note (Finding 1): every subject-scoped query below is partitioned by
+# BOTH ``space_id`` and ``subject_id``. ``space_id`` defaults to the single
+# default space so existing single-space callers are unaffected, but a store
+# MUST NOT return an entity owned by a different space or a different subject.
 
 
 @runtime_checkable
@@ -61,7 +68,9 @@ class EvidenceStore(Protocol):
 
     def add(self, record: EvidenceRecord) -> None: ...
     def get(self, evidence_id: EvidenceRecordId) -> EvidenceRecord | None: ...
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[EvidenceRecord]: ...
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[EvidenceRecord]: ...
 
 
 @runtime_checkable
@@ -72,7 +81,9 @@ class InferenceStore(Protocol):
 
     def add(self, record: InferenceRecord) -> None: ...
     def get(self, inference_id: InferenceRecordId) -> InferenceRecord | None: ...
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[InferenceRecord]: ...
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[InferenceRecord]: ...
 
 
 @runtime_checkable
@@ -83,17 +94,28 @@ class HypothesisRepository(Protocol):
     lineage; prior values are retained, never overwritten."""
 
     def add(self, hypothesis: Hypothesis) -> None: ...
-    def get_record(self, record_id: HypothesisRecordId) -> Hypothesis | None: ...
-    def latest(self, hypothesis_id: HypothesisId) -> Hypothesis | None:
-        """The most recent evaluation in a hypothesis's lineage."""
+    def get_record(
+        self, record_id: HypothesisRecordId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Hypothesis | None: ...
+    def latest(
+        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Hypothesis | None:
+        """The most recent evaluation in a hypothesis's lineage, within ``space_id``."""
         ...
 
-    def lineage(self, hypothesis_id: HypothesisId) -> Sequence[Hypothesis]:
+    def lineage(
+        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Hypothesis]:
         """All evaluations for a hypothesis, oldest first (revision history)."""
         ...
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Hypothesis]:
-        """Latest evaluation per lineage for a subject."""
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Hypothesis]:
+        """Latest evaluation per lineage owned by ``(space_id, subject_id)``.
+
+        Isolation (Finding 1): filters by BOTH subject and space — a hypothesis
+        owned by another subject or space is never returned."""
         ...
 
 
@@ -103,7 +125,12 @@ class PredictionRepository(Protocol):
 
     def add(self, prediction: Prediction) -> None: ...
     def get(self, prediction_id: PredictionId) -> Prediction | None: ...
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Prediction]: ...
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Prediction]:
+        """Predictions owned by ``(space_id, subject_id)`` — filtered by BOTH
+        subject and space (Finding 1)."""
+        ...
 
 
 @runtime_checkable
@@ -116,8 +143,10 @@ class InquiryRepository(Protocol):
     def add(self, inquiry: Inquiry) -> None: ...
     def latest(self, inquiry_id: InquiryId) -> Inquiry | None: ...
     def history(self, inquiry_id: InquiryId) -> Sequence[Inquiry]: ...
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Inquiry]:
-        """Latest record per Inquiry for a subject."""
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Inquiry]:
+        """Latest record per Inquiry owned by ``(space_id, subject_id)``."""
         ...
 
 
@@ -131,14 +160,21 @@ class WorldModelRepository(Protocol):
 
     def append_version(self, model: WorldModel) -> None: ...
     def get_version(
-        self, subject_id: SubjectId, version_id: WorldModelVersionId
+        self,
+        subject_id: SubjectId,
+        version_id: WorldModelVersionId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> WorldModel | None: ...
     def get_current_pointer(
-        self, subject_id: SubjectId
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
     ) -> CurrentModelSnapshot | None: ...
     def set_current_pointer(self, pointer: CurrentModelSnapshot) -> None: ...
-    def get_current_model(self, subject_id: SubjectId) -> WorldModel | None:
-        """Resolve the current pointer to its WorldModel version, if any."""
+    def get_current_model(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> WorldModel | None:
+        """Resolve the current pointer to its WorldModel version, within the
+        ``(space_id, subject_id)`` scope, if any."""
         ...
 
 
@@ -155,9 +191,15 @@ class RevisionLedgerStore(Protocol):
         """Append a *committed* RevisionEvent and return its ledger entry."""
         ...
 
-    def read(self, subject_id: SubjectId) -> Sequence[RevisionLedgerEntry]: ...
+    def read(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[RevisionLedgerEntry]: ...
     def read_since(
-        self, subject_id: SubjectId, after_sequence_no: int
+        self,
+        subject_id: SubjectId,
+        after_sequence_no: int,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Sequence[RevisionLedgerEntry]:
         """Entries with ``sequence_no`` strictly greater than the argument —
         used to report 'revision events since the prior interaction'."""
@@ -190,7 +232,9 @@ class RecognitionRepository(Protocol):
     """Store of RecognitionEvent records (FR-RF-001) — data only in Phase 0."""
 
     def add(self, event: RecognitionEvent) -> None: ...
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[RecognitionEvent]: ...
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[RecognitionEvent]: ...
 
 
 @runtime_checkable

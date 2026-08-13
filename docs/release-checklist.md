@@ -36,6 +36,25 @@ Target: **https://buyafraction.com** (`192.168.160.98`).
   # expect: Success: no issues found
   ```
 
+- [ ] **Subject/space isolation regressions pass** (Finding 1).
+  ```bash
+  .venv/bin/pytest -q tests/test_space_isolation.py tests/adapters/test_sqlite_migration.py
+  ```
+
+- [ ] **SQLite reset/rerun regression passes** (Finding 2).
+  ```bash
+  .venv/bin/pytest -q tests/adapters/test_sqlite_reset_rerun.py
+  ```
+
+- [ ] **Clean-host deployment smoke passes** (Finding 3).
+  ```bash
+  .venv/bin/pytest -q tests/test_clean_host_smoke.py
+  bash scripts/smoke.sh          # real end-to-end clean-host flow
+  ```
+
+- [ ] **CI is green** on the commit (`.github/workflows/ci.yml`: suite · mypy ·
+  exit test · isolation · reset/rerun · deployment smoke).
+
 ---
 
 ## Data & functionality (against the running service)

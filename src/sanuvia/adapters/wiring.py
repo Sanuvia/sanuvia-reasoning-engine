@@ -24,7 +24,7 @@ from sanuvia.domain import ReasoningSystemId
 from .persistence.in_memory import InMemoryReasoningStore
 from .persistence.sqlite_store import SqliteReasoningStore
 from .reasoning import PlaceholderCommitAllPolicy, StaticCognitiveStateProvider
-from .support import ManualClock, SequentialIdGenerator
+from .support import ManualClock, SequentialIdGenerator, SystemClock, UuidGenerator
 
 _StoreBundle = InMemoryReasoningStore | SqliteReasoningStore
 
@@ -34,8 +34,8 @@ def _deps_from_store(
     *,
     reasoning_system_id: str,
     appraiser: EvidenceAppraiser,
-    clock: Clock | None,
-    ids: IdGenerator | None,
+    clock: Clock,
+    ids: IdGenerator,
     cognitive_state: CognitiveStateProvider | None,
     commit_policy: RevisionCommitPolicy | None,
     config: ReasoningConfig | None,
@@ -52,8 +52,8 @@ def _deps_from_store(
         provenance=store.provenance,
         recognition=store.recognition,
         dependencies=store.dependencies,
-        clock=clock or ManualClock(),
-        ids=ids or SequentialIdGenerator(),
+        clock=clock,
+        ids=ids,
         appraiser=appraiser,
         cognitive_state=cognitive_state or StaticCognitiveStateProvider(),
         commit_policy=commit_policy or PlaceholderCommitAllPolicy(),
@@ -74,13 +74,16 @@ def build_in_memory_dependencies(
 ) -> ReasoningDependencies:
     """Assemble ``ReasoningDependencies`` from in-memory adapters (tests / exit
     test). Only the ``appraiser`` (the language-understanding boundary) must be
-    supplied, since it encodes the scenario."""
+    supplied, since it encodes the scenario.
+
+    Defaults to the *deterministic* clock/id generator — the in-memory store is
+    for reproducible test scenarios (Finding 2)."""
     return _deps_from_store(
         store or InMemoryReasoningStore(),
         reasoning_system_id=reasoning_system_id,
         appraiser=appraiser,
-        clock=clock,
-        ids=ids,
+        clock=clock or ManualClock(),
+        ids=ids or SequentialIdGenerator(),
         cognitive_state=cognitive_state,
         commit_policy=commit_policy,
         config=config,
@@ -100,13 +103,22 @@ def build_sqlite_dependencies(
     config: ReasoningConfig | None = None,
 ) -> ReasoningDependencies:
     """Assemble ``ReasoningDependencies`` from the SQLite adapters. Identical in
-    shape to the in-memory build — only the persistence backend differs."""
+    shape to the in-memory build — only the persistence backend differs.
+
+    Finding 2 — durable id semantics. SQLite is the *durable* backend, so it
+    defaults to a **collision-safe** id generator (``UuidGenerator``) and the
+    wall clock. Durable reasoning only ever appends, so ids must be unique across
+    the lifetime of the file; a deterministic per-kind counter that restarts at
+    ``…-1`` would collide with rows already on disk. Callers that want a
+    *deterministic* SQLite run (the review harness's reproducible Test Cases)
+    must pass ``ids=SequentialIdGenerator()`` explicitly **and** clear the
+    database between runs via ``SqliteReasoningStore.reset()``."""
     return _deps_from_store(
         store or SqliteReasoningStore(path),
         reasoning_system_id=reasoning_system_id,
         appraiser=appraiser,
-        clock=clock,
-        ids=ids,
+        clock=clock or SystemClock(),
+        ids=ids or UuidGenerator(),
         cognitive_state=cognitive_state,
         commit_policy=commit_policy,
         config=config,

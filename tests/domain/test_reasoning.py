@@ -12,6 +12,7 @@ from sanuvia.domain import (
     Prediction,
     PredictionId,
     PredictionLikelihood,
+    SubjectId,
     TrajectoryKind,
     WorldModelVersionId,
 )
@@ -52,6 +53,7 @@ def test_trajectory_kinds_cannot_express_failure() -> None:
 def _make_prediction(*, hyps: tuple[str, ...], evs: tuple[str, ...]) -> Prediction:
     return Prediction(
         id=PredictionId("pred-1"),
+        subject_id=SubjectId("subject-1"),
         trajectory=FutureTrajectory(
             kind=TrajectoryKind.RECURRING_CYCLE, description="distance-then-repair cycle"
         ),

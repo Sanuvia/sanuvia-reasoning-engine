@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
     AnomalyDisposition,
     AnomalyResolution,
     AnomalyResolutionId,
@@ -61,6 +62,7 @@ from sanuvia.domain import (
     RevisionEventId,
     RevisionOutcome,
     RevisionStatus,
+    SpaceId,
     SubjectId,
     TrajectoryKind,
     WorldModel,
@@ -113,6 +115,7 @@ class _RevisionRun:
     from_version: WorldModelVersionId | None
     new_version_id: WorldModelVersionId
     now: datetime
+    space_id: SpaceId = DEFAULT_SPACE_ID
     working: dict[HypothesisId, Hypothesis] = field(default_factory=dict)
     traj_hints: dict[HypothesisId, FutureTrajectory] = field(default_factory=dict)
     intents: list[_Intent] = field(default_factory=list)
@@ -134,6 +137,7 @@ class _RevisionRun:
         return Hypothesis(
             record_id=HypothesisRecordId(self.deps.ids.new_id("hyprec")),
             hypothesis_id=hypothesis_id,
+            subject_id=self.subject_id,
             statement=statement,
             support=HypothesisSupport(max(0.0, min(1.0, support))),
             supporting_evidence_ids=supporting,
@@ -141,6 +145,7 @@ class _RevisionRun:
             evaluated_at_version=self.new_version_id,
             evaluated_at=self.now,
             supersedes_record_id=supersedes,
+            space_id=self.space_id,
         )
 
     def _event(
@@ -161,6 +166,7 @@ class _RevisionRun:
             created_at=self.now,
             from_model_version_id=self.from_version,
             anomaly_resolution_id=anomaly_id,
+            space_id=self.space_id,
         )
 
     def _edge(
@@ -261,6 +267,7 @@ class _RevisionRun:
             triggering_evidence_ids=(evidence.id,),
             created_at=self.now,
             note=f"contradiction of established hypothesis {hid}",
+            space_id=self.space_id,
         )
         self.anomalies.append(anomaly)
         if disposition is AnomalyDisposition.REVISE:
@@ -329,6 +336,8 @@ class ModelRevisionEngine:
         subject_id: SubjectId,
         evidence_batch: tuple[EvidenceRecord, ...],
         current_model: WorldModel | None,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> RevisionApplied:
         d = self._d
         now = d.clock.now()
@@ -342,9 +351,10 @@ class ModelRevisionEngine:
             # nothing commits).
             new_version_id=WorldModelVersionId(d.ids.new_id("wm")),
             now=now,
+            space_id=space_id,
             working={
                 h.hypothesis_id: h
-                for h in d.hypotheses.list_for_subject(subject_id)
+                for h in d.hypotheses.list_for_subject(subject_id, space_id=space_id)
             },
         )
 
@@ -369,6 +379,7 @@ class ModelRevisionEngine:
                     revision_events=(),
                     anomaly_resolutions=tuple(run.anomalies),
                     new_model_version_id=None,
+                    space_id=space_id,
                 ),
                 predictions=(),
                 inquiry=None,
@@ -385,13 +396,13 @@ class ModelRevisionEngine:
         for edge in run.edges:
             d.dependencies.add_edge(edge)
 
-        active = list(d.hypotheses.list_for_subject(subject_id))
+        active = list(d.hypotheses.list_for_subject(subject_id, space_id=space_id))
         supports = [h.support.value for h in active]
         model_uncertainty = aggregate_model_uncertainty(supports)
 
         predictions = self._regenerate_predictions(active, run)
         inquiry = self._maybe_open_inquiry(
-            subject_id, active, supports, model_uncertainty, committed_events, now
+            run, active, supports, model_uncertainty, committed_events, now
         )
 
         provenance = ProvenanceRecord(
@@ -400,6 +411,7 @@ class ModelRevisionEngine:
             traces_to_evidence_ids=tuple(e.id for e in evidence_batch),
             traces_to_revision_ids=tuple(e.id for e in committed_events),
             created_at=now,
+            space_id=space_id,
         )
         d.provenance.add(provenance)
 
@@ -414,6 +426,7 @@ class ModelRevisionEngine:
             created_at=now,
             created_by_revision_id=committed_events[0].id,
             provenance_record_id=provenance.id,
+            space_id=space_id,
         )
         d.world_models.append_version(model)
         d.world_models.set_current_pointer(
@@ -421,6 +434,7 @@ class ModelRevisionEngine:
                 subject_id=subject_id,
                 model_version_id=run.new_version_id,
                 committed_at=now,
+                space_id=space_id,
             )
         )
 
@@ -431,6 +445,7 @@ class ModelRevisionEngine:
                 revision_events=tuple(committed_events),
                 anomaly_resolutions=tuple(run.anomalies),
                 new_model_version_id=run.new_version_id,
+                space_id=space_id,
             ),
             predictions=predictions,
             inquiry=inquiry,
@@ -445,7 +460,9 @@ class ModelRevisionEngine:
         # across versions. (Full prediction lifecycle governance — creation,
         # expiry, confirmation — is spec-unresolved and kept minimal here.)
         prior_trajectory: dict[HypothesisId, FutureTrajectory] = {}
-        for prior in self._d.predictions.list_for_subject(run.subject_id):
+        for prior in self._d.predictions.list_for_subject(
+            run.subject_id, space_id=run.space_id
+        ):
             for hid in prior.derived_from_hypothesis_ids:
                 prior_trajectory[hid] = prior.trajectory
 
@@ -463,12 +480,14 @@ class ModelRevisionEngine:
             )
             prediction = Prediction(
                 id=PredictionId(self._d.ids.new_id("pred")),
+                subject_id=run.subject_id,
                 trajectory=trajectory,
                 likelihood=PredictionLikelihood(h.support.value),
                 derived_from_hypothesis_ids=(h.hypothesis_id,),
                 derived_from_evidence_ids=h.supporting_evidence_ids,
                 model_version_id=run.new_version_id,
                 created_at=run.now,
+                space_id=run.space_id,
             )
             self._d.predictions.add(prediction)
             predictions.append(prediction)
@@ -480,7 +499,7 @@ class ModelRevisionEngine:
 
     def _maybe_open_inquiry(
         self,
-        subject_id: SubjectId,
+        run: _RevisionRun,
         active: list[Hypothesis],
         supports: list[float],
         model_uncertainty: float,
@@ -498,7 +517,7 @@ class ModelRevisionEngine:
         motivating = _dedup(*[h.supporting_evidence_ids for h in top])
         inquiry = Inquiry(
             id=InquiryId(self._d.ids.new_id("inq")),
-            subject_id=subject_id,
+            subject_id=run.subject_id,
             statement=(
                 "Which explanation better fits the evidence: "
                 f"'{top[0].statement}' or '{top[1].statement}'?"
@@ -511,6 +530,7 @@ class ModelRevisionEngine:
             produced_by_revision_id=(
                 committed_events[0].id if committed_events else None
             ),
+            space_id=run.space_id,
         )
         self._d.inquiries.add(inquiry)
         return inquiry

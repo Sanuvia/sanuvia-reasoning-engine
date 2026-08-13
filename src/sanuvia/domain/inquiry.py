@@ -32,8 +32,10 @@ from .identifiers import (
     HypothesisId,
     InquiryId,
     RevisionEventId,
+    SpaceId,
     SubjectId,
 )
+from .scope import DEFAULT_SPACE_ID
 from .uncertainty import ModelUncertainty
 
 
@@ -71,6 +73,8 @@ class Inquiry:
     # Inquiry's lifecycle into the revision history (FR-IQ-003). None only for
     # an Inquiry proposed outside a revision (rare; represented for completeness).
     produced_by_revision_id: RevisionEventId | None = None
+    # Isolation boundary this inquiry belongs to (Finding 1).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.statement:

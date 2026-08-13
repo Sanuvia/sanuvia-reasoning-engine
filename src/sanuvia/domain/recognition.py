@@ -29,9 +29,11 @@ from .errors import InvariantViolation
 from .identifiers import (
     EvidenceRecordId,
     RecognitionEventId,
+    SpaceId,
     SubjectId,
     WorldModelVersionId,
 )
+from .scope import DEFAULT_SPACE_ID
 
 
 class RecognitionKind(Enum):
@@ -59,6 +61,8 @@ class RecognitionEvent:
     supporting_evidence_ids: tuple[EvidenceRecordId, ...]
     model_version_id: WorldModelVersionId
     created_at: datetime
+    # Isolation boundary this recognition belongs to (Finding 1).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.description:

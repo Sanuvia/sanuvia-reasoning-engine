@@ -36,10 +36,12 @@ from .identifiers import (
     ProvenanceRecordId,
     ReasoningSystemId,
     RevisionEventId,
+    SpaceId,
     SubjectId,
     SystemModellingContextId,
     WorldModelVersionId,
 )
+from .scope import DEFAULT_SPACE_ID
 from .uncertainty import ModelUncertainty
 
 
@@ -58,6 +60,7 @@ class ProvenanceRecord:
     traces_to_evidence_ids: tuple[EvidenceRecordId, ...]
     traces_to_revision_ids: tuple[RevisionEventId, ...]
     created_at: datetime
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +104,9 @@ class WorldModel:
     created_by_revision_id: RevisionEventId | None = None
     provenance_record_id: ProvenanceRecordId | None = None
     system_modelling_context: SystemModellingContext | None = None
+    # Isolation boundary this model version belongs to (Finding 1). A WorldModel
+    # is addressed by (space_id, subject_id, model_version_id).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +122,9 @@ class CurrentModelSnapshot:
     subject_id: SubjectId
     model_version_id: WorldModelVersionId
     committed_at: datetime
+    # Isolation boundary this pointer belongs to (Finding 1). The current pointer
+    # is keyed by (space_id, subject_id).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.model_version_id:

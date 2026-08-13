@@ -30,8 +30,11 @@ from .identifiers import (
     EvidenceRecordId,
     HypothesisId,
     PredictionId,
+    SpaceId,
+    SubjectId,
     WorldModelVersionId,
 )
+from .scope import DEFAULT_SPACE_ID
 from .uncertainty import PredictionLikelihood
 
 
@@ -72,12 +75,17 @@ class Prediction:
     """
 
     id: PredictionId
+    # Who this prediction concerns (Finding 1). Owned by exactly one subject so
+    # a prediction can never be returned for another subject.
+    subject_id: SubjectId
     trajectory: FutureTrajectory
     likelihood: PredictionLikelihood
     derived_from_hypothesis_ids: tuple[HypothesisId, ...]
     derived_from_evidence_ids: tuple[EvidenceRecordId, ...]
     model_version_id: WorldModelVersionId
     created_at: datetime
+    # Isolation boundary this prediction belongs to (Finding 1).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not (self.derived_from_hypothesis_ids or self.derived_from_evidence_ids):
@@ -85,3 +93,5 @@ class Prediction:
                 "A Prediction must be traceable to at least one hypothesis or "
                 "evidence record (FR-RS-004)"
             )
+        if not self.space_id:
+            raise InvariantViolation("Prediction.space_id must be non-empty")
