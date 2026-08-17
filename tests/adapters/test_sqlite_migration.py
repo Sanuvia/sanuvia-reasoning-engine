@@ -153,7 +153,7 @@ def test_legacy_db_migrates_preserving_data_and_ownership(tmp_path: Any) -> None
 
     # Isolation now holds: another space sees none of the migrated data.
     other = HypothesisId("H_legacy")
-    assert store.hypotheses.latest(other, space_id=DEFAULT_SPACE_ID) is not None
+    assert store.hypotheses.latest(other, LEGACY_SUBJECT, space_id=DEFAULT_SPACE_ID) is not None
     from sanuvia.domain import shared_space_id
     assert store.hypotheses.list_for_subject(LEGACY_SUBJECT, space_id=shared_space_id("x")) == []
 

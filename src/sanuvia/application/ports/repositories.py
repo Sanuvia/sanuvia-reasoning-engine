@@ -98,15 +98,31 @@ class HypothesisRepository(Protocol):
         self, record_id: HypothesisRecordId, *, space_id: SpaceId = DEFAULT_SPACE_ID
     ) -> Hypothesis | None: ...
     def latest(
-        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Hypothesis | None:
-        """The most recent evaluation in a hypothesis's lineage, within ``space_id``."""
+        """The most recent evaluation in a hypothesis's lineage.
+
+        Isolation (Finding 1): the lookup scope is
+        ``(space_id, subject_id, hypothesis_id)``. Two subjects in the same space
+        may reuse the same ``hypothesis_id``; this must never return the other
+        subject's record."""
         ...
 
     def lineage(
-        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Sequence[Hypothesis]:
-        """All evaluations for a hypothesis, oldest first (revision history)."""
+        """All evaluations for a hypothesis, oldest first (revision history).
+
+        Isolation (Finding 1): scoped by ``(space_id, subject_id, hypothesis_id)``
+        so a lineage never mixes two subjects' records."""
         ...
 
     def list_for_subject(

@@ -27,12 +27,16 @@ from sanuvia.application.ports.repositories import (
     WorldModelRepository,
 )
 from sanuvia.application.reasoning.core_loop import InteractionResult
-from sanuvia.domain import SubjectId
+from sanuvia.domain import DEFAULT_SPACE_ID, SpaceId, SubjectId
 
 
 @dataclass(frozen=True)
 class SessionState:
-    """Read-only view of one session's reasoning state for rendering."""
+    """Read-only view of one session's reasoning state for rendering.
+
+    Carries the ``(space_id, subject_id)`` scope (Finding 2) so the trace and
+    graph renderers query the repositories for the *correct* space rather than
+    falling back to the default space."""
 
     subject_id: SubjectId
     interactions: tuple[InteractionResult, ...]
@@ -44,6 +48,7 @@ class SessionState:
     ledger: RevisionLedgerStore
     provenance: ProvenanceRepository
     recognition: RecognitionRepository
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
 
 def canonical_session_state() -> SessionState:
@@ -73,6 +78,7 @@ def canonical_session_state() -> SessionState:
         ledger=s.ledger,
         provenance=s.provenance,
         recognition=s.recognition,
+        space_id=DEFAULT_SPACE_ID,
     )
 
 
@@ -80,16 +86,26 @@ def from_interactions(
     subject_id: SubjectId,
     interactions: Sequence[InteractionResult],
     store: object,
+    *,
+    space_id: SpaceId | None = None,
 ) -> SessionState:
     """Build a SessionState from a live session's results and its store bundle.
 
     ``store`` is any object exposing the repository attributes (the in-memory or
     SQLite bundle). Kept as ``object`` + attribute access so this module stays
     independent of concrete adapters.
+
+    The scope's ``space_id`` (Finding 2) is taken from the explicit argument when
+    given, else recovered from the interactions themselves (each
+    ``InteractionResult`` carries its space), else the default space. This keeps
+    trace/graph rendering correct for non-default spaces.
     """
+    interactions = tuple(interactions)
+    if space_id is None:
+        space_id = interactions[0].space_id if interactions else DEFAULT_SPACE_ID
     return SessionState(
         subject_id=subject_id,
-        interactions=tuple(interactions),
+        interactions=interactions,
         evidence=getattr(store, "evidence"),
         hypotheses=getattr(store, "hypotheses"),
         predictions=getattr(store, "predictions"),
@@ -98,4 +114,5 @@ def from_interactions(
         ledger=getattr(store, "ledger"),
         provenance=getattr(store, "provenance"),
         recognition=getattr(store, "recognition"),
+        space_id=space_id,
     )

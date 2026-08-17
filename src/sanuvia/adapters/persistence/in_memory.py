@@ -115,21 +115,37 @@ class InMemoryHypothesisRepository:
         return None
 
     def latest(
-        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Hypothesis | None:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
         latest: Hypothesis | None = None
         for h in self._records:
-            if h.hypothesis_id == hypothesis_id and h.space_id == space_id:
+            if (
+                h.hypothesis_id == hypothesis_id
+                and h.subject_id == subject_id
+                and h.space_id == space_id
+            ):
                 latest = h
         return latest
 
     def lineage(
-        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Sequence[Hypothesis]:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
         return [
             h
             for h in self._records
-            if h.hypothesis_id == hypothesis_id and h.space_id == space_id
+            if h.hypothesis_id == hypothesis_id
+            and h.subject_id == subject_id
+            and h.space_id == space_id
         ]
 
     def list_for_subject(

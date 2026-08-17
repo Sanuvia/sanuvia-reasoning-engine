@@ -90,6 +90,42 @@ def test_hypothesis_does_not_leak_across_subjects(store: Any) -> None:
     assert b_ids == ["H_B"]  # would be ["H_A", "H_B"] under the old leak
 
 
+def test_latest_and_lineage_are_scoped_by_subject(store: Any) -> None:
+    """Second review, Finding 1: two subjects in the SAME space reuse the SAME
+    ``hypothesis_id``. latest()/lineage() must return only the queried subject's
+    records — scoped by (space, subject, hypothesis_id)."""
+    HID = HypothesisId("H_conflict")  # both subjects use the same lineage id
+
+    # Subject A: two evaluations of H_conflict (a lineage of length 2).
+    store.hypotheses.add(make_hypothesis(
+        record_id="a1", hypothesis_id="H_conflict", subject_id=A, support=0.4))
+    store.hypotheses.add(make_hypothesis(
+        record_id="a2", hypothesis_id="H_conflict", subject_id=A, support=0.6))
+    # Subject B: one evaluation of the SAME hypothesis id, different support.
+    store.hypotheses.add(make_hypothesis(
+        record_id="b1", hypothesis_id="H_conflict", subject_id=B, support=0.9))
+
+    # latest() returns only the queried subject's record.
+    a_latest = store.hypotheses.latest(HID, A)
+    b_latest = store.hypotheses.latest(HID, B)
+    assert a_latest is not None and a_latest.record_id == "a2" and a_latest.subject_id == A
+    assert b_latest is not None and b_latest.record_id == "b1" and b_latest.subject_id == B
+    assert a_latest.support.value == 0.6  # NOT B's 0.9
+
+    # lineage() for A contains no B records, and vice versa.
+    a_lineage = store.hypotheses.lineage(HID, A)
+    b_lineage = store.hypotheses.lineage(HID, B)
+    assert [h.record_id for h in a_lineage] == ["a1", "a2"]
+    assert all(h.subject_id == A for h in a_lineage)
+    assert [h.record_id for h in b_lineage] == ["b1"]
+    assert all(h.subject_id == B for h in b_lineage)
+
+    # A subject with no such lineage gets nothing (not the other subject's).
+    other = SubjectId("subject-C")
+    assert store.hypotheses.latest(HID, other) is None
+    assert store.hypotheses.lineage(HID, other) == []
+
+
 def test_hypothesis_does_not_leak_across_spaces(store: Any) -> None:
     """B. same subject, two spaces — same hypothesis id, isolated by space."""
     store.hypotheses.add(make_hypothesis(
@@ -104,7 +140,7 @@ def test_hypothesis_does_not_leak_across_spaces(store: Any) -> None:
     assert [h.support.value for h in in_s1] == [0.9]
     assert [h.support.value for h in in_s2] == [0.2]
     # A hypothesis in SHARED_1 must not appear when querying SHARED_2.
-    assert store.hypotheses.latest(HypothesisId("H_shared"), space_id=SHARED_1) is not None
+    assert store.hypotheses.latest(HypothesisId("H_shared"), A, space_id=SHARED_1) is not None
     assert store.hypotheses.list_for_subject(A, space_id=PERSONAL) == []  # C: personal empty
 
 

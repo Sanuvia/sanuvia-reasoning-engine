@@ -193,22 +193,33 @@ class SqliteHypothesisRepository(_Base):
         return None if row is None else cast(Hypothesis, _load(row[0]))
 
     def latest(
-        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Hypothesis | None:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
         row = self._conn.execute(
-            "SELECT json FROM hypotheses WHERE hypothesis_id = ? AND space = ? "
+            "SELECT json FROM hypotheses "
+            "WHERE hypothesis_id = ? AND subject = ? AND space = ? "
             "ORDER BY seq DESC LIMIT 1",
-            (hypothesis_id, space_id),
+            (hypothesis_id, subject_id, space_id),
         ).fetchone()
         return None if row is None else cast(Hypothesis, _load(row[0]))
 
     def lineage(
-        self, hypothesis_id: HypothesisId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Sequence[Hypothesis]:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
         rows = self._conn.execute(
-            "SELECT json FROM hypotheses WHERE hypothesis_id = ? AND space = ? "
-            "ORDER BY seq",
-            (hypothesis_id, space_id),
+            "SELECT json FROM hypotheses "
+            "WHERE hypothesis_id = ? AND subject = ? AND space = ? ORDER BY seq",
+            (hypothesis_id, subject_id, space_id),
         ).fetchall()
         return [cast(Hypothesis, _load(r[0])) for r in rows]
 

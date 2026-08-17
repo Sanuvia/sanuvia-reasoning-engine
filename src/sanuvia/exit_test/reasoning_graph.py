@@ -80,11 +80,12 @@ _SUPPORTING = {RevisionOutcome.STRENGTHEN, RevisionOutcome.HYPOTHESIZE}
 
 def build_graph(state: SessionState) -> GraphModel:
     subject = state.subject_id
+    space = state.space_id  # Finding 2: query the session's own space, not the default
     results = state.interactions
     store = state  # SessionState exposes the repository ports as attributes
     g = GraphModel()
 
-    ledger = list(store.ledger.read(subject))
+    ledger = list(store.ledger.read(subject, space_id=space))
     rev_by_id = {e.revision_event.id: e.revision_event for e in ledger}
 
     # 1. START + WorldModel version spine (in ledger order)
@@ -97,12 +98,12 @@ def build_graph(state: SessionState) -> GraphModel:
             seen.add(to_v)
             version_order.append(to_v)
     for version_id in version_order:
-        model = store.world_models.get_version(subject, version_id)
+        model = store.world_models.get_version(subject, version_id, space_id=space)
         u = "—" if model is None else f"{model.model_uncertainty.value:.3f}"
         g.add_node(Node(_sid("V", version_id), "version", (version_id, f"u={u}")))
 
     # 2. Evidence nodes (in stored order)
-    for e in store.evidence.list_for_subject(subject):
+    for e in store.evidence.list_for_subject(subject, space_id=space):
         g.add_node(
             Node(
                 _sid("E", e.id),
@@ -112,8 +113,8 @@ def build_graph(state: SessionState) -> GraphModel:
         )
 
     # 3. Hypothesis nodes with support progression (lineage retained)
-    for h in store.hypotheses.list_for_subject(subject):
-        lineage = store.hypotheses.lineage(h.hypothesis_id)
+    for h in store.hypotheses.list_for_subject(subject, space_id=space):
+        lineage = store.hypotheses.lineage(h.hypothesis_id, subject, space_id=space)
         progression = "→".join(f"{r.support.value:.2f}" for r in lineage)
         g.add_node(
             Node(
@@ -124,7 +125,7 @@ def build_graph(state: SessionState) -> GraphModel:
         )
 
     # 4. Prediction nodes (each tied to the version that produced it)
-    for p in store.predictions.list_for_subject(subject):
+    for p in store.predictions.list_for_subject(subject, space_id=space):
         g.add_node(
             Node(
                 _sid("P", p.id),
@@ -134,7 +135,7 @@ def build_graph(state: SessionState) -> GraphModel:
         )
 
     # 5. Inquiry nodes
-    for inq in store.inquiries.list_for_subject(subject):
+    for inq in store.inquiries.list_for_subject(subject, space_id=space):
         g.add_node(
             Node(
                 _sid("Q", inq.id),
@@ -185,12 +186,12 @@ def build_graph(state: SessionState) -> GraphModel:
             )
 
     # hypothesis -> prediction
-    for p in store.predictions.list_for_subject(subject):
+    for p in store.predictions.list_for_subject(subject, space_id=space):
         for hid in p.derived_from_hypothesis_ids:
             g.add_edge(Edge(_sid("H", hid), _sid("P", p.id), "solid", "yields"))
 
     # version -> inquiry (the revision that raised it)
-    for inq in store.inquiries.list_for_subject(subject):
+    for inq in store.inquiries.list_for_subject(subject, space_id=space):
         rid = inq.produced_by_revision_id
         raising = rev_by_id.get(rid) if rid is not None else None
         if raising is not None and raising.to_model_version_id is not None:
