@@ -1,0 +1,23 @@
+# Demonstrator-local configuration (Phase 1 only).
+#
+# This file configures pytest/mypy for the Controlled Reasoning Demonstrator when
+# run FROM this directory. It does not affect the frozen Phase 0 root config.
+# Phase 1 consumes the already-installed, editable `sanuvia` (Phase 0) package.
+
+[tool.pytest.ini_options]
+# `src` -> the sanuvia_phase1 package; `.` -> the fixtures package.
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+strict = true
+mypy_path = ["src", "."]
+
+# Phase 0 is a frozen external dependency consumed through its public API. It is
+# not part of this Phase 1 mypy run; treat it as an opaque typed boundary so our
+# code is strict-checked without dragging the frozen tree into this run.
+[[tool.mypy.overrides]]
+module = ["sanuvia.*"]
+follow_imports = "skip"
+ignore_missing_imports = true

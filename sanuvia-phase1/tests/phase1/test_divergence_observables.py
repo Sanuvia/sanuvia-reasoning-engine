@@ -1,0 +1,50 @@
+"""C-4 — raw divergence observables only; the aggregate 'rate of behavioural
+divergence' (Programme v1.4 C.5) is NOT computed (thresholds/weights deferred)."""
+
+from __future__ import annotations
+
+import pytest
+
+from fixtures.longitudinal.case_001_baseline_scripts import deterministic_language_models
+from fixtures.longitudinal.case_001 import CASE_001
+
+from sanuvia_phase1 import demonstrator, metrics
+
+
+def _report() -> demonstrator.DemonstrationReport:
+    stateless, transcript = deterministic_language_models()
+    conds = demonstrator.build_default_conditions(CASE_001, stateless, transcript)
+    return demonstrator.run(CASE_001, conds)
+
+
+def test_divergence_observables_are_raw_per_point() -> None:
+    rep = _report()
+    san = list(rep.records_by_condition["sanuvia_persistent"])
+    st = list(rep.records_by_condition["fm_stateless"])
+    points = metrics.divergence_observables(san, st)
+
+    assert len(points) == len(CASE_001.interactions) == 6
+    # Uncertainty is structurally non-comparable: Sanuvia has a float, FM None.
+    for p in points:
+        assert p.sanuvia_uncertainty is not None
+        assert p.baseline_uncertainty is None
+        assert p.uncertainty_comparable is False
+    # The three C.3 observable comparisons are exposed as raw booleans.
+    assert all(isinstance(p.inquiry_presence_differs, bool) for p in points)
+    assert all(isinstance(p.hypothesis_sets_differ, bool) for p in points)
+
+
+def test_no_aggregate_rate_or_threshold_is_invented() -> None:
+    # The aggregate metric is explicitly pending governance — not computed here.
+    assert "PENDING GOVERNANCE" in metrics.DIVERGENCE_RATE_STATUS
+    # No aggregate/threshold/pass-fail function is exposed.
+    for forbidden in ("divergence_rate", "divergence_score", "pass_fail", "threshold"):
+        assert not hasattr(metrics, forbidden)
+
+
+def test_divergence_observables_requires_equal_length() -> None:
+    rep = _report()
+    san = list(rep.records_by_condition["sanuvia_persistent"])
+    st = list(rep.records_by_condition["fm_stateless"])
+    with pytest.raises(ValueError):
+        metrics.divergence_observables(san, st[:-1])
