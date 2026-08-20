@@ -31,8 +31,11 @@ from .identifiers import (
     EvidenceRecordId,
     HypothesisId,
     HypothesisRecordId,
+    SpaceId,
+    SubjectId,
     WorldModelVersionId,
 )
+from .scope import DEFAULT_SPACE_ID
 from .uncertainty import HypothesisSupport
 
 
@@ -48,6 +51,10 @@ class Hypothesis:
 
     record_id: HypothesisRecordId
     hypothesis_id: HypothesisId
+    # Who this hypothesis concerns (Finding 1). A hypothesis is owned by exactly
+    # one subject; the repositories partition by it so a hypothesis can never be
+    # returned for another subject.
+    subject_id: SubjectId
     statement: str
     support: HypothesisSupport
     supporting_evidence_ids: tuple[EvidenceRecordId, ...]
@@ -58,10 +65,14 @@ class Hypothesis:
     # If this record re-evaluates a prior one, the prior *record* it supersedes
     # (retained, never overwritten — FR-RS-003). None for the first evaluation.
     supersedes_record_id: HypothesisRecordId | None = None
+    # Isolation boundary this hypothesis belongs to (Finding 1).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.statement:
             raise InvariantViolation("Hypothesis.statement must be non-empty")
+        if not self.space_id:
+            raise InvariantViolation("Hypothesis.space_id must be non-empty")
         overlap = set(self.supporting_evidence_ids) & set(
             self.contradicting_evidence_ids
         )

@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
     AnomalyResolution,
     AnomalyResolutionId,
     CurrentModelSnapshot,
@@ -47,6 +48,7 @@ from sanuvia.domain import (
     RevisionEvent,
     RevisionLedgerEntry,
     RevisionStatus,
+    SpaceId,
     SubjectId,
     SystemModellingContext,
     WorldModel,
@@ -54,30 +56,48 @@ from sanuvia.domain import (
 )
 
 from . import codec
+from .sqlite_migration import SCHEMA_VERSION, migrate
 
+# The v1 schema (Finding 1: space/subject isolation). Every subject-scoped table
+# carries a ``space`` column, and hypotheses/predictions — which previously had
+# no subject at all — now carry both ``space`` and ``subject`` so a query can
+# never return an entity owned by another subject or space. WorldModel versions,
+# the current pointer, and the ledger are keyed by (space, subject, ...).
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS evidence (id TEXT PRIMARY KEY, subject TEXT, json TEXT);
-CREATE TABLE IF NOT EXISTS inference (id TEXT PRIMARY KEY, subject TEXT, json TEXT);
+CREATE TABLE IF NOT EXISTS evidence (
+    id TEXT PRIMARY KEY, space TEXT, subject TEXT, json TEXT);
+CREATE TABLE IF NOT EXISTS inference (
+    id TEXT PRIMARY KEY, space TEXT, subject TEXT, json TEXT);
 CREATE TABLE IF NOT EXISTS hypotheses (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
-    record_id TEXT, hypothesis_id TEXT, json TEXT);
+    record_id TEXT, hypothesis_id TEXT, space TEXT, subject TEXT, json TEXT);
 CREATE TABLE IF NOT EXISTS predictions (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT, json TEXT);
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT, space TEXT, subject TEXT, json TEXT);
 CREATE TABLE IF NOT EXISTS inquiries (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT, subject TEXT, json TEXT);
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT, space TEXT, subject TEXT, json TEXT);
 CREATE TABLE IF NOT EXISTS world_models (
-    subject TEXT, version TEXT, json TEXT, PRIMARY KEY (subject, version));
-CREATE TABLE IF NOT EXISTS current_pointer (subject TEXT PRIMARY KEY, json TEXT);
+    space TEXT, subject TEXT, version TEXT, json TEXT,
+    PRIMARY KEY (space, subject, version));
+CREATE TABLE IF NOT EXISTS current_pointer (
+    space TEXT, subject TEXT, json TEXT, PRIMARY KEY (space, subject));
 CREATE TABLE IF NOT EXISTS ledger (
-    subject TEXT, seq INTEGER, json TEXT, PRIMARY KEY (subject, seq));
+    space TEXT, subject TEXT, seq INTEGER, json TEXT,
+    PRIMARY KEY (space, subject, seq));
 CREATE TABLE IF NOT EXISTS anomalies (id TEXT PRIMARY KEY, json TEXT);
 CREATE TABLE IF NOT EXISTS provenance (id TEXT PRIMARY KEY, json TEXT);
 CREATE TABLE IF NOT EXISTS recognition (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT, json TEXT);
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, space TEXT, subject TEXT, json TEXT);
 CREATE TABLE IF NOT EXISTS dependencies (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, from_ref TEXT, to_ref TEXT, json TEXT);
 CREATE TABLE IF NOT EXISTS modelling_context (subject TEXT PRIMARY KEY, json TEXT);
 """
+
+# The tables the ``reset()`` lifecycle operation clears (see SqliteReasoningStore).
+_RESETTABLE_TABLES = (
+    "evidence", "inference", "hypotheses", "predictions", "inquiries",
+    "world_models", "current_pointer", "ledger", "anomalies", "provenance",
+    "recognition", "dependencies", "modelling_context",
+)
 
 
 def _dump(obj: Any) -> str:
@@ -97,8 +117,8 @@ class SqliteEvidenceStore(_Base):
     def add(self, record: EvidenceRecord) -> None:
         try:
             self._conn.execute(
-                "INSERT INTO evidence (id, subject, json) VALUES (?, ?, ?)",
-                (record.id, record.subject_id, _dump(record)),
+                "INSERT INTO evidence (id, space, subject, json) VALUES (?, ?, ?, ?)",
+                (record.id, record.space_id, record.subject_id, _dump(record)),
             )
         except sqlite3.IntegrityError as exc:
             raise InvariantViolation(f"EvidenceRecord {record.id} already exists") from exc
@@ -110,9 +130,12 @@ class SqliteEvidenceStore(_Base):
         ).fetchone()
         return None if row is None else cast(EvidenceRecord, _load(row[0]))
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[EvidenceRecord]:
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[EvidenceRecord]:
         rows = self._conn.execute(
-            "SELECT json FROM evidence WHERE subject = ? ORDER BY rowid", (subject_id,)
+            "SELECT json FROM evidence WHERE subject = ? AND space = ? ORDER BY rowid",
+            (subject_id, space_id),
         ).fetchall()
         return [cast(EvidenceRecord, _load(r[0])) for r in rows]
 
@@ -121,8 +144,8 @@ class SqliteInferenceStore(_Base):
     def add(self, record: InferenceRecord) -> None:
         try:
             self._conn.execute(
-                "INSERT INTO inference (id, subject, json) VALUES (?, ?, ?)",
-                (record.id, record.subject_id, _dump(record)),
+                "INSERT INTO inference (id, space, subject, json) VALUES (?, ?, ?, ?)",
+                (record.id, record.space_id, record.subject_id, _dump(record)),
             )
         except sqlite3.IntegrityError as exc:
             raise InvariantViolation(f"InferenceRecord {record.id} already exists") from exc
@@ -134,9 +157,12 @@ class SqliteInferenceStore(_Base):
         ).fetchone()
         return None if row is None else cast(InferenceRecord, _load(row[0]))
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[InferenceRecord]:
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[InferenceRecord]:
         rows = self._conn.execute(
-            "SELECT json FROM inference WHERE subject = ? ORDER BY rowid", (subject_id,)
+            "SELECT json FROM inference WHERE subject = ? AND space = ? ORDER BY rowid",
+            (subject_id, space_id),
         ).fetchall()
         return [cast(InferenceRecord, _load(r[0])) for r in rows]
 
@@ -144,55 +170,83 @@ class SqliteInferenceStore(_Base):
 class SqliteHypothesisRepository(_Base):
     def add(self, hypothesis: Hypothesis) -> None:
         self._conn.execute(
-            "INSERT INTO hypotheses (record_id, hypothesis_id, json) VALUES (?, ?, ?)",
-            (hypothesis.record_id, hypothesis.hypothesis_id, _dump(hypothesis)),
+            "INSERT INTO hypotheses (record_id, hypothesis_id, space, subject, json) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                hypothesis.record_id,
+                hypothesis.hypothesis_id,
+                hypothesis.space_id,
+                hypothesis.subject_id,
+                _dump(hypothesis),
+            ),
         )
         self._conn.commit()
 
-    def _all(self) -> list[Hypothesis]:
-        rows = self._conn.execute(
-            "SELECT json FROM hypotheses ORDER BY seq"
-        ).fetchall()
-        return [cast(Hypothesis, _load(r[0])) for r in rows]
-
-    def get_record(self, record_id: HypothesisRecordId) -> Hypothesis | None:
+    def get_record(
+        self, record_id: HypothesisRecordId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Hypothesis | None:
         row = self._conn.execute(
-            "SELECT json FROM hypotheses WHERE record_id = ? ORDER BY seq DESC LIMIT 1",
-            (record_id,),
+            "SELECT json FROM hypotheses WHERE record_id = ? AND space = ? "
+            "ORDER BY seq DESC LIMIT 1",
+            (record_id, space_id),
         ).fetchone()
         return None if row is None else cast(Hypothesis, _load(row[0]))
 
-    def latest(self, hypothesis_id: HypothesisId) -> Hypothesis | None:
+    def latest(
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
+    ) -> Hypothesis | None:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
         row = self._conn.execute(
-            "SELECT json FROM hypotheses WHERE hypothesis_id = ? ORDER BY seq DESC LIMIT 1",
-            (hypothesis_id,),
+            "SELECT json FROM hypotheses "
+            "WHERE hypothesis_id = ? AND subject = ? AND space = ? "
+            "ORDER BY seq DESC LIMIT 1",
+            (hypothesis_id, subject_id, space_id),
         ).fetchone()
         return None if row is None else cast(Hypothesis, _load(row[0]))
 
-    def lineage(self, hypothesis_id: HypothesisId) -> Sequence[Hypothesis]:
+    def lineage(
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
+    ) -> Sequence[Hypothesis]:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
         rows = self._conn.execute(
-            "SELECT json FROM hypotheses WHERE hypothesis_id = ? ORDER BY seq",
-            (hypothesis_id,),
+            "SELECT json FROM hypotheses "
+            "WHERE hypothesis_id = ? AND subject = ? AND space = ? ORDER BY seq",
+            (hypothesis_id, subject_id, space_id),
         ).fetchall()
         return [cast(Hypothesis, _load(r[0])) for r in rows]
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Hypothesis]:
-        # Latest per lineage, first-seen order — identical to the in-memory
-        # adapter (Hypothesis carries no subject; subject is not a filter here).
-        latest: dict[HypothesisId, Hypothesis] = {}
-        order: list[HypothesisId] = []
-        for h in self._all():
-            if h.hypothesis_id not in latest:
-                order.append(h.hypothesis_id)
-            latest[h.hypothesis_id] = h
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Hypothesis]:
+        # Isolation (Finding 1): filter by BOTH subject and space in SQL, then
+        # take the latest evaluation per lineage in first-seen order.
+        rows = self._conn.execute(
+            "SELECT hypothesis_id, json FROM hypotheses "
+            "WHERE subject = ? AND space = ? ORDER BY seq",
+            (subject_id, space_id),
+        ).fetchall()
+        latest: dict[str, Hypothesis] = {}
+        order: list[str] = []
+        for hid, blob in rows:
+            if hid not in latest:
+                order.append(hid)
+            latest[hid] = cast(Hypothesis, _load(blob))
         return [latest[hid] for hid in order]
 
 
 class SqlitePredictionRepository(_Base):
     def add(self, prediction: Prediction) -> None:
         self._conn.execute(
-            "INSERT INTO predictions (id, json) VALUES (?, ?)",
-            (prediction.id, _dump(prediction)),
+            "INSERT INTO predictions (id, space, subject, json) VALUES (?, ?, ?, ?)",
+            (prediction.id, prediction.space_id, prediction.subject_id, _dump(prediction)),
         )
         self._conn.commit()
 
@@ -203,9 +257,13 @@ class SqlitePredictionRepository(_Base):
         ).fetchone()
         return None if row is None else cast(Prediction, _load(row[0]))
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Prediction]:
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Prediction]:
+        # Isolation (Finding 1): filter by BOTH subject and space.
         rows = self._conn.execute(
-            "SELECT json FROM predictions ORDER BY seq"
+            "SELECT json FROM predictions WHERE subject = ? AND space = ? ORDER BY seq",
+            (subject_id, space_id),
         ).fetchall()
         return [cast(Prediction, _load(r[0])) for r in rows]
 
@@ -213,8 +271,8 @@ class SqlitePredictionRepository(_Base):
 class SqliteInquiryRepository(_Base):
     def add(self, inquiry: Inquiry) -> None:
         self._conn.execute(
-            "INSERT INTO inquiries (id, subject, json) VALUES (?, ?, ?)",
-            (inquiry.id, inquiry.subject_id, _dump(inquiry)),
+            "INSERT INTO inquiries (id, space, subject, json) VALUES (?, ?, ?, ?)",
+            (inquiry.id, inquiry.space_id, inquiry.subject_id, _dump(inquiry)),
         )
         self._conn.commit()
 
@@ -231,10 +289,12 @@ class SqliteInquiryRepository(_Base):
         ).fetchall()
         return [cast(Inquiry, _load(r[0])) for r in rows]
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Inquiry]:
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Inquiry]:
         rows = self._conn.execute(
-            "SELECT id, json FROM inquiries WHERE subject = ? ORDER BY seq",
-            (subject_id,),
+            "SELECT id, json FROM inquiries WHERE subject = ? AND space = ? ORDER BY seq",
+            (subject_id, space_id),
         ).fetchall()
         latest: dict[str, Inquiry] = {}
         order: list[str] = []
@@ -249,8 +309,9 @@ class SqliteWorldModelRepository(_Base):
     def append_version(self, model: WorldModel) -> None:
         try:
             self._conn.execute(
-                "INSERT INTO world_models (subject, version, json) VALUES (?, ?, ?)",
-                (model.subject_id, model.model_version_id, _dump(model)),
+                "INSERT INTO world_models (space, subject, version, json) "
+                "VALUES (?, ?, ?, ?)",
+                (model.space_id, model.subject_id, model.model_version_id, _dump(model)),
             )
         except sqlite3.IntegrityError as exc:
             raise InvariantViolation(
@@ -259,35 +320,42 @@ class SqliteWorldModelRepository(_Base):
         self._conn.commit()
 
     def get_version(
-        self, subject_id: SubjectId, version_id: WorldModelVersionId
+        self,
+        subject_id: SubjectId,
+        version_id: WorldModelVersionId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> WorldModel | None:
         row = self._conn.execute(
-            "SELECT json FROM world_models WHERE subject = ? AND version = ?",
-            (subject_id, version_id),
+            "SELECT json FROM world_models WHERE space = ? AND subject = ? AND version = ?",
+            (space_id, subject_id, version_id),
         ).fetchone()
         return None if row is None else cast(WorldModel, _load(row[0]))
 
     def get_current_pointer(
-        self, subject_id: SubjectId
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
     ) -> CurrentModelSnapshot | None:
         row = self._conn.execute(
-            "SELECT json FROM current_pointer WHERE subject = ?", (subject_id,)
+            "SELECT json FROM current_pointer WHERE space = ? AND subject = ?",
+            (space_id, subject_id),
         ).fetchone()
         return None if row is None else cast(CurrentModelSnapshot, _load(row[0]))
 
     def set_current_pointer(self, pointer: CurrentModelSnapshot) -> None:
         self._conn.execute(
-            "INSERT INTO current_pointer (subject, json) VALUES (?, ?) "
-            "ON CONFLICT(subject) DO UPDATE SET json = excluded.json",
-            (pointer.subject_id, _dump(pointer)),
+            "INSERT INTO current_pointer (space, subject, json) VALUES (?, ?, ?) "
+            "ON CONFLICT(space, subject) DO UPDATE SET json = excluded.json",
+            (pointer.space_id, pointer.subject_id, _dump(pointer)),
         )
         self._conn.commit()
 
-    def get_current_model(self, subject_id: SubjectId) -> WorldModel | None:
-        pointer = self.get_current_pointer(subject_id)
+    def get_current_model(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> WorldModel | None:
+        pointer = self.get_current_pointer(subject_id, space_id=space_id)
         if pointer is None:
             return None
-        return self.get_version(subject_id, pointer.model_version_id)
+        return self.get_version(subject_id, pointer.model_version_id, space_id=space_id)
 
 
 class SqliteRevisionLedgerStore(_Base):
@@ -297,31 +365,40 @@ class SqliteRevisionLedgerStore(_Base):
                 "Only committed RevisionEvents may be appended (FR-MR-003/005)"
             )
         row = self._conn.execute(
-            "SELECT COUNT(*) FROM ledger WHERE subject = ?", (event.subject_id,)
+            "SELECT COUNT(*) FROM ledger WHERE space = ? AND subject = ?",
+            (event.space_id, event.subject_id),
         ).fetchone()
         seq = int(row[0])
         entry = RevisionLedgerEntry(
             sequence_no=seq, revision_event=event, appended_at=event.created_at
         )
         self._conn.execute(
-            "INSERT INTO ledger (subject, seq, json) VALUES (?, ?, ?)",
-            (event.subject_id, seq, _dump(entry)),
+            "INSERT INTO ledger (space, subject, seq, json) VALUES (?, ?, ?, ?)",
+            (event.space_id, event.subject_id, seq, _dump(entry)),
         )
         self._conn.commit()
         return entry
 
-    def read(self, subject_id: SubjectId) -> Sequence[RevisionLedgerEntry]:
+    def read(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[RevisionLedgerEntry]:
         rows = self._conn.execute(
-            "SELECT json FROM ledger WHERE subject = ? ORDER BY seq", (subject_id,)
+            "SELECT json FROM ledger WHERE space = ? AND subject = ? ORDER BY seq",
+            (space_id, subject_id),
         ).fetchall()
         return [cast(RevisionLedgerEntry, _load(r[0])) for r in rows]
 
     def read_since(
-        self, subject_id: SubjectId, after_sequence_no: int
+        self,
+        subject_id: SubjectId,
+        after_sequence_no: int,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Sequence[RevisionLedgerEntry]:
         rows = self._conn.execute(
-            "SELECT json FROM ledger WHERE subject = ? AND seq > ? ORDER BY seq",
-            (subject_id, after_sequence_no),
+            "SELECT json FROM ledger WHERE space = ? AND subject = ? AND seq > ? "
+            "ORDER BY seq",
+            (space_id, subject_id, after_sequence_no),
         ).fetchall()
         return [cast(RevisionLedgerEntry, _load(r[0])) for r in rows]
 
@@ -361,15 +438,17 @@ class SqliteProvenanceRepository(_Base):
 class SqliteRecognitionRepository(_Base):
     def add(self, event: RecognitionEvent) -> None:
         self._conn.execute(
-            "INSERT INTO recognition (subject, json) VALUES (?, ?)",
-            (event.subject_id, _dump(event)),
+            "INSERT INTO recognition (space, subject, json) VALUES (?, ?, ?)",
+            (event.space_id, event.subject_id, _dump(event)),
         )
         self._conn.commit()
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[RecognitionEvent]:
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[RecognitionEvent]:
         rows = self._conn.execute(
-            "SELECT json FROM recognition WHERE subject = ? ORDER BY seq",
-            (subject_id,),
+            "SELECT json FROM recognition WHERE subject = ? AND space = ? ORDER BY seq",
+            (subject_id, space_id),
         ).fetchall()
         return [cast(RecognitionEvent, _load(r[0])) for r in rows]
 
@@ -427,8 +506,9 @@ class SqliteReasoningStore:
         # transport/threading concern only — it does not alter any reasoning
         # behaviour or the stored data.
         self._conn = sqlite3.connect(path, check_same_thread=False)
-        self._conn.executescript(_SCHEMA)
-        self._conn.commit()
+        # Create/upgrade the schema. On a legacy (pre-space) database this
+        # migrates existing rows in place, preserving data (see sqlite_migration).
+        migrate(self._conn, _SCHEMA)
         self.evidence = SqliteEvidenceStore(self._conn)
         self.inference = SqliteInferenceStore(self._conn)
         self.hypotheses = SqliteHypothesisRepository(self._conn)
@@ -441,6 +521,29 @@ class SqliteReasoningStore:
         self.recognition = SqliteRecognitionRepository(self._conn)
         self.dependencies = SqliteDependencyGraphStore(self._conn)
         self.modelling_context = SqliteSystemModellingContextStore(self._conn)
+
+    def reset(self) -> None:
+        """Clear ALL reasoning state from this database (a *test-harness*
+        lifecycle operation — Finding 2).
+
+        The deterministic review harness reruns a Test Case by rebuilding a fresh
+        engine with a deterministic id generator that restarts at ``evidence-1``.
+        Against a durable SQLite file whose rows survive, that reissued id would
+        collide. ``reset()`` truncates every table so a deterministic rerun is
+        clean and reproduces byte-identically.
+
+        This is emphatically NOT a production/durable operation: durable
+        reasoning for real subjects is never reset (it uses collision-safe ids
+        and only ever appends). See ``docs/reset-and-rerun.md``.
+        """
+        for table in _RESETTABLE_TABLES:
+            self._conn.execute(f"DELETE FROM {table}")
+        # Reset AUTOINCREMENT counters so a rerun is byte-identical, if present.
+        if self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'"
+        ).fetchone():
+            self._conn.execute("DELETE FROM sqlite_sequence")
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()

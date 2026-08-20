@@ -309,13 +309,22 @@ class TestCase:
 
     def _build(self) -> None:
         """(Re)create a clean engine + store; clears reasoning state, keeps the
-        authored sequence and review metadata."""
+        authored sequence and review metadata.
+
+        A Test Case is a *deterministic* experiment: it uses ``ManualClock`` +
+        ``SequentialIdGenerator`` so a rerun reproduces byte-identically. Against
+        the durable SQLite backend those ids restart at ``evidence-1`` on every
+        rebuild, so the database must be cleared first — otherwise a rerun
+        collides with rows persisted by the previous run (Finding 2). This
+        ``reset()`` is a TEST-HARNESS lifecycle operation; durable production
+        reasoning is never reset (it uses collision-safe ids and only appends)."""
         self._appraiser = HarnessAppraiser()
         self._clock = ManualClock()
         ids = SequentialIdGenerator()
         self._store: InMemoryReasoningStore | SqliteReasoningStore
         if self._backend == "sqlite":
             sqlite_store = SqliteReasoningStore(self._db_path)
+            sqlite_store.reset()  # clear durable rows so the deterministic rerun is clean
             self._store = sqlite_store
             deps = build_sqlite_dependencies(
                 store=sqlite_store, appraiser=self._appraiser,

@@ -20,11 +20,14 @@ from enum import Enum
 
 from .errors import InvariantViolation
 from .identifiers import (
+    ActorId,
     EvidenceRecordId,
     InferenceRecordId,
     ObjectRef,
+    SpaceId,
     SubjectId,
 )
+from .scope import DEFAULT_SPACE_ID
 from .uncertainty import (
     ClassificationConfidence,
     EvidenceReliability,
@@ -94,10 +97,18 @@ class EvidenceRecord:
     occurred_at: datetime
     # Optional link to the interaction/acquisition that produced this record.
     origin_ref: ObjectRef | None = None
+    # Isolation boundary this evidence belongs to (Finding 1). Defaulted for
+    # single-space callers; the service assigns it from the interaction scope.
+    space_id: SpaceId = DEFAULT_SPACE_ID
+    # Who contributed this observation (a.k.a. member id) — contribution
+    # provenance, distinct from the subject the evidence concerns.
+    actor_id: ActorId | None = None
 
     def __post_init__(self) -> None:
         if not self.content:
             raise InvariantViolation("EvidenceRecord.content must be non-empty")
+        if not self.space_id:
+            raise InvariantViolation("EvidenceRecord.space_id must be non-empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +134,8 @@ class InferenceRecord:
     # OPEN (spec-unresolved): how an inference attaches to Hypothesis/Prediction/
     # WorldModel is not specified. Kept deliberately loose; do not assume a shape.
     relates_to: tuple[ObjectRef, ...] = field(default=())
+    # Isolation boundary this inference belongs to (Finding 1).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.content:

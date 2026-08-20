@@ -40,9 +40,11 @@ from .identifiers import (
     EvidenceRecordId,
     ObjectRef,
     RevisionEventId,
+    SpaceId,
     SubjectId,
     WorldModelVersionId,
 )
+from .scope import DEFAULT_SPACE_ID
 
 
 class AnomalyDisposition(Enum):
@@ -94,6 +96,7 @@ class AnomalyResolution:
     triggering_evidence_ids: tuple[EvidenceRecordId, ...]
     created_at: datetime
     note: str = ""
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.triggering_evidence_ids:
@@ -122,6 +125,9 @@ class RevisionEvent:
     from_model_version_id: WorldModelVersionId | None = None
     to_model_version_id: WorldModelVersionId | None = None
     anomaly_resolution_id: AnomalyResolutionId | None = None
+    # Isolation boundary this revision belongs to (Finding 1). The ledger is
+    # partitioned and sequenced per (space_id, subject_id).
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     def __post_init__(self) -> None:
         if not self.triggering_evidence_ids:
@@ -155,6 +161,7 @@ class RevisionEvent:
             from_model_version_id=self.from_model_version_id,
             to_model_version_id=to_model_version_id,
             anomaly_resolution_id=self.anomaly_resolution_id,
+            space_id=self.space_id,
         )
 
 
@@ -172,6 +179,7 @@ class ModelRevisionResult:
     revision_events: tuple[RevisionEvent, ...]
     anomaly_resolutions: tuple[AnomalyResolution, ...] = ()
     new_model_version_id: WorldModelVersionId | None = None
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
     @property
     def committed_events(self) -> tuple[RevisionEvent, ...]:

@@ -29,15 +29,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
     AcquisitionStrategy,
     CognitiveState,
     EvidenceRecord,
     Hypothesis,
     Inquiry,
+    InvariantViolation,
     ModelRevisionResult,
     Prediction,
     RecognitionEvent,
     RevisionLedgerEntry,
+    SpaceId,
     SubjectId,
     WorldModel,
     WorldModelVersionId,
@@ -70,6 +73,7 @@ class InteractionResult:
     'required outputs at each step'."""
 
     subject_id: SubjectId
+    space_id: SpaceId
     model: WorldModel | None
     committed: bool
     # the evidence the engine actually ingested this interaction
@@ -103,18 +107,34 @@ class CoreLoop:
         self._engine = ModelRevisionEngine(deps)
 
     def ingest(
-        self, subject_id: SubjectId, evidence_batch: Sequence[EvidenceRecord]
+        self,
+        subject_id: SubjectId,
+        evidence_batch: Sequence[EvidenceRecord],
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> InteractionResult:
         d = self._d
         batch = tuple(evidence_batch)
 
+        # Ownership gate (Finding 1): every evidence record must belong to the
+        # interaction's (space, subject). Reject a batch that tries to smuggle in
+        # evidence owned by another subject or another space.
+        for evidence in batch:
+            if evidence.subject_id != subject_id or evidence.space_id != space_id:
+                raise InvariantViolation(
+                    "Evidence ownership does not match the interaction scope: "
+                    f"evidence {evidence.id} is owned by "
+                    f"(space={evidence.space_id}, subject={evidence.subject_id}) "
+                    f"but the interaction is (space={space_id}, subject={subject_id})"
+                )
+
         # Mark the ledger position so we can report revisions from *this*
         # interaction only.
-        prior = d.ledger.read(subject_id)
+        prior = d.ledger.read(subject_id, space_id=space_id)
         prior_seq = prior[-1].sequence_no if prior else -1
 
         # 1. get_current_model (the model state entering this interaction)
-        current = d.world_models.get_current_model(subject_id)
+        current = d.world_models.get_current_model(subject_id, space_id=space_id)
         version_before = None if current is None else current.model_version_id
         uncertainty_before = (
             None if current is None else current.model_uncertainty.value
@@ -122,7 +142,7 @@ class CoreLoop:
 
         # 2. identify_competing_hypotheses / 3. rank_by_uncertainty
         competing = self._rank_by_uncertainty(
-            d.hypotheses.list_for_subject(subject_id)
+            d.hypotheses.list_for_subject(subject_id, space_id=space_id)
         )
         # 4. compute_expected_information_gain
         eig = expected_information_gain([h.support.value for h in competing])
@@ -136,11 +156,12 @@ class CoreLoop:
             d.evidence.add(evidence)
 
         # 8. revise_model -> ModelRevisionResult
-        applied = self._engine.revise(subject_id, batch, current)
+        applied = self._engine.revise(subject_id, batch, current, space_id=space_id)
 
-        since = tuple(d.ledger.read_since(subject_id, prior_seq))
+        since = tuple(d.ledger.read_since(subject_id, prior_seq, space_id=space_id))
         return InteractionResult(
             subject_id=subject_id,
+            space_id=space_id,
             model=applied.model,
             committed=applied.committed,
             ingested_evidence=batch,
@@ -151,10 +172,14 @@ class CoreLoop:
             cognitive_state=cognitive,
             acquisition_strategy=strategy,
             revision_result=applied.result,
-            active_hypotheses=tuple(d.hypotheses.list_for_subject(subject_id)),
+            active_hypotheses=tuple(
+                d.hypotheses.list_for_subject(subject_id, space_id=space_id)
+            ),
             predictions=applied.predictions,
             inquiry=applied.inquiry,
-            recognition_events=tuple(d.recognition.list_for_subject(subject_id)),
+            recognition_events=tuple(
+                d.recognition.list_for_subject(subject_id, space_id=space_id)
+            ),
             revision_events_since_prior=since,
         )
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
     EvidenceClass,
     EvidenceRecord,
     EvidenceRecordId,
@@ -21,6 +22,7 @@ from sanuvia.domain import (
     InferenceRecordId,
     Provenance,
     ProvenanceConfidence,
+    SpaceId,
     SubjectId,
     WorldModelVersionId,
 )
@@ -46,16 +48,52 @@ def make_evidence(
     reliability: float = 0.7,
     classification_confidence: float = 0.8,
     occurred_at: datetime = T0,
+    subject_id: SubjectId = SUBJECT,
+    space_id: SpaceId = DEFAULT_SPACE_ID,
 ) -> EvidenceRecord:
     return EvidenceRecord(
         id=EvidenceRecordId(evidence_id),
-        subject_id=SUBJECT,
+        subject_id=subject_id,
         evidence_class=evidence_class,
         content=content,
         provenance=make_provenance(),
         reliability=EvidenceReliability(reliability),
         classification_confidence=ClassificationConfidence(classification_confidence),
         occurred_at=occurred_at,
+        space_id=space_id,
+    )
+
+
+def make_prediction(
+    *,
+    prediction_id: str = "pred-1",
+    hyps: tuple[str, ...] = ("hyp-1",),
+    evs: tuple[str, ...] = (),
+    likelihood: float = 0.6,
+    subject_id: SubjectId = SUBJECT,
+    space_id: SpaceId = DEFAULT_SPACE_ID,
+) -> "Prediction":
+    from sanuvia.domain import (
+        FutureTrajectory,
+        HypothesisId,
+        Prediction,
+        PredictionId,
+        PredictionLikelihood,
+        TrajectoryKind,
+    )
+
+    return Prediction(
+        id=PredictionId(prediction_id),
+        subject_id=subject_id,
+        trajectory=FutureTrajectory(
+            kind=TrajectoryKind.RECURRING_CYCLE, description="distance-then-repair cycle"
+        ),
+        likelihood=PredictionLikelihood(likelihood),
+        derived_from_hypothesis_ids=tuple(HypothesisId(h) for h in hyps),
+        derived_from_evidence_ids=tuple(EvidenceRecordId(e) for e in evs),
+        model_version_id=WorldModelVersionId("wm-1"),
+        created_at=T0,
+        space_id=space_id,
     )
 
 
@@ -77,16 +115,20 @@ def make_hypothesis(
     support: float = 0.5,
     supporting: tuple[str, ...] = ("ev-1",),
     contradicting: tuple[str, ...] = (),
+    subject_id: SubjectId = SUBJECT,
+    space_id: SpaceId = DEFAULT_SPACE_ID,
 ) -> Hypothesis:
     from sanuvia.domain import HypothesisSupport
 
     return Hypothesis(
         record_id=HypothesisRecordId(record_id),
         hypothesis_id=HypothesisId(hypothesis_id),
+        subject_id=subject_id,
         statement="increasing emotional distance",
         support=HypothesisSupport(support),
         supporting_evidence_ids=tuple(EvidenceRecordId(e) for e in supporting),
         contradicting_evidence_ids=tuple(EvidenceRecordId(e) for e in contradicting),
         evaluated_at_version=WorldModelVersionId("wm-1"),
         evaluated_at=T0,
+        space_id=space_id,
     )

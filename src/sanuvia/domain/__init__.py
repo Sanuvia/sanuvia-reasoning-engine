@@ -25,6 +25,7 @@ from .evidence import (
 )
 from .hypothesis import Hypothesis
 from .identifiers import (
+    ActorId,
     AnomalyResolutionId,
     DependencyEdgeId,
     EvidenceRecordId,
@@ -38,11 +39,19 @@ from .identifiers import (
     ReasoningSystemId,
     RecognitionEventId,
     RevisionEventId,
+    SpaceId,
     SubjectId,
     SystemModellingContextId,
     WorldModelVersionId,
 )
 from .inquiry import Inquiry, InquiryStatus
+from .scope import (
+    DEFAULT_SPACE_ID,
+    ReasoningScope,
+    SpaceKind,
+    personal_space_id,
+    shared_space_id,
+)
 from .prediction import FutureTrajectory, Prediction, TrajectoryKind
 from .recognition import RecognitionEvent, RecognitionKind
 from .revision import (
@@ -76,8 +85,16 @@ __all__ = [
     "EvidenceInferenceConflation",
     "NotYetSpecified",
     # identifiers
+    "SpaceId",
     "SubjectId",
+    "ActorId",
     "ReasoningSystemId",
+    # scope (space/subject isolation — Finding 1)
+    "ReasoningScope",
+    "DEFAULT_SPACE_ID",
+    "SpaceKind",
+    "personal_space_id",
+    "shared_space_id",
     "EvidenceRecordId",
     "InferenceRecordId",
     "WorldModelVersionId",

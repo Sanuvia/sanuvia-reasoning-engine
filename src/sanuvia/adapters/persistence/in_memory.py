@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
     AnomalyResolution,
     AnomalyResolutionId,
     CurrentModelSnapshot,
@@ -39,6 +40,7 @@ from sanuvia.domain import (
     RevisionEvent,
     RevisionLedgerEntry,
     RevisionStatus,
+    SpaceId,
     SubjectId,
     SystemModellingContext,
     WorldModel,
@@ -60,8 +62,14 @@ class InMemoryEvidenceStore:
     def get(self, evidence_id: EvidenceRecordId) -> EvidenceRecord | None:
         return self._by_id.get(evidence_id)
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[EvidenceRecord]:
-        return [e for e in self._by_id.values() if e.subject_id == subject_id]
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[EvidenceRecord]:
+        return [
+            e
+            for e in self._by_id.values()
+            if e.subject_id == subject_id and e.space_id == space_id
+        ]
 
 
 class InMemoryInferenceStore:
@@ -78,8 +86,14 @@ class InMemoryInferenceStore:
     def get(self, inference_id: InferenceRecordId) -> InferenceRecord | None:
         return self._by_id.get(inference_id)
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[InferenceRecord]:
-        return [i for i in self._by_id.values() if i.subject_id == subject_id]
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[InferenceRecord]:
+        return [
+            i
+            for i in self._by_id.values()
+            if i.subject_id == subject_id and i.space_id == space_id
+        ]
 
 
 class InMemoryHypothesisRepository:
@@ -92,27 +106,59 @@ class InMemoryHypothesisRepository:
     def add(self, hypothesis: Hypothesis) -> None:
         self._records.append(hypothesis)
 
-    def get_record(self, record_id: HypothesisRecordId) -> Hypothesis | None:
+    def get_record(
+        self, record_id: HypothesisRecordId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Hypothesis | None:
         for h in self._records:
-            if h.record_id == record_id:
+            if h.record_id == record_id and h.space_id == space_id:
                 return h
         return None
 
-    def latest(self, hypothesis_id: HypothesisId) -> Hypothesis | None:
+    def latest(
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
+    ) -> Hypothesis | None:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
         latest: Hypothesis | None = None
         for h in self._records:
-            if h.hypothesis_id == hypothesis_id:
+            if (
+                h.hypothesis_id == hypothesis_id
+                and h.subject_id == subject_id
+                and h.space_id == space_id
+            ):
                 latest = h
         return latest
 
-    def lineage(self, hypothesis_id: HypothesisId) -> Sequence[Hypothesis]:
-        return [h for h in self._records if h.hypothesis_id == hypothesis_id]
+    def lineage(
+        self,
+        hypothesis_id: HypothesisId,
+        subject_id: SubjectId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
+    ) -> Sequence[Hypothesis]:
+        # Scope: (space_id, subject_id, hypothesis_id) — Finding 1.
+        return [
+            h
+            for h in self._records
+            if h.hypothesis_id == hypothesis_id
+            and h.subject_id == subject_id
+            and h.space_id == space_id
+        ]
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Hypothesis]:
-        # Latest evaluation per lineage, preserving first-seen order.
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Hypothesis]:
+        # Latest evaluation per lineage, preserving first-seen order. Isolation
+        # (Finding 1): only lineages owned by THIS (space, subject) are considered
+        # — a hypothesis for another subject or space is never returned.
         latest: dict[HypothesisId, Hypothesis] = {}
         order: list[HypothesisId] = []
         for h in self._records:
+            if h.subject_id != subject_id or h.space_id != space_id:
+                continue
             if h.hypothesis_id not in latest:
                 order.append(h.hypothesis_id)
             latest[h.hypothesis_id] = h
@@ -134,8 +180,16 @@ class InMemoryPredictionRepository:
     def get(self, prediction_id: PredictionId) -> Prediction | None:
         return self._by_id.get(prediction_id)
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Prediction]:
-        return [self._by_id[pid] for pid in self._order]
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Prediction]:
+        # Isolation (Finding 1): filter by BOTH subject and space.
+        return [
+            self._by_id[pid]
+            for pid in self._order
+            if self._by_id[pid].subject_id == subject_id
+            and self._by_id[pid].space_id == space_id
+        ]
 
 
 class InMemoryInquiryRepository:
@@ -157,11 +211,13 @@ class InMemoryInquiryRepository:
     def history(self, inquiry_id: InquiryId) -> Sequence[Inquiry]:
         return [inq for inq in self._records if inq.id == inquiry_id]
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[Inquiry]:
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[Inquiry]:
         latest: dict[InquiryId, Inquiry] = {}
         order: list[InquiryId] = []
         for inq in self._records:
-            if inq.subject_id != subject_id:
+            if inq.subject_id != subject_id or inq.space_id != space_id:
                 continue
             if inq.id not in latest:
                 order.append(inq.id)
@@ -173,13 +229,15 @@ class InMemoryWorldModelRepository:
     """Implements ``WorldModelRepository`` (append-only versions + pointer)."""
 
     def __init__(self) -> None:
+        # Keyed by (space, subject, version) and (space, subject) so the same
+        # subject id in two spaces has fully separate model history (Finding 1).
         self._versions: dict[
-            tuple[SubjectId, WorldModelVersionId], WorldModel
+            tuple[SpaceId, SubjectId, WorldModelVersionId], WorldModel
         ] = {}
-        self._current: dict[SubjectId, CurrentModelSnapshot] = {}
+        self._current: dict[tuple[SpaceId, SubjectId], CurrentModelSnapshot] = {}
 
     def append_version(self, model: WorldModel) -> None:
-        key = (model.subject_id, model.model_version_id)
+        key = (model.space_id, model.subject_id, model.model_version_id)
         if key in self._versions:
             raise InvariantViolation(
                 f"WorldModel version {model.model_version_id} already exists"
@@ -187,37 +245,45 @@ class InMemoryWorldModelRepository:
         self._versions[key] = model
 
     def get_version(
-        self, subject_id: SubjectId, version_id: WorldModelVersionId
+        self,
+        subject_id: SubjectId,
+        version_id: WorldModelVersionId,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> WorldModel | None:
-        return self._versions.get((subject_id, version_id))
+        return self._versions.get((space_id, subject_id, version_id))
 
     def get_current_pointer(
-        self, subject_id: SubjectId
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
     ) -> CurrentModelSnapshot | None:
-        return self._current.get(subject_id)
+        return self._current.get((space_id, subject_id))
 
     def set_current_pointer(self, pointer: CurrentModelSnapshot) -> None:
-        self._current[pointer.subject_id] = pointer
+        self._current[(pointer.space_id, pointer.subject_id)] = pointer
 
-    def get_current_model(self, subject_id: SubjectId) -> WorldModel | None:
-        pointer = self._current.get(subject_id)
+    def get_current_model(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> WorldModel | None:
+        pointer = self._current.get((space_id, subject_id))
         if pointer is None:
             return None
-        return self._versions.get((subject_id, pointer.model_version_id))
+        return self._versions.get((space_id, subject_id, pointer.model_version_id))
 
 
 class InMemoryRevisionLedgerStore:
     """Implements ``RevisionLedgerStore`` — append-only, monotonic per subject."""
 
     def __init__(self) -> None:
-        self._by_subject: dict[SubjectId, list[RevisionLedgerEntry]] = {}
+        # Per (space, subject) monotonic sequence — a subject in two spaces keeps
+        # two independent ledgers (Finding 1).
+        self._by_scope: dict[tuple[SpaceId, SubjectId], list[RevisionLedgerEntry]] = {}
 
     def append(self, event: RevisionEvent) -> RevisionLedgerEntry:
         if event.status is not RevisionStatus.COMMITTED:
             raise InvariantViolation(
                 "Only committed RevisionEvents may be appended (FR-MR-003/005)"
             )
-        entries = self._by_subject.setdefault(event.subject_id, [])
+        entries = self._by_scope.setdefault((event.space_id, event.subject_id), [])
         entry = RevisionLedgerEntry(
             sequence_no=len(entries),
             revision_event=event,
@@ -228,15 +294,21 @@ class InMemoryRevisionLedgerStore:
         entries.append(entry)
         return entry
 
-    def read(self, subject_id: SubjectId) -> Sequence[RevisionLedgerEntry]:
-        return list(self._by_subject.get(subject_id, []))
+    def read(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[RevisionLedgerEntry]:
+        return list(self._by_scope.get((space_id, subject_id), []))
 
     def read_since(
-        self, subject_id: SubjectId, after_sequence_no: int
+        self,
+        subject_id: SubjectId,
+        after_sequence_no: int,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
     ) -> Sequence[RevisionLedgerEntry]:
         return [
             e
-            for e in self._by_subject.get(subject_id, [])
+            for e in self._by_scope.get((space_id, subject_id), [])
             if e.sequence_no > after_sequence_no
         ]
 
@@ -276,8 +348,14 @@ class InMemoryRecognitionRepository:
     def add(self, event: RecognitionEvent) -> None:
         self._events.append(event)
 
-    def list_for_subject(self, subject_id: SubjectId) -> Sequence[RecognitionEvent]:
-        return [e for e in self._events if e.subject_id == subject_id]
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[RecognitionEvent]:
+        return [
+            e
+            for e in self._events
+            if e.subject_id == subject_id and e.space_id == space_id
+        ]
 
 
 class InMemoryDependencyGraphStore:

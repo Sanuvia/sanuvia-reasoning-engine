@@ -68,7 +68,7 @@ experimentation but are not part of the production path.)
 
 ```bash
 sudo mkdir -p /opt
-sudo git clone https://github.com/eelitedesire/sanuvia.git /opt/sanuvia
+sudo git clone https://github.com/Sanuvia/sanuvia-reasoning-engine.git /opt/sanuvia
 cd /opt/sanuvia
 ```
 
@@ -133,6 +133,16 @@ Verify:
 curl -s http://127.0.0.1:8000/health       # {"status":"ok","version":"phase0","backend":"sqlite"}
 curl -s https://buyafraction.com/health    # same, through nginx
 ```
+
+For a full clean-host self-check (install → persistence → start → health → Phase
+0 exit test) on a build/staging box, run the deployment smoke test:
+
+```bash
+bash /opt/sanuvia/scripts/smoke.sh         # exits 0 if the clean-host path works
+```
+
+See `docs/reset-and-rerun.md` for reset/rerun semantics and
+`docs/phase0-acceptance-spec.md` for the finding-to-test traceability record.
 
 > **Alternative — Caddy** (only on a host with no existing proxy): install Caddy
 > and `sudo cp /opt/sanuvia/deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy`.

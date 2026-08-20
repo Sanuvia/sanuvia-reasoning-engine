@@ -115,8 +115,8 @@ def _check_competing_hypotheses(
 ) -> CheckResult:
     after_i1 = _lineages(results[0])
     both_retained = (
-        store.hypotheses.latest(H_A) is not None
-        and store.hypotheses.latest(H_B) is not None
+        store.hypotheses.latest(H_A, SUBJECT) is not None
+        and store.hypotheses.latest(H_B, SUBJECT) is not None
     )
     passed = {H_A, H_B} <= after_i1 and both_retained
     return CheckResult(

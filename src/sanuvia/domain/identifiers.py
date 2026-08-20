@@ -14,10 +14,28 @@ from __future__ import annotations
 
 from typing import NewType
 
-# --- Subject / system scoping -------------------------------------------------
+# --- Space / subject / actor scoping ------------------------------------------
+# Three distinct identifiers that must never be collapsed into one another
+# (Finding 1 — subject/space/actor isolation):
+#
+#   * SpaceId   — *where* the reasoning belongs: the isolation / access boundary.
+#                 All reasoning state (evidence, hypotheses, predictions, world
+#                 models, ledger) is partitioned by space. Two spaces never see
+#                 each other's reasoning.
+#   * SubjectId — *who or what* the reasoning concerns, within a space.
+#   * ActorId   — *who contributed* a piece of evidence or performed an action
+#                 (a.k.a. member id). It records provenance of contribution and
+#                 is never a partition key on its own.
+SpaceId = NewType("SpaceId", str)
+"""The isolation/access boundary a piece of reasoning belongs to (Finding 1)."""
+
 SubjectId = NewType("SubjectId", str)
 """The reasoning participant a WorldModel and its evidence are scoped to
-(FR-PU-001/002)."""
+(FR-PU-001/002). Scoped *within* a :data:`SpaceId`."""
+
+ActorId = NewType("ActorId", str)
+"""Who contributed the evidence / performed the action (a.k.a. member id). It is
+a contribution-provenance identifier, not an isolation boundary."""
 
 ReasoningSystemId = NewType("ReasoningSystemId", str)
 """A key referenced across schemas, not a stored object (per ownership map)."""

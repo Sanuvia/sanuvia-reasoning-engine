@@ -1,6 +1,6 @@
 [Unit]
 Description=Sanuvia Phase 0 Engineering Review Harness
-Documentation=https://github.com/eelitedesire/sanuvia
+Documentation=https://github.com/Sanuvia/sanuvia-reasoning-engine
 Documentation=file:///opt/sanuvia/docs/deployment.md
 After=network-online.target
 Wants=network-online.target

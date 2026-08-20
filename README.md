@@ -198,6 +198,24 @@ scenario through both backends and asserts **byte-identical** reasoning, proving
 the backend changes only *where* state lives, never *how* reasoning behaves.
 State survives across connections.
 
+### Isolation: space / subject / actor
+
+All reasoning state is owned by a `(space_id, subject_id)` boundary — three
+distinct identifiers that are never collapsed: **`space_id`** (where reasoning
+belongs — the isolation boundary), **`subject_id`** (who/what it concerns), and
+**`actor_id`** (who contributed a piece of evidence). Repositories partition by
+`(space, subject)`, so a query for one scope can never return another's
+hypotheses, predictions, or world model; evidence whose ownership doesn't match
+the interaction scope is rejected. The SQLite adapter migrates a pre-space
+database in place (`sqlite_migration.py`). Negative regression tests
+(`tests/test_space_isolation.py`) prove cross-boundary access fails. Single-space
+callers are unaffected — the default space keeps existing behaviour byte-identical.
+
+Reset/rerun semantics (deterministic test harness vs. durable production) are
+documented in `docs/reset-and-rerun.md`; the finding-to-test traceability record
+is `docs/phase0-acceptance-spec.md`. Continuous verification runs in
+`.github/workflows/ci.yml`.
+
 ## Engineering review harness
 
 A cloud-hostable, mobile-responsive **diagnostic dashboard** for remotely

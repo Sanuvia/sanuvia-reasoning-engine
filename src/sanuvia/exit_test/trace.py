@@ -139,11 +139,12 @@ def _render_interaction(index: int, r: InteractionResult) -> list[str]:
 
 def _render_summaries(state: SessionState) -> list[str]:
     subject = state.subject_id
+    space = state.space_id  # Finding 2: query the session's own space, not the default
     out = ["---", "", "# End-of-run summaries", ""]
 
     out.append("## RevisionLedger (authoritative history)")
     out.append("")
-    ledger = list(state.ledger.read(subject))
+    ledger = list(state.ledger.read(subject, space_id=space))
     if ledger:
         out.append("| seq | outcome | affected | from → to | triggering evidence |")
         out.append("| --- | --- | --- | --- | --- |")
@@ -161,10 +162,12 @@ def _render_summaries(state: SessionState) -> list[str]:
 
     out.append("## Hypothesis lineage (support over time)")
     out.append("")
-    hyps = list(state.hypotheses.list_for_subject(subject))
+    hyps = list(state.hypotheses.list_for_subject(subject, space_id=space))
     if hyps:
         for h in hyps:
-            lineage = state.hypotheses.lineage(h.hypothesis_id)
+            lineage = state.hypotheses.lineage(
+                h.hypothesis_id, subject, space_id=space
+            )
             progression = " → ".join(_f(rec.support.value) for rec in lineage)
             out.append(f"- `{h.hypothesis_id}` — \"{h.statement}\"")
             out.append(
@@ -176,7 +179,7 @@ def _render_summaries(state: SessionState) -> list[str]:
 
     out.append("## Prediction history")
     out.append("")
-    preds = list(state.predictions.list_for_subject(subject))
+    preds = list(state.predictions.list_for_subject(subject, space_id=space))
     if preds:
         out.append("| prediction | model version | likelihood | trajectory | from |")
         out.append("| --- | --- | --- | --- | --- |")

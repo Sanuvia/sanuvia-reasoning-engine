@@ -29,12 +29,14 @@ from sanuvia.application.ports.repositories import (
     WorldModelRepository,
 )
 from sanuvia.domain import (
+    DEFAULT_SPACE_ID,
     EvidenceRecord,
     Hypothesis,
     Inquiry,
     Prediction,
     RecognitionEvent,
     RevisionLedgerEntry,
+    SpaceId,
     SubjectId,
     WorldModel,
     WorldModelVersionId,
@@ -54,6 +56,7 @@ class WorldModelViewSnapshot:
     inquiries: tuple[Inquiry, ...]
     recognition_events: tuple[RecognitionEvent, ...]
     revision_count: int
+    space_id: SpaceId = DEFAULT_SPACE_ID
 
 
 class WorldModelView:
@@ -84,14 +87,23 @@ class WorldModelView:
         self._recognition = recognition
 
     # -- individual queries -------------------------------------------------
+    #
+    # Every read is scoped to (space_id, subject_id) (Finding 1). ``space_id``
+    # defaults to the single default space so existing single-space readers are
+    # unaffected; a reader for one scope never sees another scope's reasoning.
 
-    def current_model(self, subject_id: SubjectId) -> WorldModel | None:
-        return self._world_models.get_current_model(subject_id)
+    def current_model(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> WorldModel | None:
+        return self._world_models.get_current_model(subject_id, space_id=space_id)
 
-    def active_hypotheses(self, subject_id: SubjectId) -> tuple[Hypothesis, ...]:
-        model = self._world_models.get_current_model(subject_id)
+    def active_hypotheses(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> tuple[Hypothesis, ...]:
+        model = self._world_models.get_current_model(subject_id, space_id=space_id)
         latest = {
-            h.hypothesis_id: h for h in self._hypotheses.list_for_subject(subject_id)
+            h.hypothesis_id: h
+            for h in self._hypotheses.list_for_subject(subject_id, space_id=space_id)
         }
         if model is None:
             return tuple(latest.values())
@@ -99,56 +111,68 @@ class WorldModelView:
             latest[hid] for hid in model.active_hypothesis_ids if hid in latest
         )
 
-    def active_predictions(self, subject_id: SubjectId) -> tuple[Prediction, ...]:
-        model = self._world_models.get_current_model(subject_id)
+    def active_predictions(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> tuple[Prediction, ...]:
+        model = self._world_models.get_current_model(subject_id, space_id=space_id)
         if model is None:
             return ()
         active_ids = set(model.active_prediction_ids)
         return tuple(
             p
-            for p in self._predictions.list_for_subject(subject_id)
+            for p in self._predictions.list_for_subject(subject_id, space_id=space_id)
             if p.id in active_ids
         )
 
-    def active_inquiries(self, subject_id: SubjectId) -> tuple[Inquiry, ...]:
-        model = self._world_models.get_current_model(subject_id)
+    def active_inquiries(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> tuple[Inquiry, ...]:
+        model = self._world_models.get_current_model(subject_id, space_id=space_id)
         if model is None:
             return ()
         active_ids = set(model.active_inquiry_ids)
         return tuple(
             inq
-            for inq in self._inquiries.list_for_subject(subject_id)
+            for inq in self._inquiries.list_for_subject(subject_id, space_id=space_id)
             if inq.id in active_ids
         )
 
     def revision_history(
-        self, subject_id: SubjectId
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
     ) -> tuple[RevisionLedgerEntry, ...]:
-        return tuple(self._ledger.read(subject_id))
+        return tuple(self._ledger.read(subject_id, space_id=space_id))
 
     def recognition_events(
-        self, subject_id: SubjectId
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
     ) -> tuple[RecognitionEvent, ...]:
-        return tuple(self._recognition.list_for_subject(subject_id))
+        return tuple(self._recognition.list_for_subject(subject_id, space_id=space_id))
 
-    def evidence(self, subject_id: SubjectId) -> tuple[EvidenceRecord, ...]:
-        return tuple(self._evidence.list_for_subject(subject_id))
+    def evidence(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> tuple[EvidenceRecord, ...]:
+        return tuple(self._evidence.list_for_subject(subject_id, space_id=space_id))
 
     # -- composite snapshot -------------------------------------------------
 
-    def understanding(self, subject_id: SubjectId) -> WorldModelViewSnapshot:
-        """A single read-only snapshot bundling current understanding."""
-        model = self._world_models.get_current_model(subject_id)
-        history: Sequence[RevisionLedgerEntry] = self._ledger.read(subject_id)
+    def understanding(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> WorldModelViewSnapshot:
+        """A single read-only snapshot bundling current understanding for the
+        ``(space_id, subject_id)`` scope."""
+        model = self._world_models.get_current_model(subject_id, space_id=space_id)
+        history: Sequence[RevisionLedgerEntry] = self._ledger.read(
+            subject_id, space_id=space_id
+        )
         return WorldModelViewSnapshot(
             subject_id=subject_id,
             model_version_id=None if model is None else model.model_version_id,
             model_uncertainty=(
                 None if model is None else model.model_uncertainty.value
             ),
-            hypotheses=self.active_hypotheses(subject_id),
-            predictions=self.active_predictions(subject_id),
-            inquiries=self.active_inquiries(subject_id),
-            recognition_events=self.recognition_events(subject_id),
+            hypotheses=self.active_hypotheses(subject_id, space_id=space_id),
+            predictions=self.active_predictions(subject_id, space_id=space_id),
+            inquiries=self.active_inquiries(subject_id, space_id=space_id),
+            recognition_events=self.recognition_events(subject_id, space_id=space_id),
             revision_count=len(history),
+            space_id=space_id,
         )
