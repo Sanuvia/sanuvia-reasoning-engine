@@ -21,6 +21,8 @@ from sanuvia.exit_test.trace import render_trace
 from . import metrics
 from .conditions import SanuviaPersistentCondition
 from .demonstrator import DemonstrationReport
+from .failures import CallStatus
+from .manifest import RunManifest
 from .pipeline import TranscriptDemonstrationReport
 from .trajectory import TrajectoryRecord
 
@@ -106,22 +108,25 @@ def render_markdown(report: DemonstrationReport) -> str:
             lines.append(f"- observed inquiry pairs: {rendered}")
         lines.append("")
 
-    # Raw divergence observables (Sanuvia vs each FM baseline). No aggregate rate.
+    # Id-based DIAGNOSTIC observables (Sanuvia vs each FM baseline). This is a
+    # debugging aid, NOT an evaluation result and NOT evidence of better reasoning.
     sanuvia = report.records_by_condition.get("sanuvia_persistent")
     if sanuvia is not None:
-        lines.append("## divergence observables (raw; aggregate rate pending governance)")
+        lines.append("## id-based diagnostics (debugging only — NOT an evaluation result)")
+        lines.append("")
+        lines.append(metrics.HYPOTHESIS_ID_DIAGNOSTIC_CAVEAT)
         lines.append("")
         for name, records in report.records_by_condition.items():
             if name == "sanuvia_persistent":
                 continue
-            points = metrics.divergence_observables(list(sanuvia), list(records))
+            points = metrics.id_based_diagnostics(list(sanuvia), list(records))
             inq = sum(1 for p in points if p.inquiry_presence_differs)
-            hyp = sum(1 for p in points if p.hypothesis_sets_differ)
+            hyp = sum(1 for p in points if p.hypothesis_id_sets_differ)
             comparable = sum(1 for p in points if p.uncertainty_comparable)
             lines.append(
                 f"- sanuvia_persistent vs {name}: "
                 f"points={len(points)}; inquiry-presence differs at {inq}; "
-                f"hypothesis-set differs at {hyp}; "
+                f"hypothesis-ID-set differs at {hyp} (id-level diagnostic, not semantic); "
                 f"uncertainty-comparable points={comparable} "
                 "(raw counts only — not a scored rate)"
             )
@@ -203,6 +208,52 @@ def render_transcript_markdown(report: TranscriptDemonstrationReport) -> str:
             )
     lines.append("")
     lines.append(render_markdown(report.demonstration))
+    return "\n".join(lines)
+
+
+def manifest_to_json(manifest: RunManifest) -> str:
+    """Canonical JSON of an immutable run manifest (deterministic serialization)."""
+    return manifest.to_json()
+
+
+def render_manifest_markdown(manifest: RunManifest) -> str:
+    """Human-readable manifest summary that makes per-interaction status and any
+    failed model calls VISIBLE (Area 2/3). A failed call is shown as a failure —
+    never hidden behind a successful-looking record."""
+    lines: list[str] = [
+        f"# Run manifest — {manifest.run_id}  [mode={manifest.mode}]",
+        "",
+        f"- created_at:      {manifest.created_at}",
+        f"- git_commit_sha:  {manifest.git_commit_sha}",
+        f"- phase1_version:  {manifest.phase1_version}",
+        f"- transcript_id:   {manifest.transcript_id}",
+        f"- model_specs:     {len(manifest.model_specs)} "
+        "(empty for golden — no external models)",
+        "",
+        "## per-interaction status",
+        "",
+    ]
+    for seq_label, status in manifest.per_interaction_status:
+        marker = "ok" if status == CallStatus.SUCCESS.value else "FAIL"
+        lines.append(f"- {seq_label}: {status}  [{marker}]")
+
+    failures = [
+        record
+        for record in manifest.call_records
+        if record.status != CallStatus.SUCCESS.value
+    ]
+    lines.append("")
+    lines.append("## failed model calls")
+    lines.append("")
+    if not failures:
+        lines.append("- none")
+    else:
+        for record in failures:
+            lines.append(
+                f"- {record.seq_label} [{record.boundary}/{record.model_role}] "
+                f"{record.status} after {record.attempts} attempt(s): {record.detail}"
+            )
+    lines.append("")
     return "\n".join(lines)
 
 

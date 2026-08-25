@@ -9,22 +9,19 @@ The system prompt instructs the model to emit **observations, not inferences**
 (evidence-vs-inference boundary). The reply is parsed with a strict structured
 reader — not an open-ended NLU parser — and every item is provenance-stamped.
 
-Governance (unresolved — requires Felix/both developers): which provider/model,
+Governance (unresolved — requires governance approval): which provider/model,
 access method, temperature/seed, and the exact extraction prompt/schema are **not**
 selected here.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
-
-from sanuvia.domain import EvidenceClass
 
 from ..extraction import EvidenceExtractor, ExtractedEvidence, ObservationSpec, stamp
 from ..transcript import TranscriptInteraction
+from ..validation import validate_extraction
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,17 +51,6 @@ SYSTEM = (
 INSTRUCTION = "Extract the observations now."
 
 
-def _to_class(value: str) -> EvidenceClass:
-    try:
-        return EvidenceClass(value.strip().lower())
-    except ValueError as exc:  # fail loud rather than silently mislabel evidence
-        raise ValueError(f"unknown evidence_class from extractor: {value!r}") from exc
-
-
-def _num(value: Any, default: float) -> float:
-    return float(value) if isinstance(value, (int, float)) else default
-
-
 class ExternalEvidenceExtractor:
     """Adapts a caller-supplied extraction client into the ``EvidenceExtractor``
     port. Real runs are **not** guaranteed deterministic."""
@@ -83,24 +69,19 @@ class ExternalEvidenceExtractor:
         request = ExtractionRequest(
             system=SYSTEM, transcript_text=interaction.text, instruction=INSTRUCTION
         )
-        data: Any = json.loads(self._client(request))
-        if not isinstance(data, dict):
-            raise ValueError("extractor response must be a JSON object")
-
+        # Strict validation: malformed output raises MalformedOutputError — it is
+        # never coerced into empty evidence or defaulted confidences.
+        observations = validate_extraction(self._client(request))
         out: list[ExtractedEvidence] = []
-        items = data.get("evidence", []) or []
-        for k, item in enumerate(items, start=1):
-            if not isinstance(item, dict):
-                continue
-            span = item.get("text_span")
+        for k, obs in enumerate(observations, start=1):
             spec = ObservationSpec(
                 ref=f"{transcript_id}:{interaction.index}:{k}",
-                observation=str(item.get("observation", "")),
-                evidence_class=_to_class(str(item.get("evidence_class", "reflective"))),
-                reliability=_num(item.get("reliability"), 0.5),
-                classification_confidence=_num(item.get("classification_confidence"), 0.5),
-                provenance_confidence=_num(item.get("provenance_confidence"), 0.5),
-                text_span=None if span is None else str(span),
+                observation=obs.observation,
+                evidence_class=obs.evidence_class,
+                reliability=obs.reliability,
+                classification_confidence=obs.classification_confidence,
+                provenance_confidence=obs.provenance_confidence,
+                text_span=obs.text_span,
             )
             out.append(stamp(spec, interaction, transcript_id, self.extractor_id))
         return tuple(out)

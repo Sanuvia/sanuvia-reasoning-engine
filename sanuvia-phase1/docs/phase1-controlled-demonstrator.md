@@ -87,7 +87,7 @@ compute the aggregate rate (see §12).
 - `revision_count_series`, `revision_event_count_series`, `provenance_series` (Sanuvia)
 - `recognition_record_series` (Sanuvia count — normally `0`, records deferred; FM `None`)
 - `unsupported_memory_series` (continuity claims with no cited evidence id — FM)
-- `divergence_observables` → `PointDivergence[]` (raw per-point; **no aggregate**)
+- `id_based_diagnostics` → `IdBasedDiagnosticPoint[]` (raw per-point, **DIAGNOSTIC only**; **no aggregate**)
 
 ### 5a. Per-step outputs (Programme v1.4 Part 4A)
 
@@ -229,7 +229,7 @@ raw transcript text ─► EvidenceExtractor ─► structured evidence ─► f
    injected client, port-conformant). Its **provider/model + appraisal prompt/schema**
    remain unresolved — the **same class of blocker** as the FM baselines.
 4. **Temperature/seed/determinism** for real runs — *not specified by the supplied documents.*
-5. **C.4/C.5 numerical thresholds** and confirmation of the C.5 draft pass conditions — deferred to Felix + both developers.
+5. **C.4/C.5 numerical thresholds** and confirmation of the C.5 draft pass conditions — deferred to the programme governance process.
 6. **Formal acceptance of the negative-result disposition** (Programme v1.4 C.1) for the inquiry outcome.
 
 Until these are set, only the deterministic doubles run; the demonstrator is **not
@@ -281,10 +281,72 @@ demonstrator (Case 001 unchanged):
 
 Programme v1.4 **C.5** names *"rate of behavioural divergence"* the primary metric,
 but the supplied documents define **no formula, weighting, or similar/diverged
-threshold** (C.4/C.5 defer them). `metrics.divergence_observables()` exposes raw
-per-point comparisons across the three C.3 dimensions (`PointDivergence`); the
+threshold** (C.4/C.5 defer them). `metrics.id_based_diagnostics()` exposes raw
+per-point comparisons across the three C.3 dimensions (`IdBasedDiagnosticPoint`); the
 aggregate rate is **not computed** and `metrics.DIVERGENCE_RATE_STATUS` records it
 as pending governance. No monotonicity rule, weight, or pass/fail is invented.
+
+**The hypothesis-set comparison is `id`-based and is a DEBUGGING DIAGNOSTIC only.**
+A hypothesis id is an opaque handle, not a semantic identity — two conditions can
+express the same reading under different ids, or drift under a stable id. So an id
+difference is **not** a semantic continuity/revision evaluation and is **not**
+evidence that Sanuvia reasons better or worse than a baseline
+(`metrics.HYPOTHESIS_ID_DIAGNOSTIC_CAVEAT`; reports print the caveat inline). The
+semantic evaluation protocol (continuity/revision, uncertainty, inquiry quality)
+is defined **separately** by the programme team and is not implemented here.
+
+## 13. Hardening — GOLDEN/REAL guard, validation, manifest, stateless context
+
+Before the real comparison the following were hardened (additive, Phase-0 untouched):
+
+- **Configuration consistency** (`runconfig.py`): `validate_run_configuration()`
+  runs *before execution*. GOLDEN accepts only scripted doubles; REAL accepts only
+  non-scripted components plus a complete `RealRunConfig` (explicit provider,
+  model, version, prompts, schemas, parameters). GOLDEN never pretends to be REAL;
+  REAL never silently falls back to scripted. No provider is auto-selected.
+- **Strict output validation** (`validation.py`): every external boundary
+  (extraction, appraisal, stateless, transcript) is schema-validated. Malformed
+  output is **rejected** (`MalformedOutputError`), never coerced into empty
+  evidence/hypotheses, default values, or fabricated confidence/uncertainty. An
+  *absent* optional key is a legitimately empty answer (documented), distinct from
+  malformed output. Statuses are `SUCCESS`, `MALFORMED_OUTPUT`, `MODEL_ERROR`,
+  `TIMEOUT`, `RETRY_EXHAUSTED`, `CONFIGURATION_ERROR` (`failures.py`).
+- **Immutable run manifest** (`manifest.py`): captures run id, timestamp, git SHA,
+  Phase-1 version, mode, the full transcript, model specs, raw responses, retries,
+  failures, and per-interaction status; frozen after `finalize()`; deterministic
+  JSON; stores no secrets. Provider-absent fields (model version, seed, session/
+  cache id) use `Maybe`, distinguishing *not provided by provider* from *not
+  captured*. External model calls are **not** claimed reproducible.
+- **Stateless context guarantee**: the stateless baseline sends exactly the current
+  interaction's evidence each turn — no prior messages/output/state — proven in
+  `tests/phase1/test_stateless_context_guarantee.py`.
+
+## 13a. REAL Qwen boundary + preflight (executable, not executed)
+
+The first REAL evaluation uses a **small local Qwen** model. Nothing is downloaded
+or auto-selected.
+
+- **Candidate model** (`qwen.QWEN3_4B`): **Qwen3-4B** (project direction), ~4B
+  params, ~2.5 GB Q4 GGUF, ~6 GB working RAM; smaller fallbacks `qwen3-1.7b` /
+  `qwen3-0.6b`. Recommended local runtimes: Ollama (`qwen3:4b`), llama.cpp GGUF,
+  transformers (`Qwen/Qwen3-4B`).
+- **Client boundary** (`qwen.QwenClient`): provider-neutral, injected, local-only —
+  no vendor SDK import, no API key, no network. It composes prompts, records every
+  call in the manifest (`begin_interaction` attributes each call to an
+  interaction/seq), classifies errors/timeouts, records retries, and adapts to the
+  existing `ExternalEvidenceExtractor` / `ExternalEvidenceAppraiser` /
+  `ExternalLanguageModel` seams. Qwen logic never enters the frozen Phase 0 engine.
+- **RealRunConfig** (`qwen.qwen_real_run_config`): `provider=local_qwen`, model
+  `qwen3-4b`, explicit prompt/schema IDs, temperature `0.0`, seed `0`,
+  max-output/context set; exact model version + artifact digest are `Maybe`
+  (recorded unavailable until a runtime supplies them).
+- **Prompts/schemas** (`prompts.py`): existing prompt texts registered under stable
+  IDs with SHA-256 drift detection; both baselines **share** `baseline.reasoning.v1`
+  (only their context differs — fairness).
+- **Preflight**: `PYTHONPATH=src python -m sanuvia_phase1 preflight-real` reports PASS/BLOCKED for
+  config completeness, prompt/schema presence + integrity, no-scripted-double,
+  local-only, model availability + version, Phase-0 import isolation, and Phase-0
+  git-untouched — **without running the model or the comparison**.
 
 ## 13. Observed limitations (summary)
 

@@ -41,8 +41,14 @@ def test_parse_baseline_turn_defaults_and_validation() -> None:
     assert full.question_asked == "q?"
     assert full.continuity_claims[0].cited_evidence_id == "ER-001"
 
-    with pytest.raises(ValueError):
+    from sanuvia_phase1.failures import MalformedOutputError
+
+    # HARDENED: a non-object reply is malformed output (rejected, not coerced).
+    with pytest.raises(MalformedOutputError):
         capture.parse_baseline_turn("[]")  # non-object
+    # A present-but-ill-typed field is also malformed (not silently emptied).
+    with pytest.raises(MalformedOutputError):
+        capture.parse_baseline_turn('{"competing_hypotheses_held": [{"id": "H"}]}')
 
 
 def test_from_baseline_turn_leaves_engine_fields_none_and_counts_unsupported() -> None:

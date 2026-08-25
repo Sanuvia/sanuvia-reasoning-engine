@@ -24,7 +24,7 @@ as ``appraisal_script`` — the extractor never forms hypotheses.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from sanuvia.application.ports.reasoning import Appraisal, EvidenceAppraiser
@@ -39,11 +39,18 @@ from .conditions import (
 from .demonstrator import DemonstrationReport
 from .extraction import EvidenceExtractor, EvidenceProvenance, ExtractionResult
 from .ports import LanguageModel
+from .runconfig import GOLDEN, REAL, RealRunConfig, validate_run_configuration
 from .transcript import Transcript
 from .trajectory import TrajectoryRecord
 
-GOLDEN = "golden"
-REAL = "real"
+__all__ = [
+    "GOLDEN",
+    "REAL",
+    "ExtractedCase",
+    "TranscriptDemonstrationReport",
+    "build_extracted_case",
+    "run_transcript_demonstration",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,14 +101,20 @@ def build_extracted_case(
     *,
     case_id: str,
     mode: str,
+    on_interaction_start: Callable[[int, str], None] | None = None,
 ) -> ExtractedCase:
     """Run the extractor over the transcript and assemble a ``Case`` (structured
     evidence + the authored appraisal). Engine ids are assigned in extraction
-    order so the appraisal script (keyed by engine id) lines up."""
+    order so the appraisal script (keyed by engine id) lines up.
+
+    ``on_interaction_start(index, seq_label)`` is a generic per-interaction hook
+    (used by the manifest-recording Qwen client to attribute each call)."""
     interactions: list[CaseInteraction] = []
     extractions: list[ExtractionResult] = []
     counter = 0
     for ti in transcript.interactions:
+        if on_interaction_start is not None:
+            on_interaction_start(ti.index, ti.seq_label)
         extracted = extractor.extract(ti, transcript.transcript_id)
         extractions.append(ExtractionResult(ti.index, ti.seq_label, extracted))
         evidence: list[CaseEvidence] = []
@@ -169,33 +182,54 @@ def run_transcript_demonstration(
     case_id: str,
     mode: str,
     appraiser: EvidenceAppraiser | None = None,
+    config: RealRunConfig | None = None,
+    on_interaction_start: Callable[[int, str], None] | None = None,
 ) -> TranscriptDemonstrationReport:
     """Drive all three conditions from one transcript and return a mode-tagged report.
 
     ``appraiser`` is the frozen Phase 0 ``EvidenceAppraiser`` boundary. ``None``
     (golden default) uses the case's ``ScriptedAppraiser``; real mode injects a
     real ``EvidenceAppraiser`` (e.g. ``ExternalEvidenceAppraiser``). The frozen
-    engine still owns all model revision and persistence."""
+    engine still owns all model revision and persistence.
+
+    ``config`` is required for ``mode=REAL`` and forbidden for ``mode=GOLDEN``.
+    The mode↔components consistency is checked BEFORE any execution: a GOLDEN run
+    may use only scripted doubles, and a REAL run may not fall back to any scripted
+    double and must carry a complete :class:`RealRunConfig`. A mis-configured run
+    raises :class:`ConfigurationError` here, before the engine or any model runs."""
+    validate_run_configuration(
+        mode,
+        extractor=extractor,
+        stateless_model=stateless_model,
+        transcript_model=transcript_model,
+        appraiser=appraiser,
+        config=config,
+    )
     extracted = build_extracted_case(
         transcript, extractor, appraisal_script, hypothesis_catalogue,
-        case_id=case_id, mode=mode,
+        case_id=case_id, mode=mode, on_interaction_start=on_interaction_start,
     )
+
+    def _mark(interaction: CaseInteraction) -> CaseInteraction:
+        if on_interaction_start is not None:
+            on_interaction_start(interaction.index, interaction.seq_label)
+        return interaction
 
     # Sanuvia reasons over EXTRACTED structured evidence (persistent World Model).
     sanuvia = SanuviaPersistentCondition(extracted.case, appraiser)
     sanuvia.start()
-    san_records = tuple(sanuvia.step(i) for i in extracted.case.interactions)
+    san_records = tuple(sanuvia.step(_mark(i)) for i in extracted.case.interactions)
     sanuvia.finish()
 
     # FM baselines read RAW transcript text — no structured Sanuvia state.
     raw = _raw_text_interactions(transcript)
     stateless = StatelessFmCondition(stateless_model)
     stateless.start()
-    st_records = tuple(stateless.step(i) for i in raw)
+    st_records = tuple(stateless.step(_mark(i)) for i in raw)
     stateless.finish()
     context = TranscriptContextFmCondition(transcript_model)
     context.start()
-    tc_records = tuple(context.step(i) for i in raw)
+    tc_records = tuple(context.step(_mark(i)) for i in raw)
     context.finish()
 
     # Fairness guard: same ordered interaction sequence for all three conditions.

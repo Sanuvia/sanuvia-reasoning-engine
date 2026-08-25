@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from ..capture import from_baseline_turn, parse_baseline_turn
 from ..case import CaseInteraction
+from ..failures import BoundaryKind
 from ..ports import LanguageModel, LmRequest
 from ..trajectory import TrajectoryRecord
 from ._prompt import INSTRUCTION, SYSTEM, render_lines
@@ -32,7 +33,7 @@ class TranscriptContextFmCondition:
         context = "\n".join(self._transcript) if self._transcript else "(no evidence yet)"
         request = LmRequest(system=SYSTEM, context=context, instruction=INSTRUCTION)
         response = self._model.complete(request)
-        turn = parse_baseline_turn(response.json_text)
+        turn = parse_baseline_turn(response.json_text, BoundaryKind.TRANSCRIPT_BASELINE)
         return from_baseline_turn(
             self.name,
             interaction,

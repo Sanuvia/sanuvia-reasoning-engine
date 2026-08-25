@@ -15,16 +15,14 @@ anything — those remain the frozen Phase 0 engine's authority. Hypothesis
 *identity* is spec-unresolved, so the appraiser supplies the ``hypothesis_id``
 (exactly as the frozen ``ScriptedAppraiser`` does).
 
-Governance (unresolved — Felix/Lillian/devs): the provider/model and the exact
+Governance (unresolved — requires governance approval): the provider/model and the exact
 appraisal prompt/response schema are NOT decided here.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
 
 from sanuvia.application.ports.reasoning import (
     Appraisal,
@@ -38,6 +36,8 @@ from sanuvia.domain import (
     HypothesisId,
     SubjectId,
 )
+
+from ..validation import validate_appraisal
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,10 +68,6 @@ SYSTEM = (
 INSTRUCTION = "Return the appraisal JSON now."
 
 
-def _num(value: Any, default: float) -> float:
-    return float(value) if isinstance(value, (int, float)) else default
-
-
 class ExternalEvidenceAppraiser:
     """Adapts a caller-supplied appraisal client into the ``EvidenceAppraiser`` port.
 
@@ -94,37 +90,26 @@ class ExternalEvidenceAppraiser:
             ),
             instruction=INSTRUCTION,
         )
-        data: Any = json.loads(self._client(request))
-        if not isinstance(data, dict):
-            raise ValueError("appraisal response must be a JSON object")
+        # Strict validation: a malformed reply (or a proposal missing its id,
+        # statement, or a valid initial_support) raises MalformedOutputError — it
+        # is never silently skipped or defaulted.
+        validated = validate_appraisal(self._client(request))
 
-        supports = tuple(HypothesisId(str(x)) for x in data.get("supports", []) or [])
-        contradicts = tuple(
-            HypothesisId(str(x)) for x in data.get("contradicts", []) or []
-        )
-
-        proposals: list[ProposedHypothesis] = []
-        for item in data.get("proposals", []) or []:
-            if not isinstance(item, dict):
-                continue
-            hid = item.get("hypothesis_id")
-            statement = item.get("statement")
-            if not hid or not statement:
-                continue  # a proposal must have an id and a statement
-            proposals.append(
-                ProposedHypothesis(
-                    hypothesis_id=HypothesisId(str(hid)),
-                    statement=str(statement),
-                    initial_support=_num(item.get("initial_support"), 0.4),
-                    supporting_evidence_ids=tuple(
-                        EvidenceRecordId(str(e))
-                        for e in item.get("supporting_evidence_ids", []) or []
-                    ),
-                )
+        supports = tuple(HypothesisId(x) for x in validated.supports)
+        contradicts = tuple(HypothesisId(x) for x in validated.contradicts)
+        proposals = tuple(
+            ProposedHypothesis(
+                hypothesis_id=HypothesisId(p.hypothesis_id),
+                statement=p.statement,
+                initial_support=p.initial_support,
+                supporting_evidence_ids=tuple(
+                    EvidenceRecordId(e) for e in p.supporting_evidence_ids
+                ),
             )
-
+            for p in validated.proposals
+        )
         return Appraisal(
-            supports=supports, contradicts=contradicts, proposals=tuple(proposals)
+            supports=supports, contradicts=contradicts, proposals=proposals
         )
 
 

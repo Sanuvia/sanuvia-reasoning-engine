@@ -7,16 +7,18 @@ import json
 
 import pytest
 
-from sanuvia.application.ports.reasoning import Appraisal, ProposedHypothesis
-from sanuvia.domain import EvidenceRecordId, HypothesisId, SubjectId, shared_space_id
+from fixtures.offline_real import offline_real_config
+
+from sanuvia.domain import SubjectId, shared_space_id
 
 from sanuvia_phase1 import pipeline
+from sanuvia_phase1.evidence_appraisers import AppraisalRequest, ExternalEvidenceAppraiser
 from sanuvia_phase1.evidence_extractors import (
     ExternalEvidenceExtractor,
     ExtractionRequest,
     evidence_extractor_from_env,
 )
-from sanuvia_phase1.language_models import ScriptedLanguageModel
+from sanuvia_phase1.language_models import ExternalLanguageModel
 from sanuvia_phase1.transcript import Transcript, TranscriptInteraction
 
 
@@ -67,6 +69,24 @@ def test_from_env_refuses_to_autoselect_a_provider() -> None:
         evidence_extractor_from_env()
 
 
+def _appraise_client(request: AppraisalRequest) -> str:
+    """Offline fake appraiser: proposes H_x for the 'stuck' observation."""
+    if "stuck" in request.evidence_observation:
+        return json.dumps(
+            {
+                "proposals": [
+                    {
+                        "hypothesis_id": "H_x",
+                        "statement": "H_x: a candidate reading.",
+                        "initial_support": 0.4,
+                        "supporting_evidence_ids": [],
+                    }
+                ]
+            }
+        )
+    return "{}"
+
+
 def test_real_mode_end_to_end_wiring_with_fake_client() -> None:
     transcript = Transcript(
         "t-real",
@@ -77,25 +97,23 @@ def test_real_mode_end_to_end_wiring_with_fake_client() -> None:
             TranscriptInteraction(2, "seq-2", "Person 1 said they want to build something new."),
         ),
     )
-    # Appraisal (evidence -> hypotheses) stays a Phase 0 concern; here a scripted
-    # appraisal keyed by the first extracted evidence proposes a hypothesis.
-    appraisal = {
-        EvidenceRecordId("evidence-1"): Appraisal(
-            proposals=(ProposedHypothesis(HypothesisId("H_x"), "H_x: a candidate reading.", 0.4, ()),)
-        )
-    }
+    # REAL mode: real adapters (offline fake clients) for every boundary + explicit
+    # config. Appraisal is a real EvidenceAppraiser — REAL never uses a scripted
+    # appraisal script. The frozen engine still forms the hypothesis.
     tdr = pipeline.run_transcript_demonstration(
         transcript,
         ExternalEvidenceExtractor(_fake_client, extractor_id="fake-real"),
-        appraisal,
-        {"H_x": "H_x: a candidate reading."},
-        ScriptedLanguageModel(("{}", "{}")),
-        ScriptedLanguageModel(("{}", "{}")),
+        {},
+        {},
+        ExternalLanguageModel(lambda _req: "{}"),
+        ExternalLanguageModel(lambda _req: "{}"),
         case_id="real-wiring",
         mode=pipeline.REAL,
+        appraiser=ExternalEvidenceAppraiser(_appraise_client),
+        config=offline_real_config(),
     )
     assert tdr.mode == "real"
     assert tdr.extractor_id == "fake-real"
     sanuvia = tdr.demonstration.records_by_condition["sanuvia_persistent"]
-    # Real extraction fed the frozen engine, which formed the hypothesis.
+    # Real extraction + real appraisal fed the frozen engine, which formed the hypothesis.
     assert any(h.hypothesis_id == "H_x" for h in sanuvia[0].hypotheses)

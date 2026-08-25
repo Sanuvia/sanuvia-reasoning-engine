@@ -22,8 +22,8 @@ conditions.
 
 Programme v1.4 **C.5** names *"rate of behavioural divergence"* as the **primary
 metric**, but its numerical thresholds, weighting, and pass/fail criteria are
-**explicitly deferred** (Programme v1.4 C.4/C.5 — "set with Felix and both
-developers"). This demonstrator therefore exposes the **raw per-point
+**explicitly deferred** (Programme v1.4 C.4/C.5 — set by the programme governance
+process). This demonstrator therefore exposes the **raw per-point
 observables** and marks the **aggregate divergence rate as pending governance**;
 it invents no formula or threshold.
 
@@ -104,11 +104,19 @@ Controlled Reasoning Demonstrator/
 │   ├── evidence_extractors/# scripted (test double) + external (real, injected client)
 │   ├── evidence_appraisers/ # external appraiser seam (real; injected client)
 │   ├── pipeline.py         # transcript → extraction → Phase 0 runner (golden/real modes)
+│   ├── runconfig.py        # GOLDEN/REAL config guard (ModelSpec / RealRunConfig)
+│   ├── validation.py       # strict per-boundary output validation (reject, never default)
+│   ├── failures.py         # CallStatus taxonomy + typed errors + Maybe (availability)
+│   ├── manifest.py         # immutable, auditable run manifest (+ recording/retry helper)
+│   ├── qwen.py             # local Qwen client boundary (injected backend) + REAL config
+│   ├── prompts.py          # prompt/schema registry — stable IDs + content hashes
+│   ├── preflight.py        # REAL-evaluation preflight (PASS/BLOCKED, no run)
+│   ├── __main__.py         # CLI: `python -m sanuvia_phase1 preflight-real`
 │   ├── case.py            # Case / CaseEvidence / CaseInteraction DTOs
 │   ├── ports.py           # LanguageModel port (+ LmRequest/LmResponse)
 │   ├── trajectory.py      # TrajectoryRecord + view DTOs + BaselineTurn
 │   ├── capture.py         # normalization: InteractionResult / BaselineTurn -> TrajectoryRecord
-│   ├── metrics.py         # pure raw-metric functions
+│   ├── metrics.py         # pure raw-metric functions (+ id-based DIAGNOSTIC only)
 │   ├── demonstrator.py    # structured-case orchestration + identical-evidence guard
 │   ├── report.py          # canonical JSON + markdown (structured + transcript) + trace reuse
 │   ├── conditions/        # base + sanuvia + fm_stateless + fm_transcript
@@ -121,14 +129,14 @@ Controlled Reasoning Demonstrator/
 
 ## How to run
 
-All commands run **from this directory** (`Controlled Reasoning Demonstrator/`),
-using the repo's virtualenv, with the frozen `sanuvia` already installed
-(editable) in that environment.
+All commands run **from this directory** (`sanuvia-phase1/`), using the repo's
+virtualenv, with the frozen `sanuvia` already installed (editable) in that
+environment.
 
 **Deterministic tests (default CI path — no network/vendor):**
 ```bash
-cd "Controlled Reasoning Demonstrator"
-python -m pytest            # 65 tests
+cd sanuvia-phase1
+python -m pytest            # 126 tests
 python -m mypy src fixtures tests   # strict, clean
 ```
 
@@ -147,6 +155,43 @@ PY
 
 **Deterministic replay** (byte-identical): `report.to_json(rep)` is stable across
 runs of the deterministic path (a test asserts this).
+
+## REAL Qwen evaluation — preflight (does not run the model)
+
+The first REAL run uses a **small local Qwen** model (candidate: **Qwen3-4B**, the
+project's stated direction — see `qwen.QWEN3_4B`; smaller fallbacks `qwen3-1.7b`,
+`qwen3-0.6b`). Nothing is downloaded or auto-selected. The Qwen client boundary
+(`qwen.QwenClient`) is a **provider-neutral, injected, local-only** backend that
+feeds the existing `ExternalEvidenceExtractor` / `ExternalEvidenceAppraiser` /
+`ExternalLanguageModel` seams and records every call in the immutable manifest.
+
+Check readiness (never runs the comparison):
+```bash
+PYTHONPATH=src python -m sanuvia_phase1 preflight-real
+```
+It prints a PASS/BLOCKED report and exits non-zero when blocked. On a host with no
+local Qwen runtime/artifact it is **BLOCKED** on `model_installed_available`,
+`model_version_identifiable`, and `governance_freeze_complete`; the remaining checks
+(config completeness, prompt/schema presence + integrity, no-scripted-double,
+local-only, Phase-0 import isolation, Phase-0 git-untouched) **PASS**. Provide a
+runtime + artifact and set `SANUVIA_QWEN_MODEL_PATH` (or install
+`ollama`/`llama_cpp`/`transformers`) to clear the model gate. **Do not run the final
+comparison until the evaluation protocol is approved.**
+
+### Governance / freeze record
+
+The frozen Phase 1 protocol is pinned by an immutable governance record
+(`sanuvia_phase1.governance`, document
+[docs/phase1-governance-freeze-record.md](docs/phase1-governance-freeze-record.md)).
+It lists what is **FROZEN / APPROVED** vs **PENDING GOVERNANCE APPROVAL** and which
+items are **BLOCKING THE REAL RUN**; unresolved values (model artifact/version,
+serving, quantization, temperature, seed, retry policy, C.4/C.5 interpretation,
+negative-result disposition) are never chosen silently. View the checklist:
+```bash
+PYTHONPATH=src python -m sanuvia_phase1 governance
+```
+The preflight's `governance_freeze_complete` check reads this record, and a real-run
+manifest pins its `freeze_record_sha256` so every run is tied to the approved protocol.
 
 ## The three conditions
 

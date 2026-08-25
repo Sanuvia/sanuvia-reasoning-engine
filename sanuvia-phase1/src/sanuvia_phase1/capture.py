@@ -20,6 +20,8 @@ from typing import Any
 from sanuvia.application.reasoning.core_loop import InteractionResult
 
 from .case import CaseInteraction
+from .failures import BoundaryKind
+from .validation import validate_baseline
 from .trajectory import (
     BaselineTurn,
     ContinuityClaim,
@@ -174,47 +176,31 @@ def from_interaction_result(
 # --- Foundation-model conditions ---------------------------------------------
 
 
-def parse_baseline_turn(json_text: str) -> BaselineTurn:
+def parse_baseline_turn(
+    json_text: str,
+    boundary: BoundaryKind = BoundaryKind.STATELESS_BASELINE,
+) -> BaselineTurn:
     """Parse the constrained-JSON baseline response contract into a BaselineTurn.
 
-    Missing keys default to empty; unknown keys are ignored. Raises ``ValueError``
-    on non-object JSON so a malformed adapter fails loudly rather than silently.
+    Delegates to the strict :func:`~sanuvia_phase1.validation.validate_baseline`:
+    a non-object reply, an ill-typed field, or a held hypothesis / continuity
+    claim missing a required field raises ``MalformedOutputError`` (tagged with
+    ``boundary``) — it is never coerced into empty hypotheses or default values.
+    An *absent* optional key is treated as a legitimately empty answer, which is a
+    distinct (documented) case from malformed output.
     """
-    data: Any = json.loads(json_text)
-    if not isinstance(data, dict):
-        raise ValueError("baseline response must be a JSON object")
-
-    best = tuple(str(x) for x in data.get("best_explanations", []) or [])
-
-    held: list[HeldHypothesis] = []
-    for item in data.get("competing_hypotheses_held", []) or []:
-        if isinstance(item, dict):
-            held.append(
-                HeldHypothesis(
-                    hypothesis_id=str(item.get("id", "")),
-                    statement=str(item.get("statement", "")),
-                )
-            )
-
-    question = data.get("question_asked")
-    question_asked = None if question is None else str(question)
-
-    claims: list[ContinuityClaim] = []
-    for item in data.get("continuity_claims", []) or []:
-        if isinstance(item, dict):
-            cited = item.get("cited_evidence_id")
-            claims.append(
-                ContinuityClaim(
-                    text=str(item.get("text", "")),
-                    cited_evidence_id=None if cited is None else str(cited),
-                )
-            )
-
+    validated = validate_baseline(json_text, boundary)
     return BaselineTurn(
-        best_explanations=best,
-        competing_hypotheses_held=tuple(held),
-        question_asked=question_asked,
-        continuity_claims=tuple(claims),
+        best_explanations=validated.best_explanations,
+        competing_hypotheses_held=tuple(
+            HeldHypothesis(hypothesis_id=h.hypothesis_id, statement=h.statement)
+            for h in validated.competing_hypotheses_held
+        ),
+        question_asked=validated.question_asked,
+        continuity_claims=tuple(
+            ContinuityClaim(text=c.text, cited_evidence_id=c.cited_evidence_id)
+            for c in validated.continuity_claims
+        ),
     )
 
 

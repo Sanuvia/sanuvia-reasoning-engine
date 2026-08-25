@@ -6,7 +6,7 @@ evaluation. It is deliberately **vendor-neutral**: it wraps a caller-injected
 reply. No provider SDK is imported, no model is chosen, and nothing here runs in
 the default test/CI path.
 
-Governance (unresolved — requires Felix/both developers): which provider/model,
+Governance (unresolved — requires governance approval): which provider/model,
 access method, temperature/seed, and the exact prompt contract are **not**
 selected here. Wiring a client is an explicit, opt-in decision.
 """

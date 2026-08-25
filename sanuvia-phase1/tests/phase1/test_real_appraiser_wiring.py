@@ -1,5 +1,9 @@
 """Real evidence-appraiser adapter — provider-neutral, injected client, no network.
 Proves the LLM only PROPOSES; the frozen Phase 0 engine owns revision/persistence.
+
+REAL mode uses only non-scripted components (real adapters wrapping offline fake
+clients) plus an explicit offline ``RealRunConfig`` — it never falls back to a
+scripted double.
 """
 
 from __future__ import annotations
@@ -7,6 +11,8 @@ from __future__ import annotations
 import json
 
 import pytest
+
+from fixtures.offline_real import offline_real_config
 
 from sanuvia.domain import SubjectId, shared_space_id
 
@@ -17,7 +23,9 @@ from sanuvia_phase1.evidence_appraisers import (
     evidence_appraiser_from_env,
 )
 from sanuvia_phase1.evidence_extractors import ExternalEvidenceExtractor, ExtractionRequest
-from sanuvia_phase1.language_models import ScriptedLanguageModel
+from sanuvia_phase1.failures import MalformedOutputError
+from sanuvia_phase1.language_models import ExternalLanguageModel
+from sanuvia_phase1.ports import LmRequest
 from sanuvia_phase1.transcript import Transcript, TranscriptInteraction
 
 
@@ -57,6 +65,15 @@ def _appraise_client(request: AppraisalRequest) -> str:
     return "{}"
 
 
+def _empty_baseline(_request: LmRequest) -> str:
+    """A fake, offline baseline client returning a well-formed empty answer."""
+    return "{}"
+
+
+def _baselines() -> tuple[ExternalLanguageModel, ExternalLanguageModel]:
+    return ExternalLanguageModel(_empty_baseline), ExternalLanguageModel(_empty_baseline)
+
+
 def _transcript() -> Transcript:
     return Transcript(
         "t-appraise",
@@ -75,16 +92,18 @@ def test_from_env_refuses_to_autoselect_a_provider() -> None:
 
 
 def test_real_appraiser_end_to_end_forms_hypothesis_via_frozen_engine() -> None:
+    stateless, transcript_model = _baselines()
     tdr = pipeline.run_transcript_demonstration(
         _transcript(),
         ExternalEvidenceExtractor(_extract_client, extractor_id="fake-real"),
         {},   # appraisal_script unused: a real appraiser is injected
         {},   # hypothesis_catalogue not needed for a real appraiser
-        ScriptedLanguageModel(("{}", "{}")),
-        ScriptedLanguageModel(("{}", "{}")),
+        stateless,
+        transcript_model,
         case_id="real-appraise",
         mode=pipeline.REAL,
         appraiser=ExternalEvidenceAppraiser(_appraise_client),
+        config=offline_real_config(),
     )
     assert tdr.mode == "real"
     sanuvia = tdr.demonstration.records_by_condition["sanuvia_persistent"]
@@ -96,24 +115,26 @@ def test_real_appraiser_end_to_end_forms_hypothesis_via_frozen_engine() -> None:
     assert sanuvia[0].revision_events[0].affected_object_id == "H_real"
 
 
-def test_malformed_proposal_is_skipped() -> None:
-    def bad_appraise(request: AppraisalRequest) -> str:
-        # a proposal missing 'statement' must be skipped (not crash, not invent)
+def test_malformed_proposal_is_rejected_not_silently_skipped() -> None:
+    # HARDENED: a proposal missing 'statement' is malformed output. It must be
+    # rejected (MalformedOutputError), never silently skipped or defaulted.
+    def bad_appraise(_request: AppraisalRequest) -> str:
         return json.dumps({"proposals": [{"hypothesis_id": "H_bad"}]})
 
-    tdr = pipeline.run_transcript_demonstration(
-        _transcript(),
-        ExternalEvidenceExtractor(_extract_client),
-        {},
-        {},
-        ScriptedLanguageModel(("{}", "{}")),
-        ScriptedLanguageModel(("{}", "{}")),
-        case_id="real-appraise-bad",
-        mode=pipeline.REAL,
-        appraiser=ExternalEvidenceAppraiser(bad_appraise),
-    )
-    sanuvia = tdr.demonstration.records_by_condition["sanuvia_persistent"]
-    assert all(h.hypothesis_id != "H_bad" for h in sanuvia[0].hypotheses)
+    stateless, transcript_model = _baselines()
+    with pytest.raises(MalformedOutputError):
+        pipeline.run_transcript_demonstration(
+            _transcript(),
+            ExternalEvidenceExtractor(_extract_client),
+            {},
+            {},
+            stateless,
+            transcript_model,
+            case_id="real-appraise-bad",
+            mode=pipeline.REAL,
+            appraiser=ExternalEvidenceAppraiser(bad_appraise),
+            config=offline_real_config(),
+        )
 
 
 def test_golden_mode_unaffected_when_no_appraiser_injected() -> None:
