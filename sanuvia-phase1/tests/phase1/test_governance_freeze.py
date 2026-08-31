@@ -5,22 +5,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from sanuvia_phase1 import governance, prompts
 from sanuvia_phase1.__main__ import main
 from sanuvia_phase1.governance import GovernanceStatus
 from sanuvia_phase1.manifest import RunManifestBuilder
-from sanuvia_phase1.preflight import BLOCKED, run_real_preflight
+from sanuvia_phase1.preflight import PASS, run_real_preflight
 from sanuvia_phase1.qwen import qwen_real_run_config
 from sanuvia_phase1.transcript import Transcript, TranscriptInteraction
 
-# Immutability anchor — changing any FROZEN key/value/blocking flag changes this.
-_EXPECTED_FREEZE_HASH = "8a8841ba3003bbab0aadff8fa0f3ccceab6ec965cf209d5cc2f77ae30a91a44f"
+# Immutability anchor — changing the version or any FROZEN key/value/blocking flag
+# changes this. Updated for freeze record v3.0-run001-verified (artifact verified).
+_EXPECTED_FREEZE_HASH = "3f46ef56e12c776251a223180cfbf842f228fbbcb743ff5c466f7acf45c0a2dd"
 
-_BLOCKING_KEYS = {
-    "model_artifact_version", "serving_runtime_backend", "quantization",
-    "temperature", "seed", "retry_policy", "c4_c5_interpretation",
-    "negative_result_disposition",
-}
+# The verified artifact/digest are now frozen; no blocking items remain.
+_BLOCKING_KEYS: set[str] = set()
 
 
 def test_no_pending_value_is_invented() -> None:
@@ -34,10 +34,11 @@ def test_no_pending_value_is_invented() -> None:
         assert item.source
 
 
-def test_blocking_items_and_run_not_permitted() -> None:
-    assert {i.key for i in governance.blocking_items()} == _BLOCKING_KEYS
-    assert governance.is_real_run_permitted() is False
-    # eval_hardware is pending but explicitly non-blocking
+def test_no_blocking_items_and_run_permitted() -> None:
+    assert {i.key for i in governance.blocking_items()} == _BLOCKING_KEYS  # empty
+    assert governance.is_real_run_permitted() is True
+    # only eval_hardware remains pending, and it is explicitly non-blocking
+    assert {i.key for i in governance.pending_items()} == {"eval_hardware"}
     hardware = next(i for i in governance.pending_items() if i.key == "eval_hardware")
     assert hardware.blocking is False
 
@@ -66,10 +67,39 @@ def test_semantic_constraints_are_frozen() -> None:
         assert key in frozen_keys
 
 
-def test_c4_c5_and_negative_result_remain_pending() -> None:
-    pending_keys = {i.key for i in governance.pending_items()}
-    assert "c4_c5_interpretation" in pending_keys
-    assert "negative_result_disposition" in pending_keys
+def test_run001_governance_decisions_are_frozen() -> None:
+    frozen = {i.key: i.value for i in governance.frozen_items()}
+    # C.4/C.5 and negative-result disposition are now approved (frozen), not pending.
+    assert "c4_c5_interpretation" in frozen
+    assert "negative_result_disposition" in frozen
+    assert frozen["temperature"] == "0.0"
+    assert frozen["seed"] == "0 (fixed)"
+    assert frozen["retry_policy"] == "0 (Run 001)"
+    assert frozen["quantization"] == "Q4_K_M"
+    assert frozen["serving_runtime_backend"] == "llama.cpp (GGUF)"
+    assert frozen["model_family"] == "Qwen3-4B"
+    assert frozen["context_window"] == "8192"
+    assert frozen["max_output_tokens"] == "512"
+    assert frozen["stop_sequences"] == "none"
+    # approved semantic protocol pinned
+    for key in ("semantic_dimensions", "semantic_scale", "semantic_evaluators", "semantic_blinding"):
+        assert key in frozen
+    # C.4/C.5 explicitly records raw-observables-only, no aggregate/threshold/pass-fail
+    c45 = frozen["c4_c5_interpretation"]
+    assert c45 is not None and "raw longitudinal observables only" in c45
+
+
+def test_verified_artifact_and_runtime_are_frozen() -> None:
+    frozen = {i.key: i.value for i in governance.frozen_items()}
+    mav = frozen["model_artifact_version"]
+    assert mav is not None
+    assert "Qwen/Qwen3-4B-GGUF@bc640142c66e1fdd12af0bd68f40445458f3869b" in mav
+    assert "Qwen3-4B-Q4_K_M.gguf" in mav and "2497280256" in mav
+    assert frozen["artifact_sha256"] == (
+        "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+    )
+    build = frozen["llama_cpp_build"]
+    assert build is not None and "10721" in build and "8e53fcefd" in build
 
 
 def test_render_is_name_free() -> None:
@@ -81,12 +111,11 @@ def test_render_is_name_free() -> None:
     assert "BLOCKING THE REAL RUN" in text
 
 
-def test_preflight_includes_governance_gate() -> None:
+def test_preflight_governance_gate_passes_when_frozen() -> None:
     result = run_real_preflight(qwen_real_run_config())
     gate = next(c for c in result.checks if c.name == "governance_freeze_complete")
-    assert gate.status == BLOCKED
-    for key in _BLOCKING_KEYS:
-        assert key in gate.detail
+    # all blocking governance items are now frozen/approved
+    assert gate.status == PASS
 
 
 def test_manifest_can_pin_the_freeze_hash() -> None:
@@ -106,9 +135,13 @@ def test_manifest_can_pin_the_freeze_hash() -> None:
     assert _EXPECTED_FREEZE_HASH in manifest.to_json()
 
 
-def test_cli_governance_reports_blocked() -> None:
-    assert main(["governance"]) == 2       # blocked (pending items)
-    assert main(["preflight-real"]) == 2   # blocked (governance + model)
+def test_cli_governance_permitted(monkeypatch: pytest.MonkeyPatch) -> None:
+    # governance freeze is complete -> the governance checklist exits 0 (permitted)
+    assert main(["governance"]) == 0
+    # preflight-real still depends on the runtime env; without the model path set it
+    # remains blocked on model availability (exit 2), independent of governance.
+    monkeypatch.delenv("SANUVIA_QWEN_MODEL_PATH", raising=False)
+    assert main(["preflight-real"]) == 2
 
 
 # --- documentation consistency -------------------------------------------------

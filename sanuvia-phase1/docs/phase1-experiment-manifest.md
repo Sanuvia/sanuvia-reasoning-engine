@@ -1,6 +1,6 @@
 # Phase 1 — Experiment Manifest & Protocol (for approval)
 
-**Status:** DRAFT — pending protocol approval · **Prepared:** 2026-08-23
+**Status:** APPROVED (Run 001) — artifact identification pending · **Prepared:** 2026-08-23 · **Updated:** 2026-08-26
 **Scope:** Sanuvia Phase 1 — Controlled Reasoning Demonstrator, first REAL run
 **Companion:** [Semantic Evaluation Protocol](phase1-semantic-evaluation-protocol.md) (§10–§11) · [Governance / Freeze Record](phase1-governance-freeze-record.md)
 
@@ -79,22 +79,24 @@ The appraiser boundary belongs to condition A only; it is never given to B or C.
 
 ## 3. Model / serving
 
-Candidate: **small local Qwen — Qwen3-4B** (`qwen.QWEN3_4B`; project direction).
-Smaller fallbacks recorded: `qwen3-1.7b`, `qwen3-0.6b`. **No model has been
-downloaded or selected at runtime.** All model/serving specifics are **PENDING
-APPROVAL** until a concrete local artifact + runtime are provided and recorded.
+Model **Qwen3-4B**, local only, served via **llama.cpp (GGUF)** at **Q4_K_M** —
+approved for Run 001. **No model has been downloaded or run.** The exact artifact
+version and its SHA-256 digest **must be identified from the installed evaluation
+artifact** (not invented); until an artifact is installed, those two fields are
+**PENDING GOVERNANCE APPROVAL** and the run is blocked.
 
-| Field | Value |
-|---|---|
-| provider | `local_qwen` (**agreed**: local only, no cloud, no API key) |
-| model | `qwen3-4b` (candidate) |
-| exact version | **PENDING APPROVAL** (recorded as `Maybe(not_captured)` until a runtime reports it) |
-| artifact / digest | **PENDING APPROVAL** (e.g. GGUF file + SHA; `Maybe(not_captured)`) |
-| runtime / backend | **PENDING APPROVAL** (candidates: Ollama `qwen3:4b` · llama.cpp GGUF · transformers `Qwen/Qwen3-4B`; injected `QwenBackend`) |
-| quantization | **PENDING APPROVAL** (candidate: Q4_K_M for GGUF) |
-| hardware | **PENDING APPROVAL** (record CPU/GPU/RAM of the eval host) |
-| context window | `8192` (implemented default; **PENDING** confirmation) |
-| max output tokens | `512` (implemented default; **PENDING** confirmation) |
+| Field | Value | Status |
+|---|---|---|
+| provider | `local_qwen` (local only, no cloud, no API key) | **FROZEN** |
+| model | `qwen3-4b` | **FROZEN** |
+| runtime / backend | llama.cpp (GGUF), injected `QwenBackend` | **FROZEN** |
+| quantization | `Q4_K_M` | **FROZEN** |
+| context window | `8192` | **FROZEN** |
+| max output tokens | `512` | **FROZEN** |
+| stop sequences | none | **FROZEN** |
+| exact version | identify from the installed GGUF artifact | **PENDING** (blocking) |
+| artifact / digest | SHA-256 over the exact installed artifact | **PENDING** (blocking) |
+| hardware | CPU/GPU/RAM of the eval host | **PENDING** (recorded at run time) |
 
 The runtime is **injected** (dependency injection) and provider-neutral; no runtime
 is silently selected. Availability is *detected*, never fetched
@@ -126,18 +128,17 @@ text changes. The authoritative prompt text lives in the registry
 
 ## 5. Generation parameters
 
-The implemented `RealRunConfig` (`qwen.qwen_real_run_config`) records these
-explicitly (no implicit experimental defaults). Values marked **PENDING** are
-implemented defaults awaiting confirmation as the *frozen* experimental setting.
+The `RealRunConfig` (`qwen.qwen_real_run_config`) records these explicitly (no
+implicit experimental defaults). All are **approved and frozen for Run 001**.
 
 | Parameter | Value | Status |
 |---|---|---|
-| temperature | `0.0` | implemented default (deterministic); **PENDING** confirmation |
-| seed | `0` (policy: fixed) | implemented default; **PENDING** confirmation; honoured only where the backend supports it |
-| max output tokens | `512` | implemented default; **PENDING** confirmation |
-| context length | `8192` | implemented default; **PENDING** confirmation |
-| stop sequences | none configured | **PENDING** confirmation |
-| other backend params | recorded in `ModelSpec.extra_params` | to be filled once the backend is chosen |
+| temperature | `0.0` | **FROZEN** |
+| seed | `0` (policy: fixed) | **FROZEN** (honoured where the backend supports it) |
+| max output tokens | `512` | **FROZEN** |
+| context length | `8192` | **FROZEN** |
+| stop sequences | none | **FROZEN** |
+| other backend params | recorded in `ModelSpec.extra_params` | filled from the installed artifact |
 
 Determinism note: temperature 0 + fixed seed makes the run *as reproducible as the
 backend allows*; external model calls are **not** claimed to be bit-reproducible
@@ -159,9 +160,8 @@ Terminal statuses (exactly six): `SUCCESS`, `MALFORMED_OUTPUT`, `MODEL_ERROR`,
 - **Model error / timeout** — a runtime failure is `MODEL_ERROR`; a timeout is
   `TIMEOUT`. These **are** retried up to the configured retry count; if still
   failing, the terminal record is `RETRY_EXHAUSTED` and the failure propagates.
-- **Retry count** — configured on the client (`QwenClient(..., retries=N)`).
-  **PENDING APPROVAL** (candidate: `retries=0` for a first deterministic run, so
-  every failure surfaces immediately).
+- **Retry count** — **FROZEN: `retries=0` for Run 001** (`QwenClient(..., retries=0)`),
+  so every failure surfaces immediately. Malformed-output handling is unchanged.
 - **Raw response preservation** — the raw model text is stored on every record
   (including the offending text on a malformed failure).
 - **Manifest visibility** — every call becomes a `CallRecord` (§7); per-interaction
@@ -278,17 +278,17 @@ Three strictly separated layers:
 2. **Semantic human evaluation.** The primary qualitative assessment of
    continuity/revision, evidence grounding, uncertainty, and inquiry quality — see
    the [Semantic Evaluation Protocol](phase1-semantic-evaluation-protocol.md)
-   (§10–§11). Its scoring scale is **not** authoritatively defined and is presented
-   there only as **PROPOSED — REQUIRES APPROVAL**.
-3. **C.4 / C.5 quantitative divergence.** Programme v1.4 §C.5 names *"rate of
-   behavioural divergence"* as the primary metric, but the authoritative documents
-   define **no formula, weighting, or similar/diverged threshold** (§C.4/§C.5 defer
-   these to the programme governance process). Therefore **no aggregate rate and no
-   threshold is computed or invented** (`metrics.DIVERGENCE_RATE_STATUS` records
-   this as pending governance). **Decision rule: PENDING GOVERNANCE.**
+   (§10–§11). **Approved for Run 001:** a **0–2 ordinal scale per dimension**, each
+   score with written justification citing interactions, **no composite/aggregate**;
+   two independent evaluators with reconciliation; neutral labels; randomised order;
+   best-effort blinding.
+3. **C.4 / C.5 quantitative divergence.** **Approved decision (Run 001): report raw
+   longitudinal observables only** — **no** aggregate behavioural-divergence formula,
+   **no** weighting, **no** numerical threshold, **no** overall Phase-1 pass/fail.
+   Id-based divergence remains diagnostic only (`metrics.DIVERGENCE_RATE_STATUS`).
 
-No Phase-1 pass/fail is produced until layer 2's rubric/scale and layer 3's
-formula/threshold are approved.
+No Phase-1 aggregate pass/fail is produced: by decision, Phase 1 reports raw
+observables plus the per-dimension human evaluation, with no composite score.
 
 ---
 
@@ -321,28 +321,26 @@ looking at any existing output.
   "failed calls never become successful" rule (§6); the immutable, secret-free
   manifest (§7).
 - Id-based divergence is **diagnostic only** (§12); the freeze rule (§13).
+- **Run-001 approvals:** runtime llama.cpp (GGUF) + quantization Q4_K_M; context
+  8192; max output 512; stop none; temperature 0.0; seed 0; retries 0 (§3, §5, §6);
+  C.4/C.5 = raw observables only, no aggregate/threshold/pass-fail (§12); the
+  semantic 0–2 rubric, two evaluators, blinding (§10–§11); negative-result
+  disposition (a null/adverse result is valid, retained unchanged, no
+  result-motivated tuning). Pinned in the governance freeze record
+  (`freeze_record_version 2.0-run001`).
 
-**PENDING APPROVAL / GOVERNANCE**
-- Exact model artifact + version + digest; runtime/backend; quantization; eval
-  hardware (§3).
-- Generation parameters as the *frozen* experimental values (§5) and the retry
-  count (§6).
-- C.4/C.5 divergence **formula, weighting, and threshold / pass condition** (§12) —
-  or explicit confirmation that Phase 1 reports observables without an aggregate.
-- The semantic evaluation **scoring scale** and evaluator process (§10–§11).
-
-**PROPOSED (NOT YET APPROVED)**
-- Candidate defaults offered for discussion: `retries=0`, quantization `Q4_K_M`,
-  the generation defaults in §5, and the candidate rubric/blinding in the companion
-  protocol. These are **proposals**, not requirements.
+**PENDING GOVERNANCE APPROVAL**
+- Exact model artifact + version and its SHA-256 digest — **must be identified from
+  the installed evaluation artifact** (§3); not invented.
+- Eval hardware — recorded at run time (non-blocking).
 
 **BLOCKING BEFORE REAL RUN**
-1. Install a local Qwen runtime + artifact and record exact version/digest →
-   preflight checks `model_installed_available` and `model_version_identifiable`
-   flip to PASS.
-2. Approve §3/§5/§6 pending values and freeze them (§13).
-3. Approve the semantic rubric/scale (§10) and resolve the C.4/C.5 decision rule
-   (§12) — or explicitly approve an observables-only Phase 1.
+1. Install the approved local llama.cpp runtime + Qwen3-4B Q4_K_M GGUF artifact and
+   record its exact version and SHA-256 digest into the governance record and
+   `RealRunConfig` → preflight `model_installed_available`,
+   `model_version_identifiable`, `llama_cpp_backend_available`,
+   `artifact_sha256_recorded`, and `governance_freeze_complete` flip to PASS.
+2. `python -m sanuvia_phase1 preflight-real` must report **OVERALL: PASS**.
 4. `python -m sanuvia_phase1 preflight-real` must report **OVERALL: PASS**.
 
 *The real evaluation has not been executed.*

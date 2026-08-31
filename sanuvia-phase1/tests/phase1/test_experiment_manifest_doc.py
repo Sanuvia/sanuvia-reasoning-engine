@@ -49,10 +49,11 @@ def test_manifest_states_core_invariants() -> None:
     assert "not been executed" in text or "not been run" in text
 
 
-def test_protocol_marks_scale_as_proposed_not_authoritative() -> None:
+def test_protocol_lists_dimensions_and_approved_scale() -> None:
     text = _PROTOCOL.read_text(encoding="utf-8")
-    # a numeric scale must be labelled proposed, never authoritative
-    assert "PROPOSED — REQUIRES APPROVAL" in text
+    # the 0–2 scale is now a governance decision approved for Run 001
+    assert "APPROVED (Run 001)" in text
+    assert "0–2 ordinal" in text
     for dimension in (
         "Hypothesis continuity", "Hypothesis revision", "Evidence grounding",
         "Uncertainty handling", "Inquiry quality",

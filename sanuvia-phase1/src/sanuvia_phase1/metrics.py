@@ -168,11 +168,10 @@ def dependency_edge_count_series(records: Sequence[TrajectoryRecord]) -> list[in
 # governance process). We therefore expose only raw per-point observables and DO NOT
 # compute the aggregate rate. The aggregate remains pending governance.
 DIVERGENCE_RATE_STATUS = (
-    "PENDING GOVERNANCE — Programme v1.4 C.5 names 'rate of behavioural divergence' "
-    "as the primary metric, but the supplied authoritative documents define no "
-    "formula, weighting, or similar/diverged threshold (deferred to the programme "
-    "governance process per Programme v1.4 C.4/C.5). Raw per-point observables are exposed "
-    "instead; the aggregate rate is not computed."
+    "GOVERNANCE DECISION (Phase 1 Run-001) — Programme v1.4 C.5 'rate of behavioural "
+    "divergence' is reported as raw per-point observables only: no aggregate rate, "
+    "weighting, numerical threshold, or overall pass/fail is computed. Id-based "
+    "divergence remains diagnostic only."
 )
 
 # The hypothesis-set comparison below is by *hypothesis id*. A hypothesis id is an

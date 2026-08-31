@@ -46,8 +46,9 @@ def test_id_diagnostic_is_labelled_diagnostic_not_an_evaluation() -> None:
 
 
 def test_no_aggregate_rate_or_threshold_is_invented() -> None:
-    # The aggregate metric is explicitly pending governance — not computed here.
-    assert "PENDING GOVERNANCE" in metrics.DIVERGENCE_RATE_STATUS
+    # Governance decision (Run 001): raw observables only; no aggregate is computed.
+    assert "raw per-point observables only" in metrics.DIVERGENCE_RATE_STATUS
+    assert "no aggregate rate" in metrics.DIVERGENCE_RATE_STATUS
     # No aggregate/threshold/pass-fail/score function is exposed, and the old
     # 'divergence'-named API is gone (renamed to make the diagnostic nature clear).
     for forbidden in (

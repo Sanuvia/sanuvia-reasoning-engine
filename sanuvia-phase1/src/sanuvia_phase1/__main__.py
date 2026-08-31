@@ -13,8 +13,29 @@ import argparse
 from collections.abc import Sequence
 
 from . import governance
+from .failures import Maybe
 from .preflight import run_real_preflight
 from .qwen import detect_local_qwen, qwen_real_run_config
+from .runconfig import RealRunConfig
+
+
+def _frozen_value(key: str) -> str | None:
+    for item in governance.FREEZE_RECORD:
+        if item.key == key and item.status is governance.GovernanceStatus.FROZEN:
+            return item.value
+    return None
+
+
+def _config_from_governance() -> RealRunConfig:
+    """Build the REAL config, carrying the verified artifact identity from the
+    governance freeze record when it has been frozen (so the preflight sees the
+    exact recorded model version/digest rather than an unverified default)."""
+    version = _frozen_value("model_artifact_version")
+    digest = _frozen_value("artifact_sha256")
+    return qwen_real_run_config(
+        model_version=Maybe.available(version) if version else None,
+        artifact_id=Maybe.available(digest) if digest else None,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -32,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "preflight-real":
         result = run_real_preflight(
-            qwen_real_run_config(), availability=detect_local_qwen()
+            _config_from_governance(), availability=detect_local_qwen()
         )
         print(result.render())
         return 0 if result.overall == "PASS" else 2

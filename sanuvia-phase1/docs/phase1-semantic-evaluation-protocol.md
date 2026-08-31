@@ -1,6 +1,6 @@
 # Phase 1 — Semantic Evaluation Protocol (for approval)
 
-**Status:** DRAFT — pending protocol approval · **Prepared:** 2026-08-23
+**Status:** APPROVED (Run 001) · **Prepared:** 2026-08-23 · **Updated:** 2026-08-26
 **Parent:** [Experiment Manifest](phase1-experiment-manifest.md) (this is §10–§11)
 
 This protocol defines the **human** semantic evaluation that accompanies the Phase 1
@@ -18,9 +18,11 @@ or pass/fail threshold** for semantic quality. Therefore:
 - The **dimensions**, and the definitions of positive/negative evidence, valid
   revision, and unsupported continuity below, are **derived from the authoritative
   documents** and are offered as authoritative-aligned structure.
-- Every **numeric scale, aggregate, or decision rule** is presented **only** as
-  **PROPOSED — REQUIRES APPROVAL**. Nothing numeric here is a
-  requirement, and none of it was set by looking at any results.
+- The **scoring scale and evaluator process** are **not** defined by the specs;
+  they are a governance decision. For Run 001 they are **APPROVED** (0–2 ordinal per
+  dimension, no aggregate; two independent evaluators; best-effort blinding) and
+  pinned in the governance freeze record (`freeze_record_version 2.0-run001`). None
+  of it was set by looking at any results.
 
 ---
 
@@ -130,18 +132,14 @@ or pass/fail threshold** for semantic quality. Therefore:
   capability; evaluators judge the inquiry that is actually surfaced, not an ideal
   the engine does not yet compute.
 
-### Scoring scale — **PROPOSED — REQUIRES APPROVAL**
+### Scoring scale — **APPROVED (Run 001)**
 
-> The authoritative documents define **no** numeric scale for these dimensions.
-> The following is a **minimal candidate only**, offered to unblock approval. It is
-> **not** an authoritative requirement and must not be treated as one. Governance
-> may instead choose purely qualitative notes with no numbers.
+The authoritative documents define no numeric scale for these dimensions; the
+following scale is a **governance decision, approved for Run 001** and pinned in the
+governance freeze record.
 
-Missing governance decision: *the scoring scale, any aggregation across dimensions,
-and any decision threshold.*
-
-**PROPOSED** minimal per-dimension ordinal (per condition, per dimension), applied
-after reading the full trajectory:
+Per-dimension ordinal (per condition, per dimension), applied after reading the full
+trajectory:
 
 | Level | Meaning |
 |---|---|
@@ -149,11 +147,10 @@ after reading the full trajectory:
 | 1 — Present but flawed | exhibited but with lapses (e.g. some unsupported continuity) |
 | 2 — Present and sound | consistently exhibited per the definition above |
 
-**PROPOSED** handling: record the level **with a written justification and cited
-interactions** for each (level alone is not sufficient). **Do not** aggregate into a
-single score and **do not** derive any pass/fail from these levels in Phase 1 — any
-aggregation/threshold is a separate governance decision (manifest §12). If
-governance prefers, replace the 0–2 scale entirely with free-text findings.
+**Handling (approved):** record the level **with a written justification and cited
+interactions** for each (level alone is not sufficient). **Do not** aggregate the
+five dimensions into a composite score and **do not** derive any pass/fail from these
+levels — Phase 1 reports the per-dimension levels with justifications only.
 
 ### Evaluator instructions (procedure)
 
@@ -172,33 +169,30 @@ governance prefers, replace the 0–2 scale entirely with free-text findings.
 
 ## 11. Blindness / evaluator protection
 
-**This is a protocol decision, not (yet) an implementation requirement.** The
-authoritative documents do not mandate a specific blinding procedure; the following
-is **PROPOSED — REQUIRES APPROVAL** and is recommended good practice.
+This is a protocol decision. For Run 001 the following is **APPROVED** and pinned in
+the governance freeze record.
 
-**PROPOSED protocol:**
-- **Condition-blind:** evaluators see trajectories with condition identity removed
-  (no "Sanuvia" / "stateless" / "transcript" labels), under neutral labels.
+**Approved protocol:**
+- **Condition-blind (best-effort):** evaluators see trajectories under **neutral
+  condition labels** (no "Sanuvia" / "stateless" / "transcript").
 - **Order-randomised:** the presentation order of conditions is randomised per case
   and per evaluator so position carries no signal.
-- **Independent then reconciled:** at least two evaluators score independently
-  before any discussion; disagreements are reconciled with written rationale.
-  *(Evaluator count is a governance decision — PENDING.)*
-- **No leakage of structured internals as identity:** the Sanuvia condition
-  inevitably exposes richer structure (hypotheses, inquiry, uncertainty), which can
-  reveal its identity. Evaluators should judge the **content** of that structure,
-  not treat its mere presence as a quality signal; alternatively governance may
-  choose a presentation that normalises surface form across conditions.
+- **Two independent evaluators, then reconciled:** the two evaluators score
+  independently before any discussion; disagreements are reconciled with written
+  rationale.
+- **Recorded limitation:** the Sanuvia condition inevitably exposes richer structure
+  (hypotheses, inquiry, uncertainty) which **may reveal its condition identity**;
+  blinding is therefore **best-effort only**. Evaluators judge the **content** of
+  that structure, not treat its mere presence as a quality signal. **No substantial
+  presentation-normalisation layer is added solely to conceal the structure for
+  Run 001.**
 
 **Distinction — protocol vs implementation:**
-- *Protocol decisions (this document):* whether to blind, how many evaluators,
-  randomisation, reconciliation.
-- *Implementation requirements (only if the above is approved):* a small,
-  additive Phase-1 reporting mode that emits **condition-blinded, order-randomised**
-  per-interaction excerpts for evaluators. The report layer already produces
-  per-condition records and can render blinded excerpts; building a dedicated
-  blinding/export harness is **out of scope until the protocol is approved** and
-  would be a separate, additive change (no Phase 0 impact).
+- *Protocol decisions (approved above):* neutral labels, randomisation, two
+  independent evaluators, reconciliation, best-effort blinding, recorded limitation.
+- *Implementation note:* neutral-labelled, order-randomised per-interaction excerpts
+  can be produced from the existing per-condition records; no dedicated
+  blinding/normalisation harness is built for Run 001 (no Phase 0 impact).
 
 ---
 
@@ -211,20 +205,16 @@ is **PROPOSED — REQUIRES APPROVAL** and is recommended good practice.
   and the evidence-vs-inference and unsupported-continuity definitions.
 - That human evaluation is the primary semantic assessment.
 
-**PENDING APPROVAL / GOVERNANCE**
-- The scoring scale (or a decision to use qualitative notes only); any cross-
-  dimension aggregation; the number of evaluators and the reconciliation process;
-  whether/how blinding is operationalised.
+**APPROVED (Run 001)** — pinned in the governance freeze record:
+- The 0–2 ordinal scale per dimension, each score with written justification citing
+  interactions, **no composite/aggregate** (`semantic_scale`).
+- Two independent evaluators with reconciliation (`semantic_evaluators`).
+- Neutral labels, randomised order, best-effort blinding, and the recorded
+  limitation that Sanuvia structured outputs may reveal condition identity; no
+  presentation-normalisation layer for Run 001 (`semantic_blinding`).
 
-**PROPOSED (NOT YET APPROVED)**
-- The 0–2 ordinal scale and its "record with justification, do not aggregate"
-  handling; the condition-blind, order-randomised, two-independent-evaluator
-  procedure in §11.
-
-**BLOCKING BEFORE REAL RUN**
-- Governance must approve either (a) this rubric with a chosen scale, or (b) an
-  explicit qualitative-only rubric, before the human evaluation can proceed. This is
-  independent of, and additional to, the model-availability and C.4/C.5 blockers in
-  the manifest.
+**PENDING (non-blocking)**
+- Evaluator identities/scheduling and the eval hardware are operational details
+  recorded at run time.
 
 *The real evaluation has not been executed.*

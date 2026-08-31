@@ -22,10 +22,13 @@ def _unavailable() -> QwenAvailability:
 
 
 def _available() -> QwenAvailability:
+    # A fully-ready environment: llama.cpp runtime present, artifact configured and
+    # hashed. (Governance still blocks until the exact version/digest are recorded.)
     return QwenAvailability(
-        available=True, reason="ollama present and artifact configured",
+        available=True, reason="llama.cpp present and artifact configured",
         model_id="qwen3-4b", artifact=Maybe.available("/models/qwen3-4b.gguf"),
-        runtimes_present=("ollama",),
+        runtimes_present=("llama_cpp",),
+        artifact_sha256=Maybe.available("a" * 64),
     )
 
 
@@ -53,10 +56,10 @@ def test_model_checks_flip_when_available_and_versioned() -> None:
     result = run_real_preflight(config, availability=_available())
     assert _check(result, "model_installed_available").status == PASS
     assert _check(result, "model_version_identifiable").status == PASS
-    # the model no longer blocks; the remaining blocker is the governance freeze
-    # (temperature/seed/C.4-C.5/etc. still pending) — not the model.
+    # governance is frozen and the environment is ready -> nothing is blocked.
     blocked = {c.name for c in result.checks if c.status == BLOCKED}
-    assert blocked == {"governance_freeze_complete"}
+    assert blocked == set()
+    assert result.overall == PASS
 
 
 def test_incomplete_config_blocks() -> None:

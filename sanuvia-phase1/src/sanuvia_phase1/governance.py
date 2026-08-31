@@ -11,6 +11,9 @@ chosen. Values marked ``FROZEN`` are those already fixed by the authoritative
 documents / the approved Phase 1 protocol, and each cites its source. Nothing in
 this module runs a model, downloads anything, or changes Phase 0, Case 001,
 prompts, or evaluation criteria.
+
+Version history is preserved for audit (:data:`FREEZE_RECORD_HISTORY`); a new
+version is a new pinned hash, never a silent overwrite.
 """
 
 from __future__ import annotations
@@ -21,8 +24,18 @@ from enum import Enum
 
 from . import prompts
 
-# Neutral source label for the approved Phase 1 protocol structure.
+# Neutral source labels for approved decisions (no personal names).
 APPROVAL_SOURCE = "Phase 1 protocol approval (2026-08-23)"
+RUN001_APPROVAL_SOURCE = "Phase 1 Run-001 governance approval (2026-08-26)"
+RUN001_VERIFICATION_SOURCE = "Run-001 artifact verification (2026-08-31)"
+
+# Current record version and the audit trail of prior pinned hashes.
+FREEZE_RECORD_VERSION = "3.0-run001-verified"
+FREEZE_RECORD_HISTORY: tuple[tuple[str, str], ...] = (
+    # (version, freeze_record_sha256) — never overwritten.
+    ("1.0-structure", "8a8841ba3003bbab0aadff8fa0f3ccceab6ec965cf209d5cc2f77ae30a91a44f"),
+    ("2.0-run001", "0291e6e4b0452c4a4ca32daa4424e32982919b8da0558dc5b41d39644d8fe4ad"),
+)
 
 
 class GovernanceStatus(str, Enum):
@@ -108,7 +121,19 @@ FREEZE_RECORD: tuple[GovernanceItem, ...] = (
         "local_qwen",
         "Experiment Manifest §3",
     ),
-    # --- Prompt / schema versions (approved: current registry, pinned by hash) ---
+    # --- Model / serving (approved for Run 001) ---
+    _frozen("model_family", "Model family/name", "Qwen3-4B", RUN001_APPROVAL_SOURCE),
+    _frozen("serving_runtime_backend", "Serving / runtime / backend arrangement",
+            "llama.cpp (GGUF)", RUN001_APPROVAL_SOURCE),
+    _frozen("quantization", "Model quantization", "Q4_K_M", RUN001_APPROVAL_SOURCE),
+    _frozen("context_window", "Context window", "8192", RUN001_APPROVAL_SOURCE),
+    _frozen("max_output_tokens", "Max output tokens", "512", RUN001_APPROVAL_SOURCE),
+    _frozen("stop_sequences", "Stop sequences", "none", RUN001_APPROVAL_SOURCE),
+    # --- Generation parameters (approved for Run 001) ---
+    _frozen("temperature", "Sampling temperature", "0.0", RUN001_APPROVAL_SOURCE),
+    _frozen("seed", "Random seed / seed policy", "0 (fixed)", RUN001_APPROVAL_SOURCE),
+    _frozen("retry_policy", "Repeat / retry policy", "0 (Run 001)", RUN001_APPROVAL_SOURCE),
+    # --- Prompt / schema versions (pinned by content hash) ---
     _frozen("extractor_prompt_version", "Evidence-extraction prompt version",
             _p(prompts.EXTRACTION_PROMPT_ID), "prompts.py registry; Manifest §4"),
     _frozen("extractor_schema_version", "Evidence-extraction schema version",
@@ -137,9 +162,20 @@ FREEZE_RECORD: tuple[GovernanceItem, ...] = (
     _frozen(
         "failure_policy_integrity",
         "A failed call never becomes a successful call; malformed output is "
-        "rejected and not retried; nothing is defaulted/fabricated on failure",
+        "rejected and not retried; nothing is defaulted/fabricated on failure "
+        "(unchanged for Run 001)",
         "failures.CallStatus + validation + manifest.call_with_recording",
-        "Experiment Manifest §6",
+        f"Experiment Manifest §6; {RUN001_APPROVAL_SOURCE}",
+    ),
+    # --- C.4/C.5 interpretation (approved: raw observables only) ---
+    _frozen(
+        "c4_c5_interpretation",
+        "Report raw longitudinal observables only: NO aggregate behavioural-"
+        "divergence formula, NO weighting, NO numerical threshold, NO overall "
+        "Phase-1 pass/fail; id-based divergence remains diagnostic only",
+        "raw longitudinal observables only; no aggregate/weighting/threshold/"
+        "pass-fail; id-based divergence diagnostic only",
+        f"Programme v1.4 C.4/C.5; {RUN001_APPROVAL_SOURCE}",
     ),
     _frozen(
         "id_divergence_diagnostic_only",
@@ -153,6 +189,49 @@ FREEZE_RECORD: tuple[GovernanceItem, ...] = (
         "interpretation may change; any change requires a new version + separate run",
         "Experiment Manifest §13",
         "Experiment Manifest §13",
+    ),
+    # --- Human semantic evaluation protocol (approved) ---
+    _frozen(
+        "semantic_dimensions",
+        "Five human-evaluation dimensions",
+        "hypothesis_continuity | hypothesis_revision | evidence_grounding | "
+        "uncertainty_handling | inquiry_quality",
+        f"Semantic Evaluation Protocol §10; {RUN001_APPROVAL_SOURCE}",
+    ),
+    _frozen(
+        "semantic_scale",
+        "0–2 ordinal scale per dimension; every score requires written "
+        "justification citing relevant interactions; NO composite/aggregate score",
+        "Semantic Evaluation Protocol §10",
+        f"Semantic Evaluation Protocol §10; {RUN001_APPROVAL_SOURCE}",
+    ),
+    _frozen(
+        "semantic_evaluators",
+        "Two independent evaluators; reconciliation after independent scoring, with "
+        "written rationale",
+        "Semantic Evaluation Protocol §11",
+        f"Semantic Evaluation Protocol §11; {RUN001_APPROVAL_SOURCE}",
+    ),
+    _frozen(
+        "semantic_blinding",
+        "Neutral condition labels; randomised presentation order; blinding is "
+        "best-effort only; Sanuvia structured outputs may reveal condition identity "
+        "(recorded limitation); NO substantial presentation-normalisation layer for "
+        "Run 001",
+        "Semantic Evaluation Protocol §11",
+        f"Semantic Evaluation Protocol §11; {RUN001_APPROVAL_SOURCE}",
+    ),
+    # --- Negative-result disposition (approved) ---
+    _frozen(
+        "negative_result_disposition",
+        "A null or adverse result is a valid Phase-1 result: retained and reported "
+        "unchanged. No result-motivated tuning of prompts, Case 001, Phase 0, "
+        "generation parameters, evaluation criteria, or interpretation after "
+        "observing Run-001 outputs; no rerun of Run 001 seeking a favourable "
+        "result; any later result-motivated change becomes a new explicitly "
+        "versioned, pre-registered experiment",
+        "Programme v1.4 C.1; Experiment Manifest §12",
+        f"Programme v1.4 C.1; {RUN001_APPROVAL_SOURCE}",
     ),
     # --- Semantic constraints (approved) ---
     _frozen(
@@ -204,25 +283,30 @@ FREEZE_RECORD: tuple[GovernanceItem, ...] = (
         "golden mode uses scripted doubles; real mode required for empirical data",
         "Experiment Manifest §8; README",
     ),
-    # --- Pending governance approval (blocking unless noted) ---
-    _pending("model_artifact_version", "Exact model artifact + version + digest", "Experiment Manifest §3"),
-    _pending("serving_runtime_backend", "Serving / runtime / backend arrangement", "Experiment Manifest §3"),
-    _pending("quantization", "Model quantization", "Experiment Manifest §3"),
-    _pending("temperature", "Sampling temperature (frozen experimental value)", "Experiment Manifest §5"),
-    _pending("seed", "Random seed / seed policy (frozen experimental value)", "Experiment Manifest §5"),
-    _pending("retry_policy", "Repeat / retry policy (retry count)", "Experiment Manifest §6"),
-    _pending(
-        "c4_c5_interpretation",
-        "C.4/C.5 evaluation / pass interpretation (formula, weighting, threshold) — "
-        "or an explicit pre-registered decision to report observables only",
-        "Programme v1.4 C.4/C.5; Experiment Manifest §12",
+    # --- Verified artifact / runtime identity (Run 001) ---
+    # Identified from the actual installed GGUF and computed locally — not invented.
+    # Local path (host-specific, not part of the portable identity hash):
+    # /Users/elite/models/qwen3-4b-q4_k_m/Qwen3-4B-Q4_K_M.gguf
+    _frozen(
+        "model_artifact_version",
+        "Exact model artifact + version, identified from the installed GGUF",
+        "Qwen/Qwen3-4B-GGUF@bc640142c66e1fdd12af0bd68f40445458f3869b :: "
+        "Qwen3-4B-Q4_K_M.gguf (2497280256 bytes)",
+        RUN001_VERIFICATION_SOURCE,
     ),
-    _pending(
-        "negative_result_disposition",
-        "Negative-result disposition (formal policy for how a null/negative outcome "
-        "is dispositioned) — distinct from the frozen 'retain observed H1/H2' constraint",
-        "Programme v1.4 C.1; Experiment Manifest §12",
+    _frozen(
+        "artifact_sha256",
+        "SHA-256 computed over the installed artifact; verified == published digest",
+        "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+        RUN001_VERIFICATION_SOURCE,
     ),
+    _frozen(
+        "llama_cpp_build",
+        "Exact llama.cpp runtime build in use",
+        "build 10721 (commit 8e53fcefd), macos-x64 prebuilt release (v0.3.0-dev)",
+        RUN001_VERIFICATION_SOURCE,
+    ),
+    # --- Pending governance approval (non-blocking) ---
     _pending(
         "eval_hardware",
         "Evaluation hardware (CPU/GPU/RAM of the eval host) — recorded at run time",
@@ -251,15 +335,18 @@ def is_real_run_permitted() -> bool:
 
 
 def _canonical() -> str:
-    # Stable serialization for the content hash — order + each field.
-    return "\n".join(
+    # Stable serialization for the content hash — version + order + each field.
+    lines = [f"version:{FREEZE_RECORD_VERSION}"]
+    lines += [
         f"{i.key}|{i.status.value}|{i.value or ''}|{int(i.blocking)}" for i in FREEZE_RECORD
-    )
+    ]
+    return "\n".join(lines)
 
 
 def freeze_record_sha256() -> str:
-    """Content hash pinning the frozen protocol. Changes if any frozen value (or a
-    pinned prompt/schema hash) changes — the immutability anchor for a real run."""
+    """Content hash pinning the frozen protocol. Changes if the version or any
+    frozen value (including a pinned prompt/schema hash) changes — the immutability
+    anchor for a real run."""
     return hashlib.sha256(_canonical().encode("utf-8")).hexdigest()
 
 
@@ -268,11 +355,15 @@ def render_checklist() -> str:
     lines = [
         "PHASE 1 GOVERNANCE / FREEZE CHECKLIST",
         "=" * 37,
+        f"freeze_record_version: {FREEZE_RECORD_VERSION}",
         f"freeze_record_sha256: {freeze_record_sha256()}",
         f"real run permitted: {'YES' if is_real_run_permitted() else 'NO'}",
-        "",
-        "FROZEN / APPROVED",
+        "prior versions:",
     ]
+    for version, digest in FREEZE_RECORD_HISTORY:
+        lines.append(f"  {version}: {digest}")
+    lines.append("")
+    lines.append("FROZEN / APPROVED")
     for item in frozen_items():
         lines.append(f"  [FROZEN]  {item.key}: {item.value}")
         lines.append(f"            {item.description}  ({item.source})")

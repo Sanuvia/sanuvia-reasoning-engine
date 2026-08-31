@@ -18,7 +18,7 @@ from .evidence_appraisers.external import ExternalEvidenceAppraiser
 from .evidence_extractors.external import ExternalEvidenceExtractor
 from .language_models.external import ExternalLanguageModel
 from .qwen import QwenAvailability, detect_local_qwen, qwen_real_run_config
-from .runconfig import REAL, RealRunConfig, validate_run_configuration
+from .runconfig import REAL, ModelSpec, RealRunConfig, validate_run_configuration
 
 PASS = "PASS"
 BLOCKED = "BLOCKED"
@@ -151,6 +151,92 @@ def _check_model_version(config: RealRunConfig, availability: QwenAvailability) 
     )
 
 
+def _extra(spec: ModelSpec, key: str) -> str | None:
+    for name, value in spec.extra_params:
+        if name == key:
+            return value
+    return None
+
+
+def _check_llama_cpp_backend(availability: QwenAvailability) -> Check:
+    if availability.has_llama_cpp:
+        return Check(
+            "llama_cpp_backend_available", PASS,
+            f"llama.cpp runtime present: {availability.runtimes_present}",
+        )
+    return Check(
+        "llama_cpp_backend_available", BLOCKED,
+        "no llama.cpp runtime found (checked llama_cpp module + "
+        "llama-cli/llama-server/llama/main on PATH)",
+    )
+
+
+def _check_artifact_sha_recorded(availability: QwenAvailability) -> Check:
+    if availability.artifact_sha256.availability.name == "AVAILABLE":
+        value = availability.artifact_sha256.value or ""
+        return Check("artifact_sha256_recorded", PASS, f"sha256={value[:16]}…")
+    return Check(
+        "artifact_sha256_recorded", BLOCKED,
+        "no installed artifact to hash; SHA-256 not computed (and not invented)",
+    )
+
+
+def _check_approved_model_quantisation(config: RealRunConfig) -> Check:
+    spec = config.extraction
+    problems: list[str] = []
+    if spec.model != "qwen3-4b":
+        problems.append(f"model={spec.model!r} != 'qwen3-4b'")
+    quant = _extra(spec, "quantization")
+    if quant != "Q4_K_M":
+        problems.append(f"quantization={quant!r} != 'Q4_K_M'")
+    backend = _extra(spec, "backend_id") or ""
+    if "llama" not in backend or "cpp" not in backend:  # accepts llama.cpp / llama_cpp
+        problems.append(f"backend_id={backend!r} is not llama.cpp")
+    if problems:
+        return Check("approved_model_and_quantisation", BLOCKED, "; ".join(problems))
+    return Check(
+        "approved_model_and_quantisation", PASS,
+        f"model=qwen3-4b, quantization=Q4_K_M, backend={backend}",
+    )
+
+
+def _check_approved_generation_config(config: RealRunConfig) -> Check:
+    problems: list[str] = []
+    for spec in config.specs():
+        if spec.temperature != 0.0:
+            problems.append(f"{spec.role}.temperature={spec.temperature} != 0.0")
+        if spec.seed.value != "0":
+            problems.append(f"{spec.role}.seed={spec.seed.value} != 0")
+        if spec.max_output_tokens != 512:
+            problems.append(f"{spec.role}.max_output_tokens={spec.max_output_tokens} != 512")
+        if spec.context_window != 8192:
+            problems.append(f"{spec.role}.context_window={spec.context_window} != 8192")
+        if _extra(spec, "stop_sequences") != "none":
+            problems.append(f"{spec.role}.stop_sequences != none")
+    retry = next((i.value for i in governance.FREEZE_RECORD if i.key == "retry_policy"), None)
+    if not retry or "0" not in retry:
+        problems.append("retry_policy is not frozen to 0")
+    if problems:
+        return Check("approved_generation_config", BLOCKED, "; ".join(problems))
+    return Check(
+        "approved_generation_config", PASS,
+        "temperature=0.0, seed=0, max_output_tokens=512, context_window=8192, "
+        "stop=none, retries=0",
+    )
+
+
+def _check_experiment_structure() -> Check:
+    item = next(
+        (i for i in governance.FREEZE_RECORD if i.key == "experimental_structure"), None
+    )
+    if item is None or item.status is not governance.GovernanceStatus.FROZEN:
+        return Check("experiment_structure_unchanged", BLOCKED, "structure not frozen")
+    value = item.value or ""
+    if not all(c in value for c in ("sanuvia_persistent", "fm_stateless", "fm_transcript")):
+        return Check("experiment_structure_unchanged", BLOCKED, f"unexpected structure: {value}")
+    return Check("experiment_structure_unchanged", PASS, value)
+
+
 def _check_governance_freeze() -> Check:
     blocking = governance.blocking_items()
     if blocking:
@@ -224,15 +310,20 @@ def run_real_preflight(
     root = _repo_root(repo_root)
 
     checks = (
+        _check_governance_freeze(),
+        _check_experiment_structure(),
         _check_config(cfg),
         _check_prompts(cfg),
         _check_prompt_integrity(),
         _check_schemas(cfg),
         _check_no_scripted_doubles(cfg),
         _check_provider_is_local(cfg),
-        _check_governance_freeze(),
+        _check_approved_model_quantisation(cfg),
+        _check_approved_generation_config(cfg),
         _check_model_available(avail),
         _check_model_version(cfg, avail),
+        _check_llama_cpp_backend(avail),
+        _check_artifact_sha_recorded(avail),
         _check_import_isolation(),
         _check_phase0_git_untouched(root),
     )

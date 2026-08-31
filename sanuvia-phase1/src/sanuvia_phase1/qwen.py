@@ -18,6 +18,7 @@ the existing `ExternalEvidenceExtractor` / `ExternalEvidenceAppraiser` /
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import shutil
@@ -249,11 +250,13 @@ def qwen_real_run_config(
     model_id: str = QWEN3_4B.model_id,
     model_version: Maybe | None = None,
     artifact_id: Maybe | None = None,
-    backend_id: str = "unset",
+    backend_id: str = "llama.cpp-gguf",
+    quantization: str = "Q4_K_M",
     temperature: float = 0.0,
     seed: int | None = 0,
     max_output_tokens: int = 512,
     context_window: int = 8192,
+    stop_sequences: str = "none",
 ) -> RealRunConfig:
     """An explicit REAL config for the local-Qwen evaluation.
 
@@ -279,6 +282,8 @@ def qwen_real_run_config(
             context_window=context_window,
             extra_params=(
                 ("backend_id", backend_id),
+                ("quantization", quantization),
+                ("stop_sequences", stop_sequences),
                 ("artifact_availability", artifact.availability.value),
                 ("artifact_value", artifact.value or ""),
                 ("prompt_sha256", prompts.prompt(prompt_id).content_sha256),
@@ -310,6 +315,19 @@ def qwen_real_run_config(
 # --- availability detection (no network, no download, no daemon calls) --------
 
 
+# llama.cpp CLI/server binaries we recognise on PATH (any one suffices).
+LLAMA_CPP_BINARIES = ("llama-cli", "llama-server", "llama", "main")
+
+
+def sha256_file(path: str, *, chunk: int = 1 << 20) -> str:
+    """SHA-256 of a local file (streamed). Local read only — no network."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(chunk), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class QwenAvailability:
     available: bool
@@ -317,6 +335,13 @@ class QwenAvailability:
     model_id: str
     artifact: Maybe
     runtimes_present: tuple[str, ...] = field(default=())
+    artifact_sha256: Maybe = field(default_factory=Maybe.not_captured)
+
+    @property
+    def has_llama_cpp(self) -> bool:
+        return any(
+            r == "llama_cpp" or r in LLAMA_CPP_BINARIES for r in self.runtimes_present
+        )
 
 
 def detect_local_qwen(
@@ -327,18 +352,24 @@ def detect_local_qwen(
     """Detect (never fetch) local Qwen support.
 
     Pure filesystem/PATH/importlib checks — no network, no daemon calls, no model
-    download. Reports which local runtimes appear installed and whether a model
-    artifact path is configured and exists."""
+    download, no model completion. Reports which local runtimes appear installed
+    (incl. llama.cpp binaries), whether a model artifact path is configured and
+    exists, and — when it exists — the artifact's SHA-256 (a local file read)."""
     runtimes: list[str] = []
     if shutil.which("ollama"):
         runtimes.append("ollama")
+    for binary in LLAMA_CPP_BINARIES:
+        if shutil.which(binary):
+            runtimes.append(binary)
     for module in ("llama_cpp", "transformers", "vllm"):
         if importlib.util.find_spec(module) is not None:
             runtimes.append(module)
 
     artifact_path = os.environ.get(artifact_env, "").strip()
+    artifact_sha256 = Maybe.not_captured()
     if artifact_path and os.path.isfile(artifact_path):
         artifact = Maybe.available(artifact_path)
+        artifact_sha256 = Maybe.available(sha256_file(artifact_path))
     elif artifact_path:
         artifact = Maybe.not_captured()  # configured but missing on disk
     else:
@@ -353,8 +384,9 @@ def detect_local_qwen(
     elif not has_runtime and not has_artifact:
         available = False
         reason = (
-            f"no local Qwen runtime detected (checked ollama, llama_cpp, transformers, "
-            f"vllm) and no model artifact configured via ${artifact_env}"
+            "no local Qwen runtime detected (checked ollama, llama.cpp binaries, "
+            f"llama_cpp, transformers, vllm) and no model artifact configured via "
+            f"${artifact_env}"
         )
     elif not has_runtime:
         available = False
@@ -372,4 +404,5 @@ def detect_local_qwen(
         model_id=model_id,
         artifact=artifact,
         runtimes_present=tuple(runtimes),
+        artifact_sha256=artifact_sha256,
     )
