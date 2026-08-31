@@ -21,7 +21,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import os
+import re
 import shutil
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
@@ -319,6 +321,45 @@ def qwen_real_run_config(
 LLAMA_CPP_BINARIES = ("llama-cli", "llama-server", "llama", "main")
 
 
+def _normalise_llama_cpp_build(version_output: str) -> str | None:
+    """Extract the build/commit identity printed by llama.cpp ``--version``."""
+    patterns = (
+        r"\bversion\s*:\s*(\d+)\s*\(\s*([0-9a-f]{7,40})\s*\)",
+        r"\bbuild(?:\s+number)?\s*[:=]?\s*(\d+)\b[^\r\n]*?"
+        r"\bcommit\s*[:=]?\s*([0-9a-f]{7,40})\b",
+        r"\bbuild\s+(\d+)\s*\(\s*(?:commit\s+)?([0-9a-f]{7,40})\s*\)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, version_output, flags=re.IGNORECASE)
+        if match is not None:
+            return f"build {match.group(1)} (commit {match.group(2).lower()})"
+    return None
+
+
+def _detect_llama_cpp_build() -> Maybe:
+    """Read an installed llama.cpp CLI's version metadata without loading a model."""
+    for binary in LLAMA_CPP_BINARIES:
+        executable = shutil.which(binary)
+        if executable is None:
+            continue
+        try:
+            completed = subprocess.run(
+                [executable, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        identity = _normalise_llama_cpp_build(
+            "\n".join((completed.stdout, completed.stderr))
+        )
+        if identity is not None:
+            return Maybe.available(identity)
+    return Maybe.not_captured()
+
+
 def sha256_file(path: str, *, chunk: int = 1 << 20) -> str:
     """SHA-256 of a local file (streamed). Local read only — no network."""
     digest = hashlib.sha256()
@@ -336,6 +377,7 @@ class QwenAvailability:
     artifact: Maybe
     runtimes_present: tuple[str, ...] = field(default=())
     artifact_sha256: Maybe = field(default_factory=Maybe.not_captured)
+    llama_cpp_build: Maybe = field(default_factory=Maybe.not_captured)
 
     @property
     def has_llama_cpp(self) -> bool:
@@ -351,10 +393,11 @@ def detect_local_qwen(
 ) -> QwenAvailability:
     """Detect (never fetch) local Qwen support.
 
-    Pure filesystem/PATH/importlib checks — no network, no daemon calls, no model
-    download, no model completion. Reports which local runtimes appear installed
-    (incl. llama.cpp binaries), whether a model artifact path is configured and
-    exists, and — when it exists — the artifact's SHA-256 (a local file read)."""
+    Local filesystem/PATH/importlib checks plus ``llama.cpp --version`` — no
+    network, daemon calls, model download, model loading, or model completion.
+    Reports which local runtimes appear installed (incl. llama.cpp binaries),
+    whether a model artifact path is configured and exists, the artifact's SHA-256
+    (a local file read), and the installed llama.cpp build identity when exposed."""
     runtimes: list[str] = []
     if shutil.which("ollama"):
         runtimes.append("ollama")
@@ -377,6 +420,7 @@ def detect_local_qwen(
 
     has_runtime = bool(runtimes)
     has_artifact = artifact.availability.name == "AVAILABLE"
+    llama_cpp_build = _detect_llama_cpp_build()
 
     if has_runtime and has_artifact:
         available = True
@@ -405,4 +449,5 @@ def detect_local_qwen(
         artifact=artifact,
         runtimes_present=tuple(runtimes),
         artifact_sha256=artifact_sha256,
+        llama_cpp_build=llama_cpp_build,
     )

@@ -1,6 +1,6 @@
 # Phase 1 — Experiment Manifest & Protocol (for approval)
 
-**Status:** APPROVED (Run 001) — artifact identification pending · **Prepared:** 2026-08-23 · **Updated:** 2026-08-26
+**Status:** APPROVED (Run 001) — artifact/runtime verified · **Prepared:** 2026-08-23 · **Updated:** 2026-08-31
 **Scope:** Sanuvia Phase 1 — Controlled Reasoning Demonstrator, first REAL run
 **Companion:** [Semantic Evaluation Protocol](phase1-semantic-evaluation-protocol.md) (§10–§11) · [Governance / Freeze Record](phase1-governance-freeze-record.md)
 
@@ -80,22 +80,21 @@ The appraiser boundary belongs to condition A only; it is never given to B or C.
 ## 3. Model / serving
 
 Model **Qwen3-4B**, local only, served via **llama.cpp (GGUF)** at **Q4_K_M** —
-approved for Run 001. **No model has been downloaded or run.** The exact artifact
-version and its SHA-256 digest **must be identified from the installed evaluation
-artifact** (not invented); until an artifact is installed, those two fields are
-**PENDING GOVERNANCE APPROVAL** and the run is blocked.
+approved and verified for Run 001. The installed artifact identity and SHA-256,
+and the installed llama.cpp build/commit, were verified locally and frozen in
+governance record `3.0-run001-verified`. **No model inference has been run.**
 
 | Field | Value | Status |
 |---|---|---|
 | provider | `local_qwen` (local only, no cloud, no API key) | **FROZEN** |
 | model | `qwen3-4b` | **FROZEN** |
-| runtime / backend | llama.cpp (GGUF), injected `QwenBackend` | **FROZEN** |
+| runtime / backend | llama.cpp `build 10721 (commit 8e53fcefd), macos-x64 prebuilt release (v0.3.0-dev)`, injected `QwenBackend` | **FROZEN / VERIFIED** |
 | quantization | `Q4_K_M` | **FROZEN** |
 | context window | `8192` | **FROZEN** |
 | max output tokens | `512` | **FROZEN** |
 | stop sequences | none | **FROZEN** |
-| exact version | identify from the installed GGUF artifact | **PENDING** (blocking) |
-| artifact / digest | SHA-256 over the exact installed artifact | **PENDING** (blocking) |
+| exact version | `Qwen/Qwen3-4B-GGUF@bc640142c66e1fdd12af0bd68f40445458f3869b` · `Qwen3-4B-Q4_K_M.gguf` (2497280256 bytes) | **FROZEN / VERIFIED** |
+| artifact / digest | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` | **FROZEN / VERIFIED** |
 | hardware | CPU/GPU/RAM of the eval host | **PENDING** (recorded at run time) |
 
 The runtime is **injected** (dependency injection) and provider-neutral; no runtime
@@ -327,20 +326,15 @@ looking at any existing output.
   semantic 0–2 rubric, two evaluators, blinding (§10–§11); negative-result
   disposition (a null/adverse result is valid, retained unchanged, no
   result-motivated tuning). Pinned in the governance freeze record
-  (`freeze_record_version 2.0-run001`).
+  (`freeze_record_version 3.0-run001-verified`).
 
-**PENDING GOVERNANCE APPROVAL**
-- Exact model artifact + version and its SHA-256 digest — **must be identified from
-  the installed evaluation artifact** (§3); not invented.
+**PENDING GOVERNANCE APPROVAL (non-blocking)**
 - Eval hardware — recorded at run time (non-blocking).
 
 **BLOCKING BEFORE REAL RUN**
-1. Install the approved local llama.cpp runtime + Qwen3-4B Q4_K_M GGUF artifact and
-   record its exact version and SHA-256 digest into the governance record and
-   `RealRunConfig` → preflight `model_installed_available`,
-   `model_version_identifiable`, `llama_cpp_backend_available`,
-   `artifact_sha256_recorded`, and `governance_freeze_complete` flip to PASS.
+1. On the evaluation host, `preflight-real` must verify that the computed local
+   artifact SHA-256 and detected llama.cpp build/commit match the frozen governance
+   values.
 2. `python -m sanuvia_phase1 preflight-real` must report **OVERALL: PASS**.
-4. `python -m sanuvia_phase1 preflight-real` must report **OVERALL: PASS**.
 
 *The real evaluation has not been executed.*

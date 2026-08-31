@@ -9,6 +9,11 @@ from sanuvia_phase1.failures import Maybe
 from sanuvia_phase1.preflight import BLOCKED, PASS, run_real_preflight
 from sanuvia_phase1.qwen import QwenAvailability, qwen_real_run_config
 
+_FROZEN_ARTIFACT_SHA256 = (
+    "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+)
+_FROZEN_LLAMA_CPP_BUILD = "build 10721 (commit 8e53fcefd)"
+
 
 def _check(result: preflight.PreflightResult, name: str) -> preflight.Check:
     return next(c for c in result.checks if c.name == name)
@@ -22,13 +27,14 @@ def _unavailable() -> QwenAvailability:
 
 
 def _available() -> QwenAvailability:
-    # A fully-ready environment: llama.cpp runtime present, artifact configured and
-    # hashed. (Governance still blocks until the exact version/digest are recorded.)
+    # A fully-ready environment whose local artifact/runtime identities match the
+    # frozen governance record.
     return QwenAvailability(
         available=True, reason="llama.cpp present and artifact configured",
         model_id="qwen3-4b", artifact=Maybe.available("/models/qwen3-4b.gguf"),
         runtimes_present=("llama_cpp",),
-        artifact_sha256=Maybe.available("a" * 64),
+        artifact_sha256=Maybe.available(_FROZEN_ARTIFACT_SHA256),
+        llama_cpp_build=Maybe.available(_FROZEN_LLAMA_CPP_BUILD),
     )
 
 
@@ -69,6 +75,29 @@ def test_incomplete_config_blocks() -> None:
     )
     result = run_real_preflight(holey, availability=_available())
     assert _check(result, "real_run_config_complete").status == BLOCKED
+    assert result.overall == BLOCKED
+
+
+def test_wrong_artifact_sha_blocks() -> None:
+    availability = dataclasses.replace(
+        _available(), artifact_sha256=Maybe.available("a" * 64)
+    )
+    result = run_real_preflight(qwen_real_run_config(), availability=availability)
+    check = _check(result, "artifact_sha256_recorded")
+    assert check.status == BLOCKED
+    assert "mismatch" in check.detail
+    assert result.overall == BLOCKED
+
+
+def test_wrong_llama_cpp_build_blocks() -> None:
+    availability = dataclasses.replace(
+        _available(),
+        llama_cpp_build=Maybe.available("build 10720 (commit deadbeef)"),
+    )
+    result = run_real_preflight(qwen_real_run_config(), availability=availability)
+    check = _check(result, "llama_cpp_build_matches_frozen")
+    assert check.status == BLOCKED
+    assert "mismatch" in check.detail
     assert result.overall == BLOCKED
 
 

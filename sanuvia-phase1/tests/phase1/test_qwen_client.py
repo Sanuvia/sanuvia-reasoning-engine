@@ -30,6 +30,7 @@ from sanuvia_phase1.qwen import (
     GenerationParams,
     QwenClient,
     QwenRuntimeInfo,
+    _normalise_llama_cpp_build,
     detect_local_qwen,
     qwen_real_run_config,
 )
@@ -205,3 +206,9 @@ def test_detect_local_qwen_sees_a_configured_artifact(tmp_path: Path) -> None:
             os.environ.pop("SANUVIA_QWEN_MODEL_PATH", None)
         else:
             os.environ["SANUVIA_QWEN_MODEL_PATH"] = saved
+
+
+def test_llama_cpp_version_output_exposes_build_and_commit() -> None:
+    assert _normalise_llama_cpp_build("version: 10721 (8e53fcefd)\n") == (
+        "build 10721 (commit 8e53fcefd)"
+    )

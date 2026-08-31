@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sanuvia_phase1 import prompts
+from sanuvia_phase1 import governance, prompts
 
 _DOCS = Path(__file__).resolve().parents[2] / "docs"
 _MANIFEST = _DOCS / "phase1-experiment-manifest.md"
@@ -41,12 +41,24 @@ def test_manifest_states_core_invariants() -> None:
     # three conditions
     for name in ("sanuvia_persistent", "fm_stateless", "fm_transcript"):
         assert name in text
-    # case, freeze rule, no-invented-threshold posture, local-only, diagnostic-only
+    # case, freeze rule, local-only, diagnostic-only, and no inference yet
     assert "Case 001" in text
-    assert "PENDING GOVERNANCE" in text
     assert "local_qwen" in text
     assert "DIAGNOSTIC ONLY" in text
     assert "not been executed" in text or "not been run" in text
+
+
+def test_manifest_matches_verified_run001_governance() -> None:
+    text = _manifest_text()
+    frozen = {item.key: item.value for item in governance.frozen_items()}
+    assert governance.FREEZE_RECORD_VERSION in text
+    artifact_sha256 = frozen["artifact_sha256"]
+    assert artifact_sha256 is not None and artifact_sha256 in text
+    build = frozen["llama_cpp_build"]
+    assert build is not None and build in text
+    assert "artifact identification pending" not in text.casefold()
+    assert "No model has been downloaded" not in text
+    assert "exact version" in text and "**PENDING** (blocking)" not in text
 
 
 def test_protocol_lists_dimensions_and_approved_scale() -> None:

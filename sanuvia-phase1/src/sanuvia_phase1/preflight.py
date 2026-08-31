@@ -8,6 +8,7 @@ model, never runs the model, and never executes the Case-001 comparison.
 from __future__ import annotations
 
 import pathlib
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -172,12 +173,85 @@ def _check_llama_cpp_backend(availability: QwenAvailability) -> Check:
 
 
 def _check_artifact_sha_recorded(availability: QwenAvailability) -> Check:
-    if availability.artifact_sha256.availability.name == "AVAILABLE":
-        value = availability.artifact_sha256.value or ""
-        return Check("artifact_sha256_recorded", PASS, f"sha256={value[:16]}…")
+    actual = availability.artifact_sha256.value
+    expected_item = next(
+        (item for item in governance.FREEZE_RECORD if item.key == "artifact_sha256"),
+        None,
+    )
+    expected = expected_item.value if expected_item is not None else None
+    if availability.artifact_sha256.availability.name != "AVAILABLE" or not actual:
+        return Check(
+            "artifact_sha256_recorded", BLOCKED,
+            "no installed artifact to hash; SHA-256 not computed (and not invented)",
+        )
+    if (
+        expected_item is None
+        or expected_item.status is not governance.GovernanceStatus.FROZEN
+        or not expected
+    ):
+        return Check(
+            "artifact_sha256_recorded", BLOCKED,
+            "artifact SHA-256 is not frozen in governance",
+        )
+    if actual.casefold() != expected.casefold():
+        return Check(
+            "artifact_sha256_recorded", BLOCKED,
+            f"computed sha256={actual}; frozen sha256={expected}; mismatch",
+        )
     return Check(
-        "artifact_sha256_recorded", BLOCKED,
-        "no installed artifact to hash; SHA-256 not computed (and not invented)",
+        "artifact_sha256_recorded", PASS,
+        f"computed artifact SHA-256 matches frozen governance value {expected[:16]}…",
+    )
+
+
+def _llama_cpp_build_identity(value: str) -> tuple[str, str] | None:
+    match = re.search(
+        r"\bbuild\s+(\d+)\s*\(\s*commit\s+([0-9a-f]{7,40})\s*\)",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    return match.group(1), match.group(2).lower()
+
+
+def _check_llama_cpp_build(availability: QwenAvailability) -> Check:
+    expected_item = next(
+        (item for item in governance.FREEZE_RECORD if item.key == "llama_cpp_build"),
+        None,
+    )
+    expected = expected_item.value if expected_item is not None else None
+    if (
+        expected_item is None
+        or expected_item.status is not governance.GovernanceStatus.FROZEN
+        or not expected
+    ):
+        return Check(
+            "llama_cpp_build_matches_frozen", BLOCKED,
+            "llama.cpp build identity is not frozen in governance",
+        )
+    actual = availability.llama_cpp_build.value
+    if availability.llama_cpp_build.availability.name != "AVAILABLE" or not actual:
+        return Check(
+            "llama_cpp_build_matches_frozen", BLOCKED,
+            "installed llama.cpp build/commit could not be identified via --version",
+        )
+    actual_identity = _llama_cpp_build_identity(actual)
+    expected_identity = _llama_cpp_build_identity(expected)
+    if actual_identity is None or expected_identity is None:
+        return Check(
+            "llama_cpp_build_matches_frozen", BLOCKED,
+            f"could not compare installed build {actual!r} with frozen value {expected!r}",
+        )
+    if actual_identity != expected_identity:
+        return Check(
+            "llama_cpp_build_matches_frozen", BLOCKED,
+            f"installed {actual}; frozen build {expected_identity[0]} "
+            f"(commit {expected_identity[1]}); mismatch",
+        )
+    return Check(
+        "llama_cpp_build_matches_frozen", PASS,
+        f"installed {actual} matches frozen governance value",
     )
 
 
@@ -323,6 +397,7 @@ def run_real_preflight(
         _check_model_available(avail),
         _check_model_version(cfg, avail),
         _check_llama_cpp_backend(avail),
+        _check_llama_cpp_build(avail),
         _check_artifact_sha_recorded(avail),
         _check_import_isolation(),
         _check_phase0_git_untouched(root),
