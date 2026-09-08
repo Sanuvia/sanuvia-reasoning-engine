@@ -21,7 +21,7 @@ from sanuvia.exit_test.trace import render_trace
 from . import metrics
 from .conditions import SanuviaPersistentCondition
 from .demonstrator import DemonstrationReport
-from .failures import CallStatus
+from .failures import CallStatus, InteractionStatus
 from .manifest import RunManifest
 from .pipeline import TranscriptDemonstrationReport
 from .trajectory import TrajectoryRecord
@@ -234,7 +234,12 @@ def render_manifest_markdown(manifest: RunManifest) -> str:
         "",
     ]
     for seq_label, status in manifest.per_interaction_status:
-        marker = "ok" if status == CallStatus.SUCCESS.value else "FAIL"
+        if status == CallStatus.SUCCESS.value:
+            marker = "ok"
+        elif status == InteractionStatus.NOT_EXECUTED.value:
+            marker = "not-run"
+        else:
+            marker = "FAIL"
         lines.append(f"- {seq_label}: {status}  [{marker}]")
 
     failures = [

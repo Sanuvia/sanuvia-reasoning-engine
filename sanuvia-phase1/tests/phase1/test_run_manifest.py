@@ -20,6 +20,7 @@ from sanuvia_phase1.failures import (
     Availability,
     BoundaryKind,
     CallStatus,
+    InteractionStatus,
     Maybe,
     MalformedOutputError,
     ModelError,
@@ -125,9 +126,11 @@ def test_malformed_output_is_recorded_and_not_retried() -> None:
     assert rec.status == CallStatus.MALFORMED_OUTPUT.value
     assert rec.attempts == 1
     assert rec.raw_response == "garbage"
-    # per-interaction status reflects the failure
+    # per-interaction status reflects the failure at seq-1; seq-2 was never
+    # attempted (no call, not started) -> NOT_EXECUTED, not a silent SUCCESS
+    # (Run 002 amendment).
     assert ("seq-1", CallStatus.MALFORMED_OUTPUT.value) in manifest.per_interaction_status
-    assert ("seq-2", CallStatus.SUCCESS.value) in manifest.per_interaction_status
+    assert ("seq-2", InteractionStatus.NOT_EXECUTED.value) in manifest.per_interaction_status
 
 
 def test_model_error_retries_then_exhausts() -> None:

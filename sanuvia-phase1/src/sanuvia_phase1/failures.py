@@ -28,6 +28,20 @@ class CallStatus(str, Enum):
     CONFIGURATION_ERROR = "configuration_error"
 
 
+class InteractionStatus(str, Enum):
+    """Per-interaction status in the run manifest — an INTERACTION-level status,
+    deliberately NOT a :class:`CallStatus` (which is per model *call*).
+
+    ``SUCCESS``/``NOT_EXECUTED`` are the interaction-only values; an interaction
+    that *was* attempted but whose call failed reports that call's ``CallStatus``
+    value instead. ``NOT_EXECUTED`` marks an interaction for which no call was ever
+    attempted (e.g. every interaction after an early abort) — it must never be
+    reported as ``SUCCESS`` (Run 002 amendment)."""
+
+    SUCCESS = "success"
+    NOT_EXECUTED = "not_executed"
+
+
 class BoundaryKind(str, Enum):
     """Which external boundary a call/failure belongs to."""
 

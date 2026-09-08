@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from .failures import (
     BoundaryKind,
     CallStatus,
+    InteractionStatus,
     Maybe,
     MalformedOutputError,
     ModelError,
@@ -144,6 +145,7 @@ class RunManifestBuilder:
         self._notes = notes
         self._governance_freeze_hash = governance_freeze_hash
         self._calls: list[CallRecord] = []
+        self._started: set[str] = set()
         self._finalized = False
 
     def record_call(self, record: CallRecord) -> None:
@@ -151,17 +153,35 @@ class RunManifestBuilder:
             raise Phase1Error("cannot record a call on a finalized manifest")
         self._calls.append(record)
 
+    def mark_started(self, seq_label: str) -> None:
+        """Record that processing of an interaction actually began (Run 002
+        amendment). An interaction that is neither marked started nor produced any
+        call is reported as ``NOT_EXECUTED`` — never ``SUCCESS``."""
+        if self._finalized:
+            raise Phase1Error("cannot mark an interaction on a finalized manifest")
+        self._started.add(seq_label)
+
     def _per_interaction_status(self) -> tuple[tuple[str, str], ...]:
-        # SUCCESS unless a non-success call exists for that interaction, in which
-        # case the first non-success status is reported.
+        # An interaction is EXECUTED if it was explicitly marked started OR produced
+        # at least one call. Executed interactions report SUCCESS unless a non-success
+        # call was recorded (then the first such CallStatus). Interactions that were
+        # never attempted report NOT_EXECUTED — never a silent SUCCESS.
+        called: set[str] = {record.seq_label for record in self._calls}
+        executed: set[str] = self._started | called
         failures: dict[str, str] = {}
         for record in self._calls:
             if record.status != CallStatus.SUCCESS.value and record.seq_label not in failures:
                 failures[record.seq_label] = record.status
         out: list[tuple[str, str]] = []
         for interaction in self._transcript.interactions:
-            status = failures.get(interaction.seq_label, CallStatus.SUCCESS.value)
-            out.append((interaction.seq_label, status))
+            seq = interaction.seq_label
+            if seq not in executed:
+                status = InteractionStatus.NOT_EXECUTED.value
+            elif seq in failures:
+                status = failures[seq]
+            else:
+                status = InteractionStatus.SUCCESS.value
+            out.append((seq, status))
         return tuple(out)
 
     def finalize(self) -> RunManifest:
