@@ -19,6 +19,10 @@ non-thinking mode, plus a passive integrity invariant:
      content preserved). This does NOT modify ``content``, does NOT strip ``<think>``,
      does NOT extract JSON, does NOT retry, does NOT sanitise. It only asserts the
      runtime invariant "enable_thinking=false => reasoning_content empty".
+     The invariant is enforced INSIDE the port-conforming ``generate()`` — the method
+     the real Case 001 harness calls through ``QwenClient._generate_recorded`` — so all
+     three conditions (sanuvia_persistent / fm_stateless / fm_transcript) share one
+     execution path with no condition-specific behaviour.
 
 Prompt text, schema, validator, and generation parameters are unchanged. ``content`` is
 returned verbatim; the EXISTING frozen validators decide success/malformed.
@@ -40,6 +44,34 @@ from sanuvia_phase1.qwen import GenerationParams, QwenRuntimeInfo
 # The single Run-002 template control. The model's own template reads this kwarg; no
 # template file is overridden, so the embedded Qwen3 template is used UNCHANGED.
 RUN002_CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+
+
+class ReasoningInvariantViolation(MalformedOutputError, ModelError):
+    """The reasoning_content invariant failed: a MALFORMED_OUTPUT, typed to survive
+    the FROZEN port unchanged.
+
+    Dual inheritance is deliberate and is the whole reason the invariant is *visible*
+    in the real Case 001 path. Two frozen call sites decide the recorded status:
+
+      * ``QwenClient._generate_recorded``'s thunk (qwen.py) re-raises ``ModelError``
+        unchanged but wraps EVERY other exception into a plain ``ModelError`` — a bare
+        ``MalformedOutputError`` would therefore be downgraded to ``model_error``;
+      * ``call_with_recording`` (manifest.py) tests ``except MalformedOutputError``
+        BEFORE ``except ModelError``.
+
+    Being both, this exception passes the thunk with its type intact and is then
+    recorded as ``CallStatus.MALFORMED_OUTPUT`` with ``raw`` (the verbatim
+    ``message.content``) preserved and no retry — without editing any frozen file.
+
+    ``boundary`` is ``None`` when raised from ``generate()``, whose port signature
+    carries no ``BoundaryKind``; the authoritative boundary in the manifest is the one
+    ``call_with_recording`` was given for that call.
+    """
+
+    def __init__(
+        self, boundary: BoundaryKind | None, detail: str, raw: str | None = None
+    ) -> None:
+        super().__init__(boundary, detail, raw)  # type: ignore[arg-type]
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,13 +121,23 @@ class LlamaServerBackendRun002:
 
     # --- frozen QwenBackend port -------------------------------------------------
     def generate(self, prompt: str, params: GenerationParams) -> str:
-        """Port-conforming call: returns raw ``content`` verbatim.
+        """Port-conforming call used by the REAL Case 001 harness — invariant enforced.
 
-        The reasoning_content invariant is NOT enforced here because this signature
-        carries no BoundaryKind; callers that want the invariant recorded as
-        MALFORMED_OUTPUT use ``generate_ex`` + ``enforce_reasoning_invariant`` inside a
-        thunk that knows the boundary (see run002_gate1.py)."""
-        return self.generate_ex(prompt, params).content
+        This is the method ``QwenClient._generate_recorded`` calls for all three
+        conditions, so the reasoning_content invariant is enforced HERE, through the
+        very same ``generate_ex()`` + ``enforce_reasoning_invariant()`` mechanism the
+        sacrificial Gate 1 runner uses. There is no second implementation and no
+        condition-specific path.
+
+        The complete backend response is preserved: ``generate_ex`` has already written
+        the full server JSON (content, reasoning_content, finish reason, usage) to the
+        provenance log before this returns or raises, and a violation carries the
+        verbatim ``message.content`` as ``raw``.
+
+        On success ``message.content`` is returned UNCHANGED for the existing frozen
+        validator. No stripping, no ``<think>`` removal, no JSON extraction, no
+        sanitisation, no repair, no retry."""
+        return self.enforce_reasoning_invariant(self.generate_ex(prompt, params))
 
     # --- richer Run-002 call -----------------------------------------------------
     def generate_ex(self, prompt: str, params: GenerationParams) -> Run002Call:
@@ -156,15 +198,24 @@ class LlamaServerBackendRun002:
         )
 
     @staticmethod
-    def enforce_reasoning_invariant(call: Run002Call, boundary: BoundaryKind) -> str:
+    def enforce_reasoning_invariant(
+        call: Run002Call, boundary: BoundaryKind | None = None
+    ) -> str:
         """Runtime invariant (Step 5): enable_thinking=false => reasoning_content empty.
 
+        The SINGLE implementation of the invariant, shared by the port-conforming
+        ``generate()`` (the real Case 001 path) and by the sacrificial Gate 1 runner.
+
         Returns ``content`` verbatim when the invariant holds. Raises
-        MalformedOutputError (raw content preserved) when the server returned a
-        NON-EMPTY reasoning_content. No stripping / extraction / repair / retry."""
+        ``ReasoningInvariantViolation`` — a ``MalformedOutputError`` recorded as
+        MALFORMED_OUTPUT, raw content preserved — when the server returned a NON-EMPTY
+        reasoning_content. No stripping / extraction / repair / retry.
+
+        ``boundary`` is optional: ``generate()``'s port signature carries none, and the
+        boundary written to the manifest is the one ``call_with_recording`` holds."""
         rc = call.reasoning_content
         if rc is not None and rc.strip() != "":
-            raise MalformedOutputError(
+            raise ReasoningInvariantViolation(
                 boundary,
                 "runtime invariant violated: reasoning_content non-empty under "
                 "enable_thinking=false (server split reasoning off content)",
