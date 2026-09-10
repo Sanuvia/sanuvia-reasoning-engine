@@ -1,6 +1,6 @@
 # Phase 1 — Run 002 Governance Record
 
-**Status:** PRE-SEAL (not a sealed freeze) · **Record version:** `0.3-run002-preseal-pinned`
+**Status:** PRE-SEAL (not a sealed freeze) · **Record version:** `0.4-run002-preseal-pinned`
 **Scope:** Run 002 execution plumbing only · **Case 001: NOT EXECUTED**
 **Pinned correction commit:** `3f2bda15a74e5f2f3d57caa3888e115d7960d035`
 **Technical review:** bounded correction reviewed and approved by Lillian; package
@@ -14,7 +14,8 @@ frozen at `3.0-run001-verified`, **untouched by this record**.
 | Version | record_sha256 | Note |
 |---|---|---|
 | `0.2-run002-execution-path-corrected` | `4386ad61f118700d748003dab1f8b67a85a2ebe9605de37d6f5e212e95657d73` | the record as committed inside `3f2bda1`; referenced the corrected commit indirectly, by content hash |
-| `0.3-run002-preseal-pinned` | published alongside — see *Record hash* | repinned to name commit `3f2bda15a74e5f2f3d57caa3888e115d7960d035` explicitly; no substantive change to any approved statement |
+| `0.3-run002-preseal-pinned` | `e9ae2a6e5e81ccc54a36547400756954e7f2843d8c79c027ad8362d35cb75aa4` | repinned to name commit `3f2bda15a74e5f2f3d57caa3888e115d7960d035` explicitly; **superseded**: its "No push to any remote" line was inaccurate — the pinned commit had already been pushed to `origin` from this repository, outside the work that produced the record |
+| `0.4-run002-preseal-pinned` | published alongside — see *Record hash* | corrects the push statement to the verified facts (§6); no other change, and no change to any approved statement |
 
 > This record does not seal a freeze and does not amend Run 001. It records one
 > bounded correction to the Run 002 execution path, and the evidence produced by the
@@ -137,7 +138,7 @@ Full artifacts, hashes and integrity report: `local_run002/evidence_preseal/`.
 Version `0.2` of this record is the copy committed **inside** `3f2bda15…`; a commit
 object cannot contain its own hash, so this version `0.3` — which names the commit
 explicitly — necessarily lives in a later, governance-only commit that changes no code.
-Both versions are listed in the version history above and neither is overwritten.
+Every version is listed in the version history above and none is overwritten.
 
 **The previously tested backend is NOT byte-identical to the corrected backend and must
 not be represented as such.** Historical preflight evidence — commit `9a89662` and
@@ -152,7 +153,11 @@ deleted.
 - No parser investigation was performed.
 - No prompt, schema, validator or research-semantics change.
 - No tuning, no retry, and no rerun for a favourable result.
-- No push to any remote.
+- No push was performed by the work that produced this record. The pinned
+  correction commit `3f2bda15…` was subsequently pushed to `origin` from this
+  repository outside that work; the governance-only commit carrying record v0.3
+  is not pushed. Push state is recorded in the evidence package
+  (`INTEGRITY_REPORT.md` §9, `CONSISTENCY_CHECK.json`) rather than assumed.
 
 ---
 
