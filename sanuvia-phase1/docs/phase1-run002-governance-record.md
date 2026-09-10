@@ -1,11 +1,13 @@
 # Phase 1 — Run 002 Governance Record
 
-**Status:** PRE-SEAL (not a sealed freeze) · **Record version:** `0.4-run002-preseal-pinned`
-**Scope:** Run 002 execution plumbing only · **Case 001: NOT EXECUTED**
+**Status:** SEALED by Lillian; **Case 001 EXECUTED** under her explicit authorisation
+**Record version:** `0.5-run002-case001-executed`
+**Scope:** Run 002 execution plumbing and the single governed Case 001 execution
 **Pinned correction commit:** `3f2bda15a74e5f2f3d57caa3888e115d7960d035`
-**Technical review:** bounded correction reviewed and approved by Lillian; package
-finalised at her authorisation. Final seal verification is hers and has **not** been
-performed here.
+**Technical review:** bounded correction reviewed and approved by Lillian, who then
+sealed Run 002 and authorised Case 001 execution. The execution was performed once,
+against the pinned commit, execution configuration `48c8fb06…f07f2c4` and reviewed
+pre-seal archive `cbcd83fd…2537971`.
 **Companion:** [Run 001 Governance / Freeze Record](phase1-governance-freeze-record.md) —
 frozen at `3.0-run001-verified`, **untouched by this record**.
 
@@ -15,7 +17,8 @@ frozen at `3.0-run001-verified`, **untouched by this record**.
 |---|---|---|
 | `0.2-run002-execution-path-corrected` | `4386ad61f118700d748003dab1f8b67a85a2ebe9605de37d6f5e212e95657d73` | the record as committed inside `3f2bda1`; referenced the corrected commit indirectly, by content hash |
 | `0.3-run002-preseal-pinned` | `e9ae2a6e5e81ccc54a36547400756954e7f2843d8c79c027ad8362d35cb75aa4` | repinned to name commit `3f2bda15a74e5f2f3d57caa3888e115d7960d035` explicitly; **superseded**: its "No push to any remote" line was inaccurate — the pinned commit had already been pushed to `origin` from this repository, outside the work that produced the record |
-| `0.4-run002-preseal-pinned` | published alongside — see *Record hash* | corrects the push statement to the verified facts (§6); no other change, and no change to any approved statement |
+| `0.4-run002-preseal-pinned` | `7f2dd8a14fe3cfcb3e713fcba515425b39a65e0c788d0e3dd145db4a61ceafa3` | corrected the push statement to the verified facts; **superseded**: it still described Case 001 as not executed, and two of its cross-references to version `0.3` went stale when `0.4` was issued |
+| `0.5-run002-case001-executed` | published alongside — see *Record hash* | records Lillian's seal and the single authorised Case 001 execution (§7); repairs the two stale `0.3` cross-references; restates the verified push state. No prompt, schema, validator, configuration or research-semantics change |
 
 > This record does not seal a freeze and does not amend Run 001. It records one
 > bounded correction to the Run 002 execution path, and the evidence produced by the
@@ -76,7 +79,7 @@ type intact and is recorded as `CallStatus.MALFORMED_OUTPUT`, raw preserved, no 
 | 4 | **`message.content` is passed unchanged to the existing validator.** No stripping, no `<think>` removal, no JSON extraction, no sanitisation, no repair, no retry. Verified by SHA-256 identity across `message.content`, the validator input, and `CallRecord.raw_response`. |
 | 5 | **Prompts, schemas and validators remain unchanged.** Every frozen protocol file is byte-identical to the previous commit (see `BYTE_IDENTITY.json`). |
 | 6 | The **accepted Qwen3/llama.cpp configuration remains unchanged** — Qwen3-4B-Q4_K_M (`7485fe6f…4fdf5`), llama.cpp build 10721 (`8e53fcefd`), the model's own embedded template, no `--reasoning-format none`, `chat_template_kwargs={"enable_thinking": false}`, temperature 0.0, seed 0, max output 512, context 8192, no stop sequences, retries 0. |
-| 7 | **Case 001 has NOT been executed.** No Case 001 input was constructed and no Case 001 model call was issued. The only model calls in this correction are the two sacrificial Gate 1 calls over synthetic, non-Case-001 text. |
+| 7 | **Case 001 HAS now been executed — once — under Lillian's explicit authorisation**, after she sealed Run 002. Statement 7 of versions `0.2`–`0.4` recorded that Case 001 had not been executed; that was true when written and is superseded here. The execution is recorded in §7. Gate 1 and Gate 2 evidence remains what it was: produced over synthetic, non-Case-001 input. |
 
 Research semantics, the three-condition structure, Phase 0 (`src/sanuvia/**`), the
 C.4/C.5 interpretation and the negative-result disposition are unchanged.
@@ -136,9 +139,10 @@ Full artifacts, hashes and integrity report: `local_run002/evidence_preseal/`.
 | Verified against the pinned commit | the corrected backend and Gate 1 runner SHA-256 values above are byte-identical to their blobs at `3f2bda15…`; the evidence in this package was produced by exactly that code |
 
 Version `0.2` of this record is the copy committed **inside** `3f2bda15…`; a commit
-object cannot contain its own hash, so this version `0.3` — which names the commit
-explicitly — necessarily lives in a later, governance-only commit that changes no code.
-Every version is listed in the version history above and none is overwritten.
+object cannot contain its own hash, so every later version that names the commit
+explicitly — `0.3`, `0.4` and this version `0.5` — necessarily lives in a subsequent,
+governance-only commit that changes no code. Every version is listed in the version
+history above and none is overwritten.
 
 **The previously tested backend is NOT byte-identical to the corrected backend and must
 not be represented as such.** Historical preflight evidence — commit `9a89662` and
@@ -149,15 +153,67 @@ deleted.
 
 ## 6. Not done, deliberately
 
-- Case 001 was **not** executed, and no Case 001 model call was issued.
 - No parser investigation was performed.
-- No prompt, schema, validator or research-semantics change.
-- No tuning, no retry, and no rerun for a favourable result.
-- No push was performed by the work that produced this record. The pinned
-  correction commit `3f2bda15…` was subsequently pushed to `origin` from this
-  repository outside that work; the governance-only commit carrying record v0.3
-  is not pushed. Push state is recorded in the evidence package
-  (`INTEGRITY_REPORT.md` §9, `CONSISTENCY_CHECK.json`) rather than assumed.
+- No prompt, schema, validator, configuration or research-semantics change.
+- No tuning, no retry, and no rerun — of the correction or of Case 001.
+- No push was performed by the work that produced this record, or by the Case 001
+  execution. The pinned correction commit `3f2bda15…` was pushed to `origin` from
+  this repository outside that work; the governance-only commits carrying records
+  `0.3`, `0.4` and `0.5` are **not** pushed. Push state is recorded in the evidence
+  package (`INTEGRITY_REPORT.md`, `CONSISTENCY_CHECK.json`) rather than assumed.
+
+---
+
+## 7. The governed Case 001 execution
+
+Authorised by Lillian after sealing Run 002. Executed **once**. No retry, no rerun, no
+repair, no tuning. The harness asserted the governed pins *before* issuing any model
+call and would have refused to run had any failed; it also refuses to run at all if a
+Case 001 provenance log already exists, so a second execution cannot overwrite the
+first.
+
+| Pin | Value | Verified |
+|---|---|---|
+| Commit | `3f2bda15a74e5f2f3d57caa3888e115d7960d035` | yes — backend, `qwen.py`, `manifest.py`, `validation.py`, `prompts.py` byte-identical to that commit |
+| Execution configuration | `48c8fb0619e245bf7248702811d6d8cb133a6572c70c15435417fda81f07f2c4` | yes |
+| Reviewed pre-seal archive | `cbcd83fd9e9228b85a6f01afaf146c263801fd8e303c0844c9c8e9f672537971` | yes |
+
+All three conditions were driven from **one** `pipeline.run_transcript_demonstration`
+call over the **same** frozen Case 001 transcript
+(`case-001-leadership-trajectory`, 6 interactions, `seq-5` an empty hold), so the
+frozen fairness guard applies unchanged.
+
+### Result — `execution_status: completed`
+
+| Condition | Interactions | Sequence | Outcome |
+|---|---|---|---|
+| `sanuvia_persistent` | 6 | `seq-1 … seq-6` | all `success` |
+| `fm_stateless` | 6 | `seq-1 … seq-6` | all `success` |
+| `fm_transcript` | 6 | `seq-1 … seq-6` | all `success` |
+
+**25 model calls**, every one `success` at **1 attempt** — `evidence_extraction` 5
+(`seq-5` correctly issued none: an empty hold produces no extraction call),
+`evidence_appraisal` 8, `stateless_baseline` 6, `transcript_baseline` 6. Per-interaction
+status is `success` for all six seq labels. Evidence references per interaction:
+1, 1, 3, 1, 0, 2 — `seq-5` preserved as a genuine no-new-evidence hold.
+
+**No governed failure occurred.** The reasoning-content invariant held on every call:
+`reasoning_content` was absent on all 25, no `message.content` contained `<think>`,
+every `finish_reason` was `stop`, and no backend error was recorded. Because nothing
+was malformed, no interaction was stopped and no `MALFORMED_OUTPUT` / `NOT_EXECUTED`
+status arose. Had one arisen it would have been recorded visibly and the affected
+interaction stopped, unrepaired — the mechanism proven by Gate 2.
+
+This is the result Run 001 could not reach: Run 001 aborted at its **first** call with
+`MalformedOutputError: response is not valid JSON` (1 call record, the `<think>`
+envelope). Run 001's evidence is untouched.
+
+Totals: 9,687 tokens, 1,466 s of model time. Frozen generation parameters throughout
+(temperature 0.0, seed 0, max output 512, context 8192, no stop sequences, retries 0);
+governance freeze `3.0-run001-verified` / `3f46ef56…c0a2dd`. Complete server JSON,
+`message.content`, `reasoning_content`, finish reason and usage are preserved for every
+call in `evidence_case001/raw_calls.jsonl`, and the full run manifest — all 25 call
+records with raw responses — in `evidence_case001/run002_case001_evidence.json`.
 
 ---
 
