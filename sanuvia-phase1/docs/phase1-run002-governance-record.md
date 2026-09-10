@@ -1,9 +1,20 @@
 # Phase 1 — Run 002 Governance Record
 
-**Status:** PRE-SEAL (not a sealed freeze) · **Record version:** `0.2-run002-execution-path-corrected`
+**Status:** PRE-SEAL (not a sealed freeze) · **Record version:** `0.3-run002-preseal-pinned`
 **Scope:** Run 002 execution plumbing only · **Case 001: NOT EXECUTED**
+**Pinned correction commit:** `3f2bda15a74e5f2f3d57caa3888e115d7960d035`
+**Technical review:** bounded correction reviewed and approved by Lillian; package
+finalised at her authorisation. Final seal verification is hers and has **not** been
+performed here.
 **Companion:** [Run 001 Governance / Freeze Record](phase1-governance-freeze-record.md) —
 frozen at `3.0-run001-verified`, **untouched by this record**.
+
+**Version history (audit trail — never overwritten):**
+
+| Version | record_sha256 | Note |
+|---|---|---|
+| `0.2-run002-execution-path-corrected` | `4386ad61f118700d748003dab1f8b67a85a2ebe9605de37d6f5e212e95657d73` | the record as committed inside `3f2bda1`; referenced the corrected commit indirectly, by content hash |
+| `0.3-run002-preseal-pinned` | published alongside — see *Record hash* | repinned to name commit `3f2bda15a74e5f2f3d57caa3888e115d7960d035` explicitly; no substantive change to any approved statement |
 
 > This record does not seal a freeze and does not amend Run 001. It records one
 > bounded correction to the Run 002 execution path, and the evidence produced by the
@@ -120,7 +131,13 @@ Full artifacts, hashes and integrity report: `local_run002/evidence_preseal/`.
 | Superseded Gate 1 runner SHA-256 | `5a06094acff93dde3889a189bf8ee6c0593650518a11a6cbcbc038209c470e20` |
 | Corrected Gate 1 runner SHA-256 | `813312fd4c5cfae97ce45a1e7add75bdda487a537297775dcb747398ff04c60f` |
 | Files changed | `local_run002/llama_server_backend_run002.py`, `local_run002/run002_gate1.py`, `docs/phase1-run002-governance-record.md` (this record) |
-| Corrected commit | the commit on `run002/final-interface` whose tree carries exactly the corrected SHA-256 values above; its commit SHA is recorded in `local_run002/evidence_preseal/INTEGRITY_REPORT.md` (a commit object cannot contain its own hash) |
+| **Corrected commit (pinned)** | **`3f2bda15a74e5f2f3d57caa3888e115d7960d035`** — *Run 002: enforce the reasoning-content invariant on the real generate() path*, on branch `run002/final-interface`, parent `9a89662` |
+| Verified against the pinned commit | the corrected backend and Gate 1 runner SHA-256 values above are byte-identical to their blobs at `3f2bda15…`; the evidence in this package was produced by exactly that code |
+
+Version `0.2` of this record is the copy committed **inside** `3f2bda15…`; a commit
+object cannot contain its own hash, so this version `0.3` — which names the commit
+explicitly — necessarily lives in a later, governance-only commit that changes no code.
+Both versions are listed in the version history above and neither is overwritten.
 
 **The previously tested backend is NOT byte-identical to the corrected backend and must
 not be represented as such.** Historical preflight evidence — commit `9a89662` and
@@ -143,4 +160,7 @@ deleted.
 
 The SHA-256 of this document is published in
 `local_run002/evidence_preseal/governance/GOVERNANCE_RECORD_SHA256.txt` and in the
-package `SHA256SUMS.txt`, and is recalculated whenever this record changes.
+package `SHA256SUMS.txt`, and is recalculated whenever this record changes. The
+package's `INTEGRITY_REPORT.md` and `CONSISTENCY_CHECK.json` restate it, and
+`CONSISTENCY_CHECK.json` re-derives it from the file on disk so a mismatch is caught
+mechanically rather than by reading.
