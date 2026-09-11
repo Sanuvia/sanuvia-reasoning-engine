@@ -1,7 +1,7 @@
 # Phase 1 — Run 002 Governance Record
 
 **Status:** SEALED by Lillian; **Case 001 EXECUTED** under her explicit authorisation
-**Record version:** `0.5-run002-case001-executed`
+**Record version:** `0.6-run002-case001-executed-pushed`
 **Scope:** Run 002 execution plumbing and the single governed Case 001 execution
 **Pinned correction commit:** `3f2bda15a74e5f2f3d57caa3888e115d7960d035`
 **Technical review:** bounded correction reviewed and approved by Lillian, who then
@@ -18,7 +18,8 @@ frozen at `3.0-run001-verified`, **untouched by this record**.
 | `0.2-run002-execution-path-corrected` | `4386ad61f118700d748003dab1f8b67a85a2ebe9605de37d6f5e212e95657d73` | the record as committed inside `3f2bda1`; referenced the corrected commit indirectly, by content hash |
 | `0.3-run002-preseal-pinned` | `e9ae2a6e5e81ccc54a36547400756954e7f2843d8c79c027ad8362d35cb75aa4` | repinned to name commit `3f2bda15a74e5f2f3d57caa3888e115d7960d035` explicitly; **superseded**: its "No push to any remote" line was inaccurate — the pinned commit had already been pushed to `origin` from this repository, outside the work that produced the record |
 | `0.4-run002-preseal-pinned` | `7f2dd8a14fe3cfcb3e713fcba515425b39a65e0c788d0e3dd145db4a61ceafa3` | corrected the push statement to the verified facts; **superseded**: it still described Case 001 as not executed, and two of its cross-references to version `0.3` went stale when `0.4` was issued |
-| `0.5-run002-case001-executed` | published alongside — see *Record hash* | records Lillian's seal and the single authorised Case 001 execution (§7); repairs the two stale `0.3` cross-references; restates the verified push state. No prompt, schema, validator, configuration or research-semantics change |
+| `0.5-run002-case001-executed` | `cfd133e6c964a61809eb79c64dafda9e79defc2415d9425f25908d13f8b08c8b` | records Lillian's seal and the single authorised Case 001 execution (§7); repairs the two stale `0.3` cross-references. **Superseded**: it stated the governance commits were not pushed, which ceased to be true when the repository owner pushed the branch |
+| `0.6-run002-case001-executed-pushed` | published alongside — see *Record hash* | records that the branch, including the Case 001 execution commit, has been pushed to `origin`. Documentation only: no prompt, schema, validator, configuration, evidence or research-semantics change, and no re-execution |
 
 > This record does not seal a freeze and does not amend Run 001. It records one
 > bounded correction to the Run 002 execution path, and the evidence produced by the
@@ -157,10 +158,10 @@ deleted.
 - No prompt, schema, validator, configuration or research-semantics change.
 - No tuning, no retry, and no rerun — of the correction or of Case 001.
 - No push was performed by the work that produced this record, or by the Case 001
-  execution. The pinned correction commit `3f2bda15…` was pushed to `origin` from
-  this repository outside that work; the governance-only commits carrying records
-  `0.3`, `0.4` and `0.5` are **not** pushed. Push state is recorded in the evidence
-  package (`INTEGRITY_REPORT.md`, `CONSISTENCY_CHECK.json`) rather than assumed.
+  execution itself. Every push of this branch was made by the repository owner. The
+  branch — including the Case 001 execution commit — is now on `origin`; see §8.
+  Push state is recorded in the evidence package (`INTEGRITY_REPORT.md`,
+  `CONSISTENCY_CHECK.json`) rather than assumed.
 
 ---
 
@@ -214,6 +215,28 @@ governance freeze `3.0-run001-verified` / `3f46ef56…c0a2dd`. Complete server J
 `message.content`, `reasoning_content`, finish reason and usage are preserved for every
 call in `evidence_case001/raw_calls.jsonl`, and the full run manifest — all 25 call
 records with raw responses — in `evidence_case001/run002_case001_evidence.json`.
+
+---
+
+## 8. Push state
+
+The branch `run002/final-interface` has been pushed to `origin` by the repository
+owner. As of record version `0.6`, `origin/run002/final-interface` is
+`8ab7b49c57d3b08006482c19f61cb21fcfbf5390` — the Case 001 execution commit — and local
+`HEAD` matches it.
+
+No push was performed by the work that produced the correction, the evidence package or
+this record. Pushing does not alter any evidence: the artifacts were produced at the
+pinned commit `3f2bda15…`, which remains an **ancestor** of the remote head, and the
+commits between the pinned commit and the remote head change no source file — they
+carry record versions `0.3`–`0.6` only.
+
+Version `0.5` of this record stated that those commits were not pushed. That was true
+when written and is superseded here. `CONSISTENCY_CHECK.py` was corrected at the same
+time: it had asserted that `origin` pointed *exactly* at the pinned commit, which
+encoded a moment in time rather than the property that actually matters. It now asserts
+the durable invariants — the pinned commit is an ancestor of the remote head, the remote
+head is a commit that exists locally, and no source changed between them.
 
 ---
 
