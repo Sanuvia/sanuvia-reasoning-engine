@@ -1,7 +1,7 @@
 # Phase 1 — Run 002 Governance Record
 
 **Status:** SEALED by Lillian; **Case 001 EXECUTED** under her explicit authorisation
-**Record version:** `0.6-run002-case001-executed-pushed`
+**Record version:** `0.7-run002-git-state-corrected`
 **Scope:** Run 002 execution plumbing and the single governed Case 001 execution
 **Pinned correction commit:** `3f2bda15a74e5f2f3d57caa3888e115d7960d035`
 **Technical review:** bounded correction reviewed and approved by Lillian, who then
@@ -19,7 +19,8 @@ frozen at `3.0-run001-verified`, **untouched by this record**.
 | `0.3-run002-preseal-pinned` | `e9ae2a6e5e81ccc54a36547400756954e7f2843d8c79c027ad8362d35cb75aa4` | repinned to name commit `3f2bda15a74e5f2f3d57caa3888e115d7960d035` explicitly; **superseded**: its "No push to any remote" line was inaccurate — the pinned commit had already been pushed to `origin` from this repository, outside the work that produced the record |
 | `0.4-run002-preseal-pinned` | `7f2dd8a14fe3cfcb3e713fcba515425b39a65e0c788d0e3dd145db4a61ceafa3` | corrected the push statement to the verified facts; **superseded**: it still described Case 001 as not executed, and two of its cross-references to version `0.3` went stale when `0.4` was issued |
 | `0.5-run002-case001-executed` | `cfd133e6c964a61809eb79c64dafda9e79defc2415d9425f25908d13f8b08c8b` | records Lillian's seal and the single authorised Case 001 execution (§7); repairs the two stale `0.3` cross-references. **Superseded**: it stated the governance commits were not pushed, which ceased to be true when the repository owner pushed the branch |
-| `0.6-run002-case001-executed-pushed` | published alongside — see *Record hash* | records that the branch, including the Case 001 execution commit, has been pushed to `origin`. Documentation only: no prompt, schema, validator, configuration, evidence or research-semantics change, and no re-execution |
+| `0.6-run002-case001-executed-pushed` | `089b8cf5a1489d71cbbb7bc3e1ea8d78ee086803b106b8d1b6331e5264e3d789` | records that the branch, including the Case 001 execution commit, has been pushed to `origin`. **Superseded**: §8 named `origin` as `8ab7b49…` and said local `HEAD` matched it. That sentence was falsified by its own commit and has since been overtaken by a further push (§9) |
+| `0.7-run002-git-state-corrected` | published alongside — see *Record hash* | corrects the Git-state record (§9) to the verified values and states the self-reference limit that produced the error. Non-material documentation correction: no Gate, regression or Case 001 rerun performed or required, and no experimental artifact altered |
 
 > This record does not seal a freeze and does not amend Run 001. It records one
 > bounded correction to the Run 002 execution path, and the evidence produced by the
@@ -237,6 +238,69 @@ time: it had asserted that `origin` pointed *exactly* at the pinned commit, whic
 encoded a moment in time rather than the property that actually matters. It now asserts
 the durable invariants — the pinned commit is an ancestor of the remote head, the remote
 head is a commit that exists locally, and no source changed between them.
+
+---
+
+## 9. Git state — corrected record
+
+Raised in Lillian's independent review of the final evidence package: the integrity
+report recorded local `HEAD` and `origin` as different commits, while §8 of version
+`0.6` said they matched. The review is correct that the two disagreed. On inspection the
+repository had also moved on, so the correction required is not the one described.
+
+### Verified state
+
+Established by direct inspection, not inference:
+
+| Command | Result |
+|---|---|
+| `git rev-parse HEAD` | `8746c8f3cd27bd3bfe5408487ee0c6515148c560` |
+| `git rev-parse origin/run002/final-interface` | `8746c8f3cd27bd3bfe5408487ee0c6515148c560` |
+| `git ls-remote origin refs/heads/run002/final-interface` | `8746c8f3cd27bd3bfe5408487ee0c6515148c560` |
+| `git rev-list --left-right --count origin/run002/final-interface...HEAD` | behind 0, ahead 0 |
+
+`8746c8f…` is the commit carrying record version `0.6`. It has been pushed, so at the
+moment of writing local `HEAD` and `origin` are equal.
+
+### What is superseded
+
+Version `0.6` §8 stated that `origin/run002/final-interface` was
+`8ab7b49c57d3b08006482c19f61cb21fcfbf5390` and that local `HEAD` matched it. Both halves
+are now wrong: `origin` has advanced to `8746c8f…`. That statement is superseded here.
+The same stale value appeared in the package's `INTEGRITY_REPORT.md` (§9) and
+`BYTE_IDENTITY.json` (`push_state`), both corrected alongside this record.
+
+### Why it went stale, and how this version avoids repeating it
+
+The sentence in `0.6` was falsified by the act of committing it. It was written while
+`HEAD` was `8ab7b49…`; committing that text moved `HEAD` to `8746c8f…`, so the record
+was inaccurate the moment it existed.
+
+This is the **self-reference limit** already recorded in §5 for the record's own hash: a
+commit cannot contain its own SHA, and for the same reason a record cannot state the
+`HEAD` its own commit produces. A version that asserted "local `HEAD` is `8746c8f…`"
+would recreate the defect exactly — committing it advances `HEAD` past that value.
+
+This version therefore records only **durable** facts:
+
+- `origin/run002/final-interface` holds `8746c8f…`, the commit carrying record `0.6`;
+- the pinned Run 002 commit `3f2bda15a74e5f2f3d57caa3888e115d7960d035` remains an
+  **ancestor** of that remote head, and no source file changed between them — the
+  intervening commits carry record versions `0.3`–`0.7` only;
+- **committing this record necessarily advances local `HEAD` one commit beyond
+  `origin`.** That is expected and is not a discrepancy. It resolves when the commit is
+  pushed, which is a separate, explicitly authorised act.
+
+A future reader should compare `origin` against the pinned commit by **ancestry**, not
+by equality with any `HEAD` value quoted in a document.
+
+### Scope of this correction
+
+Documentation only. No Gate 1, Gate 2, regression or Case 001 rerun was performed, and
+none was required. The Case 001 evidence, raw model calls, run manifest, provenance,
+execution configuration, frozen protocol files, backend, harness and Run 001 evidence
+are all unchanged and byte-identical. Version `0.6` is preserved unchanged in history at
+commit `8746c8f…`; nothing earlier is rewritten.
 
 ---
 
