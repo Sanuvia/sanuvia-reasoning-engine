@@ -26,18 +26,32 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from enum import Enum
+from typing import NewType, Protocol, runtime_checkable
 
 from sanuvia.domain import (
+    ClaimClass,
     CognitiveState,
     EvidenceRecord,
     EvidenceRecordId,
+    EvidenceRole,
+    EvidenceSourceKind,
+    EvidenceSubjectKind,
     FutureTrajectory,
     Hypothesis,
     HypothesisId,
     RevisionEvent,
+    SpaceId,
+    Stance,
     SubjectId,
 )
+
+# Request-scoped handle types (Technical Design v1.5.4 §2 B). They are plain
+# strings at runtime; the branding exists so a durable id can never be passed
+# where a handle is expected without an explicit cast.
+EvidenceHandle = NewType("EvidenceHandle", str)
+HypothesisHandle = NewType("HypothesisHandle", str)
+ParticipantLabel = NewType("ParticipantLabel", str)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,16 +85,169 @@ class Appraisal:
     proposals: tuple[ProposedHypothesis, ...] = field(default=())
 
 
+# --- Semantic-state appraiser boundary (Technical Design v1.5.4 §2 C) --------
+#
+# The model proposes; the application/domain layer decides. Everything the model
+# sees is request-scoped and opaque: no canonical EvidenceRecordId, no durable
+# HypothesisId, no ParticipantId. The port change is what actually closes locked
+# §3.1's prohibition on exposing durable identity as model-facing fields.
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceStandingView:
+    """Presentation projection of ``EvidenceStanding`` (§2 C, D-01).
+
+    Participants appear as request-scoped labels, never as ``ParticipantId``.
+    """
+
+    role: EvidenceRole
+    source_kind: EvidenceSourceKind
+    subject_kind: EvidenceSubjectKind
+    source: ParticipantLabel | None = None
+    subject: ParticipantLabel | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CommitmentSignatureView:
+    """Presentation projection of ``CommitmentSignature`` (§2 C, D-01).
+
+    Differs from the value object in exactly one field: ``subject`` is a
+    request-scoped label rather than the durable ``ParticipantId``. The other
+    four are verbatim, because the model must see the full signature to propose
+    a coherent candidate and to judge bearing under locked §3.3.
+
+    This shape is used in **both** directions: outbound on ``HypothesisView``,
+    and inbound on ``CandidateProposal.signature``, where the application
+    resolves ``subject`` back to a ``ParticipantId`` before any lineage is
+    created or matched. A label that was not supplied in the request fails
+    resolution, so the model cannot mint a participant and cannot silently
+    re-attribute a commitment.
+    """
+
+    subject: ParticipantLabel
+    attribution: str
+    claim_class: ClaimClass
+    stance: Stance
+    temporal_scope: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationView:
+    """The single record under appraisal (§2 C)."""
+
+    handle: EvidenceHandle
+    content: str
+    standing: EvidenceStandingView
+
+
+@dataclass(frozen=True, slots=True)
+class HypothesisView:
+    """One active hypothesis, by request-scoped handle (§2 C)."""
+
+    handle: HypothesisHandle
+    statement: str
+    signature: CommitmentSignatureView
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceCandidateView:
+    """One member of the closed divergence-candidate set (§2 J.1)."""
+
+    handle: EvidenceHandle
+    content: str
+    standing: EvidenceStandingView
+
+
+@dataclass(frozen=True, slots=True)
+class AppraisalRequest:
+    """One appraisal call: exactly one observation (§2 C, F-02).
+
+    ``observation`` is singular by construction, which is what makes the
+    per-record granularity structural rather than conventional.
+    ``divergence_candidates`` is read-only context in the same sense ``existing``
+    is; it is never appraised, and selecting from it affects only divergence.
+    """
+
+    request_id: str
+    subject_id: SubjectId
+    space_id: SpaceId
+    observation: ObservationView
+    existing: tuple[HypothesisView, ...] = ()
+    divergence_candidates: tuple[EvidenceCandidateView, ...] = ()
+
+
+class BearingKind(Enum):
+    """Support-axis judgements about an existing hypothesis (§2 C).
+
+    ``DIVERGES_WITH`` is deliberately absent: divergence is evidence<->evidence
+    and travels on ``DivergenceProposal``. There is no shape in this response
+    type in which a divergence can name a hypothesis (M-01).
+    """
+
+    SUPPORTS = "supports"
+    WEAKENS = "weakens"
+    CONTRADICTS = "contradicts"
+    UNCHANGED = "unchanged"
+
+
+@dataclass(frozen=True, slots=True)
+class Bearing:
+    """A judgement about one existing hypothesis (§2 C)."""
+
+    target: HypothesisHandle
+    kind: BearingKind
+
+
+@dataclass(frozen=True, slots=True)
+class DivergenceProposal:
+    """A proposed incompatibility with one already-admitted account (§2 J.1).
+
+    ``with_evidence`` must resolve in ``HandleTable.divergence_candidates``. Both
+    endpoints are evidence by construction: this one and the observation under
+    appraisal.
+    """
+
+    with_evidence: EvidenceHandle
+    rationale: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateProposal:
+    """A candidate reading (§2 C).
+
+    ``local_ref`` is response-local and never becomes durable. There is no
+    ``hypothesis_id`` (the engine issues it after adjudication), no
+    ``initial_support`` (R6 fixes the derivation) and no
+    ``supporting_evidence_ids`` (support attaches to the single observation
+    deterministically).
+    """
+
+    local_ref: str
+    statement: str
+    signature: CommitmentSignatureView
+
+
+@dataclass(frozen=True, slots=True)
+class AppraisalResponse:
+    """What an appraiser returns (§2 C). A proposal, not a decision."""
+
+    proposals: tuple[CandidateProposal, ...] = ()
+    bearings: tuple[Bearing, ...] = ()
+    divergences: tuple[DivergenceProposal, ...] = ()
+    raw_response: str | None = None
+
+
 @runtime_checkable
 class EvidenceAppraiser(Protocol):
-    """Language-understanding boundary (FM in later phases; scripted in Phase 0)."""
+    """Language-understanding boundary (§2 C).
 
-    def appraise(
-        self,
-        subject_id: SubjectId,
-        evidence: EvidenceRecord,
-        active_hypotheses: Sequence[Hypothesis],
-    ) -> Appraisal: ...
+    Both the External and Scripted implementations satisfy this one signature
+    and reach the same call site, which is why the integrity boundary is
+    structural rather than duplicated: every governed control lives *after* this
+    call, in ``src/sanuvia``.
+    """
+
+    def appraise(self, request: AppraisalRequest) -> AppraisalResponse: ...
 
 
 @runtime_checkable

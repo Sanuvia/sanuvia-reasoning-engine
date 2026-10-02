@@ -24,6 +24,7 @@ from .identifiers import (
     EvidenceRecordId,
     InferenceRecordId,
     ObjectRef,
+    ParticipantId,
     SpaceId,
     SubjectId,
 )
@@ -33,6 +34,118 @@ from .uncertainty import (
     EvidenceReliability,
     ProvenanceConfidence,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceObservationRef:
+    """Where an admitted observation came from (Technical Design v1.5.4 §2 A).
+
+    The within-interaction ``observation_index`` is the part Run 002 lost: two
+    observations extracted from the same interaction were indistinguishable.
+    The mapping to the canonical :data:`EvidenceRecordId` is one-to-one within an
+    execution and must be resolvable in both directions.
+    """
+
+    transcript_id: str
+    interaction_index: int
+    observation_index: int
+
+    def __post_init__(self) -> None:
+        if not self.transcript_id:
+            raise InvariantViolation("SourceObservationRef.transcript_id must be non-empty")
+        if self.interaction_index < 0:
+            raise InvariantViolation("SourceObservationRef.interaction_index must be >= 0")
+        if self.observation_index < 0:
+            raise InvariantViolation("SourceObservationRef.observation_index must be >= 0")
+
+
+class EvidenceRole(Enum):
+    """What an admitted observation *is* (Technical Design v1.5.4 §2 E).
+
+    ``absence`` is deliberately **not** a member: it is an extraction outcome
+    that yields zero admitted records and executes the empty-evidence hold, not
+    a role an EvidenceRecord can carry (locked §3.2).
+    """
+
+    EVENT_OBSERVATION = "event_observation"
+    ACCOUNT = "account"
+    RESPONSE_OR_RESONANCE = "response_or_resonance"
+    META_INSTRUCTION = "meta_instruction"
+
+
+#: Roles that are sent to the EvidenceAppraiser (governance ruling Q1). A record
+#: whose role is absent from this set is admitted and preserved with its standing
+#: and provenance, but receives **no appraisal call** and can therefore trigger no
+#: bearing, proposal, divergence, identity adjudication or support change.
+APPRAISABLE_ROLES: frozenset[EvidenceRole] = frozenset(
+    {EvidenceRole.EVENT_OBSERVATION, EvidenceRole.ACCOUNT}
+)
+
+
+class EvidenceSourceKind(Enum):
+    """Whose account or surface the observation *is* (§2 E)."""
+
+    PARTICIPANT = "participant"
+    SANUVIA = "sanuvia"
+    SYSTEM_SURFACE = "system_surface"
+    EXTERNAL_SOURCE = "external_source"
+
+
+class EvidenceSubjectKind(Enum):
+    """What the observation is *about* (§2 E)."""
+
+    PARTICIPANT = "participant"
+    DYAD = "dyad"
+    THIRD_PARTY = "third_party"
+    NONE = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceStanding:
+    """The three governed semantic properties of an admitted observation (§2 E).
+
+    Deliberately distinct from four things it must never be collapsed into:
+
+    * :attr:`Provenance.source` — free-text capture mechanism/location.
+    * :attr:`EvidenceRecord.actor_id` — who handed the observation to the system.
+    * :attr:`EvidenceRecord.subject_id` — the modelled subject / isolation key.
+    * the role — which is *what the observation is*, not who it came from.
+    """
+
+    source_kind: EvidenceSourceKind
+    subject_kind: EvidenceSubjectKind
+    role: EvidenceRole
+    source_id: ParticipantId | None = None
+    subject_id: ParticipantId | None = None
+
+    def __post_init__(self) -> None:
+        if self.source_kind is EvidenceSourceKind.PARTICIPANT and not self.source_id:
+            raise InvariantViolation(
+                "EvidenceStanding.source_id is required when source_kind is PARTICIPANT"
+            )
+        if (
+            self.subject_kind
+            in (EvidenceSubjectKind.PARTICIPANT, EvidenceSubjectKind.THIRD_PARTY)
+            and not self.subject_id
+        ):
+            raise InvariantViolation(
+                "EvidenceStanding.subject_id is required when subject_kind is "
+                "PARTICIPANT or THIRD_PARTY"
+            )
+
+    @property
+    def is_appraisable(self) -> bool:
+        """Whether this record is sent to the appraiser (ruling Q1)."""
+        return self.role in APPRAISABLE_ROLES
+
+    @property
+    def is_participant_account(self) -> bool:
+        """The three-part test §2 J.1 rules 2-3 apply to a divergence endpoint."""
+        return (
+            self.role is EvidenceRole.ACCOUNT
+            and self.source_kind is EvidenceSourceKind.PARTICIPANT
+            and self.source_id is not None
+        )
 
 
 class EvidenceClass(Enum):
@@ -103,6 +216,13 @@ class EvidenceRecord:
     # Who contributed this observation (a.k.a. member id) — contribution
     # provenance, distinct from the subject the evidence concerns.
     actor_id: ActorId | None = None
+    # Where the observation came from (§2 A). Optional so Phase 0 callers that
+    # predate the semantic-state boundary keep working; the Phase 1 pipeline
+    # always supplies it, and check 7 requires it to resolve both ways.
+    source_ref: SourceObservationRef | None = None
+    # The three governed semantic properties (§2 E). Optional for the same
+    # reason; admission assigns it on the Phase 1 path.
+    standing: EvidenceStanding | None = None
 
     def __post_init__(self) -> None:
         if not self.content:

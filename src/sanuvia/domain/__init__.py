@@ -10,20 +10,38 @@ Every object traces to a frozen FR-* requirement; see each module's docstring.
 from __future__ import annotations
 
 from .cognitive import AcquisitionStrategy, CognitiveState
-from .dependency import DependencyEdge, DependencyRelation
+from .dependency import DependencyEdge, DependencyRelation, canonical_divergence_pair
 from .errors import (
+    BreachKind,
     DomainError,
     EvidenceInferenceConflation,
+    GovernedOutcome,
+    GovernedRejection,
     InvariantViolation,
+    ModelBoundary,
     NotYetSpecified,
 )
 from .evidence import (
+    APPRAISABLE_ROLES,
     EvidenceClass,
     EvidenceRecord,
+    EvidenceRole,
+    EvidenceSourceKind,
+    EvidenceStanding,
+    EvidenceSubjectKind,
     InferenceRecord,
     Provenance,
+    SourceObservationRef,
 )
-from .hypothesis import Hypothesis
+from .hypothesis import (
+    ClaimClass,
+    CommitmentSignature,
+    Hypothesis,
+    HypothesisLineage,
+    Stance,
+    StatementVersion,
+    inverts,
+)
 from .identifiers import (
     ActorId,
     AnomalyResolutionId,
@@ -31,15 +49,18 @@ from .identifiers import (
     EvidenceRecordId,
     HypothesisId,
     HypothesisRecordId,
+    IdentityAdjudicationId,
     InferenceRecordId,
     InquiryId,
     ObjectRef,
+    ParticipantId,
     PredictionId,
     ProvenanceRecordId,
     ReasoningSystemId,
     RecognitionEventId,
     RevisionEventId,
     SpaceId,
+    StatementVersionId,
     SubjectId,
     SystemModellingContextId,
     WorldModelVersionId,
@@ -151,4 +172,24 @@ __all__ = [
     # cognitive
     "CognitiveState",
     "AcquisitionStrategy",
+    "APPRAISABLE_ROLES",
+    "BreachKind",
+    "ClaimClass",
+    "CommitmentSignature",
+    "EvidenceRole",
+    "EvidenceSourceKind",
+    "EvidenceStanding",
+    "EvidenceSubjectKind",
+    "GovernedOutcome",
+    "GovernedRejection",
+    "HypothesisLineage",
+    "IdentityAdjudicationId",
+    "ModelBoundary",
+    "ParticipantId",
+    "SourceObservationRef",
+    "Stance",
+    "StatementVersion",
+    "StatementVersionId",
+    "canonical_divergence_pair",
+    "inverts",
 ]

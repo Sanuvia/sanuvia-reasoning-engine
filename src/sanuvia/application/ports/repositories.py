@@ -272,3 +272,26 @@ class SystemModellingContextStore(Protocol):
 
     def put(self, subject_id: SubjectId, context: SystemModellingContext) -> None: ...
     def get(self, subject_id: SubjectId) -> SystemModellingContext | None: ...
+
+
+# --- Snapshot capability (Technical Design v1.5.4 §5.3, F-9) ------------------
+
+
+@runtime_checkable
+class SnapshotableStore(Protocol):
+    """A store that can hand out an opaque restore token.
+
+    Each implementation copies **every mutable container it owns**, to whatever
+    depth its own shape requires -- the store, and only the store, knows that
+    shape. Record immutability is why the copies stay cheap; it is not why they
+    are correct.
+
+    The guard against getting this wrong is behavioural, not structural: TD-17b
+    mutates through the store's own public mutator under a key that already
+    exists in the snapshot, then restores and compares the full public read
+    surface. A nested container that was shallow-copied fails that test.
+    """
+
+    def snapshot(self) -> object: ...
+
+    def restore(self, token: object) -> None: ...

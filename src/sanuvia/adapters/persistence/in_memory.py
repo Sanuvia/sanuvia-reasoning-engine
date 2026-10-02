@@ -71,6 +71,16 @@ class InMemoryEvidenceStore:
             if e.subject_id == subject_id and e.space_id == space_id
         ]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return dict(self._by_id)
+
+    def restore(self, token: object) -> None:
+        self._by_id = dict(token)  # type: ignore[index,arg-type]
 
 class InMemoryInferenceStore:
     """Implements ``InferenceStore`` — kept wholly separate from evidence."""
@@ -95,6 +105,16 @@ class InMemoryInferenceStore:
             if i.subject_id == subject_id and i.space_id == space_id
         ]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return dict(self._by_id)
+
+    def restore(self, token: object) -> None:
+        self._by_id = dict(token)  # type: ignore[index,arg-type]
 
 class InMemoryHypothesisRepository:
     """Implements ``HypothesisRepository`` with lineage retention (FR-RS-003)."""
@@ -164,6 +184,16 @@ class InMemoryHypothesisRepository:
             latest[h.hypothesis_id] = h
         return [latest[hid] for hid in order]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return list(self._records)
+
+    def restore(self, token: object) -> None:
+        self._records = list(token)  # type: ignore[index,arg-type]
 
 class InMemoryPredictionRepository:
     """Implements ``PredictionRepository``."""
@@ -191,6 +221,17 @@ class InMemoryPredictionRepository:
             and self._by_id[pid].space_id == space_id
         ]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        # Two containers: copying only ``_by_id`` would leave ``_order`` unrestored.
+        return (dict(self._by_id), list(self._order))
+
+    def restore(self, token: object) -> None:
+        self._by_id, self._order = dict(token[0]), list(token[1])  # type: ignore[index,arg-type]
 
 class InMemoryInquiryRepository:
     """Implements ``InquiryRepository`` with status history retention."""
@@ -224,6 +265,16 @@ class InMemoryInquiryRepository:
             latest[inq.id] = inq
         return [latest[iid] for iid in order]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return list(self._records)
+
+    def restore(self, token: object) -> None:
+        self._records = list(token)  # type: ignore[index,arg-type]
 
 class InMemoryWorldModelRepository:
     """Implements ``WorldModelRepository`` (append-only versions + pointer)."""
@@ -269,6 +320,17 @@ class InMemoryWorldModelRepository:
             return None
         return self._versions.get((space_id, subject_id, pointer.model_version_id))
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        # Two containers; both are restored together.
+        return (dict(self._versions), dict(self._current))
+
+    def restore(self, token: object) -> None:
+        self._versions, self._current = dict(token[0]), dict(token[1])  # type: ignore[index,arg-type]
 
 class InMemoryRevisionLedgerStore:
     """Implements ``RevisionLedgerStore`` — append-only, monotonic per subject."""
@@ -312,6 +374,20 @@ class InMemoryRevisionLedgerStore:
             if e.sequence_no > after_sequence_no
         ]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        # NOTE: ``_by_scope`` is a dict **of lists**, and ``append`` mutates an
+        # inner list in place. A shallow ``dict(...)`` would share those lists and
+        # silently fail to roll back appended ledger entries, so each inner list is
+        # copied too (Technical Design v1.5.4 §5.3).
+        return {k: list(v) for k, v in self._by_scope.items()}
+
+    def restore(self, token: object) -> None:
+        self._by_scope = {k: list(v) for k, v in token.items()}  # type: ignore[index,arg-type]
 
 class InMemoryAnomalyResolutionStore:
     """Implements ``AnomalyResolutionStore``."""
@@ -325,6 +401,16 @@ class InMemoryAnomalyResolutionStore:
     def get(self, resolution_id: AnomalyResolutionId) -> AnomalyResolution | None:
         return self._by_id.get(resolution_id)
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return dict(self._by_id)
+
+    def restore(self, token: object) -> None:
+        self._by_id = dict(token)  # type: ignore[index,arg-type]
 
 class InMemoryProvenanceRepository:
     """Implements ``ProvenanceRepository``."""
@@ -338,6 +424,16 @@ class InMemoryProvenanceRepository:
     def get(self, record_id: ProvenanceRecordId) -> ProvenanceRecord | None:
         return self._by_id.get(record_id)
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return dict(self._by_id)
+
+    def restore(self, token: object) -> None:
+        self._by_id = dict(token)  # type: ignore[index,arg-type]
 
 class InMemoryRecognitionRepository:
     """Implements ``RecognitionRepository``."""
@@ -357,6 +453,16 @@ class InMemoryRecognitionRepository:
             if e.subject_id == subject_id and e.space_id == space_id
         ]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return list(self._events)
+
+    def restore(self, token: object) -> None:
+        self._events = list(token)  # type: ignore[index,arg-type]
 
 class InMemoryDependencyGraphStore:
     """Implements ``DependencyGraphStore``."""
@@ -373,6 +479,16 @@ class InMemoryDependencyGraphStore:
     def edges_to(self, ref: ObjectRef) -> Sequence[DependencyEdge]:
         return [e for e in self._edges if e.to_ref == ref]
 
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return list(self._edges)
+
+    def restore(self, token: object) -> None:
+        self._edges = list(token)  # type: ignore[index,arg-type]
 
 class InMemorySystemModellingContextStore:
     """Implements ``SystemModellingContextStore``."""
@@ -385,6 +501,19 @@ class InMemorySystemModellingContextStore:
 
     def get(self, subject_id: SubjectId) -> SystemModellingContext | None:
         return self._by_subject.get(subject_id)
+
+
+
+    # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
+    #
+    # Each store copies **every mutable container it owns**, to whatever depth
+    # its own shape requires. Record immutability is why these copies stay
+    # cheap; it is NOT why they are correct.
+    def snapshot(self) -> object:
+        return dict(self._by_subject)
+
+    def restore(self, token: object) -> None:
+        self._by_subject = dict(token)  # type: ignore[index,arg-type]
 
 
 @dataclass

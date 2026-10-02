@@ -37,3 +37,18 @@ class SequentialIdGenerator:
         n = self._counters.get(kind, 0) + 1
         self._counters[kind] = n
         return f"{kind}-{n}"
+
+    # -- snapshot/restore (Technical Design v1.5.4 §5.5, F-6) ----------------
+    #
+    # Identifier-allocation state is mutable and sits OUTSIDE the store bundle,
+    # but canonical ``evidence-N`` ids are minted at sequence step 2 and durable
+    # hypothesis ids during step 9 -- both before any store write. If the counter
+    # were not restored, a rejected plan would permanently consume identifiers and
+    # the next interaction's ids would differ from what they would have been,
+    # which is not byte-equivalent. ``restore()`` therefore runs on EVERY
+    # rejection, pre-mutation included (F-4).
+    def snapshot(self) -> object:
+        return dict(self._counters)
+
+    def restore(self, token: object) -> None:
+        self._counters = dict(token)  # type: ignore[arg-type]
