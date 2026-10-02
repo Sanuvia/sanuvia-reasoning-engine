@@ -25,6 +25,9 @@ from sanuvia.domain import (
     EvidenceRecordId,
     Hypothesis,
     HypothesisId,
+    HypothesisLineage,
+    IdentityAdjudication,
+    IdentityAdjudicationId,
     HypothesisRecordId,
     InferenceRecord,
     InferenceRecordId,
@@ -41,6 +44,7 @@ from sanuvia.domain import (
     RevisionLedgerEntry,
     RevisionStatus,
     SpaceId,
+    StatementVersion,
     SubjectId,
     SystemModellingContext,
     WorldModel,
@@ -516,6 +520,142 @@ class InMemorySystemModellingContextStore:
         self._by_subject = dict(token)  # type: ignore[index,arg-type]
 
 
+
+class InMemoryHypothesisLineageStore:
+    """Implements ``HypothesisLineageStore`` (Technical Design v1.5.4 §2 H, F-9).
+
+    Holds the immutable half of a commitment signature, written once when
+    ``DISTINCT_NEW`` is adjudicated. Indexed by the lineage key so retrieval can
+    be bounded on ``(subject, attribution)`` only (F-2).
+    """
+
+    def __init__(self) -> None:
+        self._by_id: dict[HypothesisId, HypothesisLineage] = {}
+        self._by_key: dict[tuple[SpaceId, SubjectId, str, str], HypothesisId] = {}
+
+    def add(self, lineage: HypothesisLineage) -> None:
+        if lineage.hypothesis_id in self._by_id:
+            raise InvariantViolation(
+                f"HypothesisLineage {lineage.hypothesis_id} already exists"
+            )
+        self._by_id[lineage.hypothesis_id] = lineage
+        key = (
+            lineage.space_id,
+            lineage.subject_id,
+            str(lineage.signature_subject),
+            lineage.attribution,
+        )
+        self._by_key[key] = lineage.hypothesis_id
+
+    def get(self, hypothesis_id: HypothesisId) -> HypothesisLineage | None:
+        return self._by_id.get(hypothesis_id)
+
+    def find_by_key(
+        self,
+        subject_id: SubjectId,
+        signature_subject: str,
+        attribution: str,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
+    ) -> HypothesisId | None:
+        """Retrieval bounded on the immutable pair only (F-2).
+
+        ``claim_class`` is deliberately absent from this key: bounding retrieval
+        on a versioned field would mean a candidate proposing a legitimate
+        refinement failed to retrieve its own lineage.
+        """
+        return self._by_key.get((space_id, subject_id, signature_subject, attribution))
+
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[HypothesisLineage]:
+        return [
+            lin
+            for lin in self._by_id.values()
+            if lin.subject_id == subject_id and lin.space_id == space_id
+        ]
+
+    # -- snapshot/restore (§5.3, F-9) ---------------------------------------
+    # Two containers; both are restored together.
+    def snapshot(self) -> object:
+        return (dict(self._by_id), dict(self._by_key))
+
+    def restore(self, token: object) -> None:
+        self._by_id, self._by_key = dict(token[0]), dict(token[1])  # type: ignore[index]
+
+
+class InMemoryStatementVersionStore:
+    """Implements ``StatementVersionStore`` (§2 I).
+
+    Append-only. ``REFINE_EXISTING`` appends a version and never overwrites the
+    prior statement; the current statement is a pointer to the latest accepted
+    version. Statement **history** is retained because exact-match adjudication
+    compares against every version of a lineage, not only the current one (F-2).
+    """
+
+    def __init__(self) -> None:
+        self._by_lineage: dict[HypothesisId, list[StatementVersion]] = {}
+
+    def append(self, version: StatementVersion) -> None:
+        self._by_lineage.setdefault(version.hypothesis_id, []).append(version)
+
+    def history(self, hypothesis_id: HypothesisId) -> Sequence[StatementVersion]:
+        """Every accepted version, oldest first. Prior versions are never
+        overwritten."""
+        return list(self._by_lineage.get(hypothesis_id, []))
+
+    def current(self, hypothesis_id: HypothesisId) -> StatementVersion | None:
+        versions = self._by_lineage.get(hypothesis_id)
+        return versions[-1] if versions else None
+
+    # -- snapshot/restore (§5.3, F-9) ---------------------------------------
+    # NOTE: dict **of lists**, and ``append`` mutates an inner list in place. A
+    # shallow ``dict(...)`` would share those lists and silently fail to roll
+    # back appended versions, so each inner list is copied too.
+    def snapshot(self) -> object:
+        return {k: list(v) for k, v in self._by_lineage.items()}
+
+    def restore(self, token: object) -> None:
+        self._by_lineage = {k: list(v) for k, v in token.items()}  # type: ignore[union-attr]
+
+
+class InMemoryIdentityAdjudicationStore:
+    """Implements ``IdentityAdjudicationStore`` (§2 D).
+
+    A parked record creates and revises no hypothesis. Ruling Q2: Run 003
+    creates, preserves and reports these and implements no resolution path.
+    """
+
+    def __init__(self) -> None:
+        self._by_id: dict[IdentityAdjudicationId, IdentityAdjudication] = {}
+
+    def add(self, record: IdentityAdjudication) -> None:
+        if record.id in self._by_id:
+            raise InvariantViolation(
+                f"IdentityAdjudication {record.id} already exists"
+            )
+        self._by_id[record.id] = record
+
+    def get(self, record_id: IdentityAdjudicationId) -> IdentityAdjudication | None:
+        return self._by_id.get(record_id)
+
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[IdentityAdjudication]:
+        return [
+            r
+            for r in self._by_id.values()
+            if r.subject_id == subject_id and r.space_id == space_id
+        ]
+
+    # -- snapshot/restore (§5.3, F-9) ---------------------------------------
+    def snapshot(self) -> object:
+        return dict(self._by_id)
+
+    def restore(self, token: object) -> None:
+        self._by_id = dict(token)  # type: ignore[arg-type]
+
+
 @dataclass
 class InMemoryReasoningStore:
     """A consistent bundle of in-memory stores for convenient wiring.
@@ -556,4 +696,16 @@ class InMemoryReasoningStore:
     )
     modelling_context: InMemorySystemModellingContextStore = field(
         default_factory=InMemorySystemModellingContextStore
+    )
+    # Semantic-state stores (Technical Design v1.5.4 §5.1, F-9, N-1). They are
+    # fields of the bundle, so UnitOfWork covers them automatically and TD-17b's
+    # parametrisation grows with the bundle rather than a fixed count.
+    lineages: InMemoryHypothesisLineageStore = field(
+        default_factory=InMemoryHypothesisLineageStore
+    )
+    statement_versions: InMemoryStatementVersionStore = field(
+        default_factory=InMemoryStatementVersionStore
+    )
+    identity_adjudications: InMemoryIdentityAdjudicationStore = field(
+        default_factory=InMemoryIdentityAdjudicationStore
     )

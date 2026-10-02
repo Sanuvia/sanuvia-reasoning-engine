@@ -65,6 +65,12 @@ from .identifiers import (
     SystemModellingContextId,
     WorldModelVersionId,
 )
+from .identity import (
+    AdjudicationStatus,
+    IdentityAdjudication,
+    IdentityDecision,
+    IdentityOutcome,
+)
 from .inquiry import Inquiry, InquiryStatus
 from .scope import (
     DEFAULT_SPACE_ID,
@@ -192,4 +198,8 @@ __all__ = [
     "StatementVersionId",
     "canonical_divergence_pair",
     "inverts",
+    "AdjudicationStatus",
+    "IdentityAdjudication",
+    "IdentityDecision",
+    "IdentityOutcome",
 ]
