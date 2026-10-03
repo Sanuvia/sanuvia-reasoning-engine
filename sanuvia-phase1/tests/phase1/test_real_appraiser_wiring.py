@@ -18,7 +18,7 @@ from sanuvia.domain import SubjectId, shared_space_id
 
 from sanuvia_phase1 import pipeline
 from sanuvia_phase1.evidence_appraisers import (
-    AppraisalRequest,
+    AppraisalPrompt,
     ExternalEvidenceAppraiser,
     evidence_appraiser_from_env,
 )
@@ -47,7 +47,7 @@ def _extract_client(request: ExtractionRequest) -> str:
     )
 
 
-def _appraise_client(request: AppraisalRequest) -> str:
+def _appraise_client(request: AppraisalPrompt) -> str:
     """Fake appraiser: proposes H_real for the 'stuck' observation, else nothing."""
     if "stuck" in request.evidence_observation:
         return json.dumps(
@@ -118,7 +118,7 @@ def test_real_appraiser_end_to_end_forms_hypothesis_via_frozen_engine() -> None:
 def test_malformed_proposal_is_rejected_not_silently_skipped() -> None:
     # HARDENED: a proposal missing 'statement' is malformed output. It must be
     # rejected (MalformedOutputError), never silently skipped or defaulted.
-    def bad_appraise(_request: AppraisalRequest) -> str:
+    def bad_appraise(_request: AppraisalPrompt) -> str:
         return json.dumps({"proposals": [{"hypothesis_id": "H_bad"}]})
 
     stateless, transcript_model = _baselines()

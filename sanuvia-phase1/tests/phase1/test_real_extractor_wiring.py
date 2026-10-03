@@ -12,7 +12,7 @@ from fixtures.offline_real import offline_real_config
 from sanuvia.domain import SubjectId, shared_space_id
 
 from sanuvia_phase1 import pipeline
-from sanuvia_phase1.evidence_appraisers import AppraisalRequest, ExternalEvidenceAppraiser
+from sanuvia_phase1.evidence_appraisers import AppraisalPrompt, ExternalEvidenceAppraiser
 from sanuvia_phase1.evidence_extractors import (
     ExternalEvidenceExtractor,
     ExtractionRequest,
@@ -69,7 +69,7 @@ def test_from_env_refuses_to_autoselect_a_provider() -> None:
         evidence_extractor_from_env()
 
 
-def _appraise_client(request: AppraisalRequest) -> str:
+def _appraise_client(request: AppraisalPrompt) -> str:
     """Offline fake appraiser: proposes H_x for the 'stuck' observation."""
     if "stuck" in request.evidence_observation:
         return json.dumps(

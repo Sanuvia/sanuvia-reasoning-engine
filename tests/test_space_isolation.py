@@ -232,11 +232,30 @@ def test_ledger_is_partitioned_by_space(store: Any) -> None:
 class _ProposesPerSubject:
     """Proposes a hypothesis id ``H_<subject>`` per subject, then supports it."""
 
-    def appraise(self, subject_id: SubjectId, evidence: Any, working: Any) -> Appraisal:
+    # v1.5.4 port: the double still authors in canonical terms and
+    # ScriptedAppraiser performs the handle-space translation.
+    def appraise(self, request):
+        from sanuvia.adapters.reasoning.scripted_appraiser import ScriptedAppraiser
+        from sanuvia.application.ports.reasoning import AppraisalResponse
+        authored = self._authored(request.subject_id, request.existing)
+        if request.observation_id is None:
+            return AppraisalResponse()
+        # One translator for the life of the double, so the authored-id ->
+        # statement catalogue accumulates and a later supports= resolves.
+        if getattr(self, "_translator", None) is None:
+            self._translator = ScriptedAppraiser({})
+        self._translator.set(request.observation_id, authored)
+        return self._translator.appraise(request)
+
+    def _authored(self, subject_id: Any, existing: Any) -> Appraisal:
+        """Authored in canonical terms; existing lineages are matched by
+        statement, because durable ids are engine-issued (v1.5.4 §2 C)."""
         hid = HypothesisId(f"H_{subject_id}")
-        if any(w.hypothesis_id == hid for w in working):
+        statement = f"explanation for {subject_id}"
+        if any(v.statement == statement for v in existing):
             return Appraisal(supports=(hid,))
-        return Appraisal(proposals=(ProposedHypothesis(hid, f"explanation for {subject_id}", 0.8, ()),))
+        return Appraisal(proposals=(ProposedHypothesis(hid, statement, 0.8, ()),))
+
 
 
 def _service() -> ReasoningService:

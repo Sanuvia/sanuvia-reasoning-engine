@@ -25,11 +25,20 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from sanuvia.application.ports.reasoning import (
+    AppraisalRequest as PortAppraisalRequest,
+    AppraisalResponse,
+    Bearing,
+    BearingKind,
+    CandidateProposal,
+    CommitmentSignatureView,
+    HypothesisHandle,
     Appraisal,
     EvidenceAppraiser,
     ProposedHypothesis,
 )
 from sanuvia.domain import (
+    ClaimClass,
+    Stance,
     EvidenceRecord,
     EvidenceRecordId,
     Hypothesis,
@@ -41,8 +50,14 @@ from ..validation import validate_appraisal
 
 
 @dataclass(frozen=True, slots=True)
-class AppraisalRequest:
-    """A prompt for a real appraisal model — one observation vs the current hypotheses."""
+class AppraisalPrompt:
+    """A prompt for a real appraisal model — one observation vs the current
+    hypotheses.
+
+    Renamed from ``AppraisalRequest`` in Technical Design v1.5.4 §2 C: that name
+    now belongs to the **port**, and this stays what it always was — adapter-
+    internal prompt assembly.
+    """
 
     system: str
     evidence_observation: str
@@ -50,7 +65,7 @@ class AppraisalRequest:
     instruction: str
 
 
-AppraisalClient = Callable[[AppraisalRequest], str]
+AppraisalClient = Callable[[AppraisalPrompt], str]
 
 SYSTEM = (
     "You APPRAISE a single observation against the current hypotheses for an "
@@ -76,40 +91,57 @@ class ExternalEvidenceAppraiser:
     def __init__(self, client: AppraisalClient) -> None:
         self._client = client
 
-    def appraise(
-        self,
-        subject_id: SubjectId,  # noqa: ARG002 (part of the frozen port signature)
-        evidence: EvidenceRecord,
-        active_hypotheses: Sequence[Hypothesis],
-    ) -> Appraisal:
-        request = AppraisalRequest(
+    def appraise(self, request: PortAppraisalRequest) -> AppraisalResponse:
+        """Technical Design v1.5.4 §2 C port.
+
+        The adapter renders handles, calls the model, preserves the raw response
+        and translates the reply into handle space. It performs no validation
+        that matters: every governed control runs after this returns, in
+        ``src/sanuvia``. **No retries, no repair, no normalisation** -- a
+        malformed reply raises ``MalformedOutputError`` and is never silently
+        skipped or defaulted.
+
+        The prompt is unchanged: one observation against the current hypotheses,
+        exactly the shape Run 002 executed. Locked §8 authorises no prompt
+        change, so the handle table is rendered into the existing hypothesis
+        list rather than restructuring the prompt.
+        """
+        prompt = AppraisalPrompt(
             system=SYSTEM,
-            evidence_observation=evidence.content,
+            evidence_observation=request.observation.content,
+            # Handles, never durable ids: this is what closes locked §3.1's
+            # prohibition on exposing canonical identity to the model.
             active_hypotheses=tuple(
-                (str(h.hypothesis_id), h.statement) for h in active_hypotheses
+                (str(view.handle), view.statement) for view in request.existing
             ),
             instruction=INSTRUCTION,
         )
-        # Strict validation: a malformed reply (or a proposal missing its id,
-        # statement, or a valid initial_support) raises MalformedOutputError — it
-        # is never silently skipped or defaulted.
-        validated = validate_appraisal(self._client(request))
+        raw = self._client(prompt)
+        validated = validate_appraisal(raw)
 
-        supports = tuple(HypothesisId(x) for x in validated.supports)
-        contradicts = tuple(HypothesisId(x) for x in validated.contradicts)
+        bearings = tuple(
+            Bearing(HypothesisHandle(x), BearingKind.SUPPORTS)
+            for x in validated.supports
+        ) + tuple(
+            Bearing(HypothesisHandle(x), BearingKind.CONTRADICTS)
+            for x in validated.contradicts
+        )
+        label = request.participants[0] if request.participants else None
         proposals = tuple(
-            ProposedHypothesis(
-                hypothesis_id=HypothesisId(p.hypothesis_id),
+            CandidateProposal(
+                local_ref=p.hypothesis_id,
                 statement=p.statement,
-                initial_support=p.initial_support,
-                supporting_evidence_ids=tuple(
-                    EvidenceRecordId(e) for e in p.supporting_evidence_ids
+                signature=CommitmentSignatureView(
+                    subject=label if label is not None else str(request.subject_id),
+                    attribution=f"external-appraisal:{p.hypothesis_id}",
+                    claim_class=ClaimClass.INTERPRETATION,
+                    stance=Stance.OPEN,
                 ),
             )
             for p in validated.proposals
         )
-        return Appraisal(
-            supports=supports, contradicts=contradicts, proposals=proposals
+        return AppraisalResponse(
+            proposals=proposals, bearings=bearings, raw_response=raw
         )
 
 

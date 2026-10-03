@@ -37,10 +37,29 @@ class _AlwaysProposes:
     """Appraiser that proposes one hypothesis, then supports it — independent of
     the evidence id (so it works with non-deterministic uuid ids)."""
 
-    def appraise(self, subject_id: SubjectId, evidence: Any, working: Any) -> Appraisal:
-        if any(w.hypothesis_id == H for w in working):
+    # v1.5.4 port: the double still authors in canonical terms and
+    # ScriptedAppraiser performs the handle-space translation.
+    def appraise(self, request):
+        from sanuvia.adapters.reasoning.scripted_appraiser import ScriptedAppraiser
+        from sanuvia.application.ports.reasoning import AppraisalResponse
+        authored = self._authored(request.subject_id, request.existing)
+        if request.observation_id is None:
+            return AppraisalResponse()
+        # One translator for the life of the double, so the authored-id ->
+        # statement catalogue accumulates and a later supports= resolves.
+        if getattr(self, "_translator", None) is None:
+            self._translator = ScriptedAppraiser({})
+        self._translator.set(request.observation_id, authored)
+        return self._translator.appraise(request)
+
+    def _authored(self, subject_id: Any, existing: Any) -> Appraisal:
+        """Authored in canonical terms; existing lineages are matched by
+        statement, because durable ids are engine-issued (v1.5.4 §2 C)."""
+        statement = "durable explanation"
+        if any(v.statement == statement for v in existing):
             return Appraisal(supports=(H,))
-        return Appraisal(proposals=(ProposedHypothesis(H, "durable explanation", 0.7, ()),))
+        return Appraisal(proposals=(ProposedHypothesis(H, statement, 0.7, ()),))
+
 
 
 def _evidence() -> EvidenceInput:

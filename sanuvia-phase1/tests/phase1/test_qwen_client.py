@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from sanuvia_phase1 import prompts
-from sanuvia_phase1.evidence_appraisers.external import AppraisalRequest
+from sanuvia_phase1.evidence_appraisers.external import AppraisalPrompt
 from sanuvia_phase1.evidence_extractors.external import ExtractionRequest
 from sanuvia_phase1.failures import (
     Availability,
@@ -149,7 +149,7 @@ def test_unexpected_error_is_wrapped_as_model_error() -> None:
     client.begin_interaction(1, "seq-1")
     with pytest.raises(ModelError):
         client.appraisal_client()(
-            AppraisalRequest(system="S", evidence_observation="o", active_hypotheses=(), instruction="I")
+            AppraisalPrompt(system="S", evidence_observation="o", active_hypotheses=(), instruction="I")
         )
     rec = builder.finalize().call_records[0]
     assert rec.status == CallStatus.MODEL_ERROR.value

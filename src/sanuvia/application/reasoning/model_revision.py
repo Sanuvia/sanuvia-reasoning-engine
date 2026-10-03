@@ -30,9 +30,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from uuid import uuid4
 
+from sanuvia.application.ports.reasoning import AppraisalRequest
 from sanuvia.domain import (
     DEFAULT_SPACE_ID,
+    GovernedOutcome,
+    GovernedRejection,
     AnomalyDisposition,
     AnomalyResolution,
     AnomalyResolutionId,
@@ -121,6 +125,23 @@ class _RevisionRun:
     intents: list[_Intent] = field(default_factory=list)
     anomalies: list[AnomalyResolution] = field(default_factory=list)
     edges: list[DependencyEdge] = field(default_factory=list)
+    # -- semantic-state products of this run (nothing here is written) -------
+    #: Hypotheses active when the interaction began. Handles are minted only for
+    #: these, so a lineage created earlier in the same interaction is not visible
+    #: to a later appraisal call (F-18); the in-flight MATCH_EXISTING arm absorbs
+    #: the identity consequence.
+    entering: tuple[Hypothesis, ...] = ()
+    #: Deterministic arm only; R1 stays Slice 2 and is never wired here.
+    adjudicator: object = None
+    #: Committed lineage views, keyed by the immutable (subject, attribution).
+    committed_views: dict = field(default_factory=dict)
+    #: Plan-local lineage key -> LineageView, for in-flight adjudication (§2 G).
+    in_flight: dict = field(default_factory=dict)
+    lineages: list = field(default_factory=list)
+    statement_versions: list = field(default_factory=list)
+    adjudications: list = field(default_factory=list)
+    appraised: list = field(default_factory=list)
+    decisions: list = field(default_factory=list)
 
     # -- id helpers ---------------------------------------------------------
 
@@ -183,68 +204,270 @@ class _RevisionRun:
     # -- per-evidence handling ---------------------------------------------
 
     def ingest(self, evidence: EvidenceRecord) -> None:
-        appraisal = self.deps.appraiser.appraise(
-            self.subject_id, evidence, list(self.working.values())
+        """Appraise one admitted record and extend the plan. Writes nothing.
+
+        Sequence steps 3-8 (Technical Design v1.5.4 §3.1), once per admitted
+        **appraisable** record. A ``RESPONSE_OR_RESONANCE`` or
+        ``META_INSTRUCTION`` record receives no appraisal call at all (ruling
+        Q1), which is what structurally closes every support-changing path for
+        it -- there is no proposal or bearing to validate because none exists.
+        """
+        from sanuvia.application.reasoning import handles as _handles
+        from sanuvia.application.reasoning.identity import LineageView
+        from sanuvia.application.reasoning.plan_validation import AppraisedObservation
+        from sanuvia.domain import IdentityOutcome
+
+        standing = evidence.standing
+        if standing is not None and not standing.is_appraisable:
+            # Admitted and preserved; never appraised (Q1).
+            return
+
+        request_id = f"req-{uuid4().hex[:12]}"
+        participants = self._participants_for(evidence)
+        table = _handles.build_table(
+            request_id=request_id,
+            observation=evidence,
+            active_hypotheses=list(self.entering),
+            candidates=[],
+            participants=participants,
         )
-        for proposal in appraisal.proposals:
-            record = self._hyp_record(
-                hypothesis_id=proposal.hypothesis_id,
-                statement=proposal.statement,
-                support=proposal.initial_support,
-                supporting=_dedup((evidence.id,), proposal.supporting_evidence_ids),
-                contradicting=(),
-                supersedes=None,
+        obs_view, hyp_views, cand_views = _handles.build_request_views(
+            table=table,
+            observation=evidence,
+            active_hypotheses=list(self.entering),
+            candidates=[],
+            signatures=self._signature_views(table),
+        )
+        request = AppraisalRequest(
+            request_id=request_id,
+            subject_id=self.subject_id,
+            space_id=self.space_id,
+            observation=obs_view,
+            existing=hyp_views,
+            divergence_candidates=cand_views,
+            participants=tuple(table.participants),
+            observation_id=evidence.id,
+        )
+        response = self.deps.appraiser.appraise(request)
+
+        # -- step 6: authoritative handle resolution -------------------------
+        bearings: list[tuple[HypothesisId, object]] = []
+        for bearing in response.bearings:
+            bearings.append((table.resolve_hypothesis(str(bearing.target)), bearing.kind))
+
+        # -- step 8: identity adjudication, before any durable id ------------
+        decisions: dict[str, tuple[str, HypothesisId | None]] = {}
+        for proposal in response.proposals:
+            if not proposal.statement or not proposal.statement.strip():
+                raise GovernedRejection(
+                    GovernedOutcome.STATEMENT_CAPTURE_FAILURE,
+                    f"proposal {proposal.local_ref!r} carries no statement",
+                    references=(proposal.local_ref,),
+                    raw_response=response.raw_response,
+                )
+            signature = self._resolve_signature(proposal, table)
+            decision = self.adjudicator.adjudicate(
+                proposal, signature,
+                committed=self.committed_views, in_flight=self.in_flight,
             )
-            self.working[proposal.hypothesis_id] = record
-            if proposal.predicted_trajectory is not None:
-                self.traj_hints[proposal.hypothesis_id] = proposal.predicted_trajectory
-            self.intents.append(
-                _Intent(
-                    self._event(
-                        affected=proposal.hypothesis_id,
-                        outcome=RevisionOutcome.HYPOTHESIZE,
-                        evidence_id=evidence.id,
-                    ),
-                    record,
+            self.decisions.append((decision, signature, proposal, evidence))
+            decisions[proposal.local_ref] = (
+                decision.outcome.value, decision.matched_hypothesis_id
+            )
+            self._apply_decision(decision, signature, proposal, evidence)
+
+        self.appraised.append(
+            AppraisedObservation(
+                evidence_id=evidence.id, table=table,
+                proposals=response.proposals, bearings=response.bearings,
+                divergences=response.divergences,
+                raw_response=response.raw_response, decisions=decisions,
+            )
+        )
+
+        # -- support-axis bearings ------------------------------------------
+        from sanuvia.application.ports.reasoning import BearingKind
+        for hid, kind in bearings:
+            if kind is BearingKind.SUPPORTS:
+                self._strengthen(evidence, hid)
+            elif kind is BearingKind.CONTRADICTS:
+                self._contradict(evidence, hid)
+            elif kind is BearingKind.WEAKENS:
+                prev = self.working.get(hid)
+                if prev is not None:
+                    self._weaken(evidence, prev, anomaly_id=None)
+
+    # -- adjudication helpers ----------------------------------------------
+
+    def _participants_for(self, evidence: EvidenceRecord) -> list:
+        """Participant ids this request may reference.
+
+        Standing supplies them when present. Phase 0 records carry no standing,
+        so the modelling subject is offered as a participant -- which is
+        assumption A1 in the Scripted migration, surfaced here rather than
+        hidden in the adapter.
+        """
+        from sanuvia.domain import ParticipantId
+        found: list = []
+        st = evidence.standing
+        if st is not None:
+            if st.source_id:
+                found.append(st.source_id)
+            if st.subject_id:
+                found.append(st.subject_id)
+        if not found:
+            found.append(ParticipantId(str(self.subject_id)))
+        return found
+
+    def _signature_views(self, table) -> dict:
+        """Signature projections for the hypotheses offered to the appraiser."""
+        from sanuvia.application.ports.reasoning import CommitmentSignatureView
+        from sanuvia.domain import ClaimClass, Stance
+        label = next(iter(table.participants), None)
+        views = {}
+        for hid in table.hypotheses.values():
+            lineage = self.deps_lineage(hid)
+            if lineage is not None and label is not None:
+                views[hid] = CommitmentSignatureView(
+                    subject=label, attribution=lineage.attribution,
+                    claim_class=ClaimClass.INTERPRETATION, stance=Stance.OPEN,
+                )
+            elif label is not None:
+                views[hid] = CommitmentSignatureView(
+                    subject=label, attribution=str(hid),
+                    claim_class=ClaimClass.INTERPRETATION, stance=Stance.OPEN,
+                )
+        return views
+
+    def deps_lineage(self, hid: HypothesisId):
+        store = getattr(self.deps, "lineages", None)
+        return store.get(hid) if store is not None else None
+
+    def _resolve_signature(self, proposal, table):
+        """Resolve a model-facing signature view into the durable value object.
+
+        The ``subject`` label resolves through the request's table, so the model
+        cannot mint a participant and cannot silently re-attribute a commitment.
+        """
+        from sanuvia.domain import CommitmentSignature
+        view = proposal.signature
+        subject = table.resolve_participant(str(view.subject))
+        return CommitmentSignature(
+            subject=subject, attribution=view.attribution,
+            claim_class=view.claim_class, stance=view.stance,
+            temporal_scope=view.temporal_scope,
+        )
+
+    def _apply_decision(self, decision, signature, proposal, evidence) -> None:
+        """Turn an identity decision into plan entries. Still no writes."""
+        from sanuvia.application.reasoning.identity import LineageView
+        from sanuvia.domain import (
+            AdjudicationStatus, HypothesisLineage, IdentityAdjudication,
+            IdentityAdjudicationId, IdentityOutcome, StatementVersion,
+            StatementVersionId,
+        )
+        d = self.deps
+        key = (str(signature.subject), signature.attribution)
+
+        if decision.outcome is IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED:
+            # Parked: creates and revises no hypothesis, but is never discarded.
+            self.adjudications.append(
+                IdentityAdjudication(
+                    id=IdentityAdjudicationId(d.ids.new_id("adj")),
+                    subject_id=self.subject_id,
+                    candidate_statement=proposal.statement,
+                    candidate_signature=signature,
+                    decision=decision,
+                    created_at=self.now,
+                    source_evidence_ids=(evidence.id,),
+                    plausible_matches=decision.plausible_matches,
+                    status=AdjudicationStatus.PARKED,
+                    space_id=self.space_id,
                 )
             )
-            self.edges.append(
-                self._edge(evidence.id, proposal.hypothesis_id,
-                           DependencyRelation.SUPPORTS)
-            )
+            return
 
-        for hid in appraisal.supports:
-            prev = self.working.get(hid)
-            if prev is None:
-                continue  # cannot support an unknown hypothesis
-            new_support = support_after_support(
-                prev.support.value, evidence.reliability.value,
-                self.deps.config.support_learning_rate,
-            )
-            record = self._hyp_record(
-                hypothesis_id=hid,
-                statement=prev.statement,
-                support=new_support,
-                supporting=_dedup(prev.supporting_evidence_ids, (evidence.id,)),
-                contradicting=prev.contradicting_evidence_ids,
-                supersedes=prev.record_id,
-            )
-            self.working[hid] = record
-            self.intents.append(
-                _Intent(
-                    self._event(
-                        affected=hid, outcome=RevisionOutcome.STRENGTHEN,
-                        evidence_id=evidence.id,
-                    ),
-                    record,
-                )
-            )
-            self.edges.append(
-                self._edge(evidence.id, hid, DependencyRelation.SUPPORTS)
-            )
+        if decision.outcome is IdentityOutcome.MATCH_EXISTING:
+            hid = decision.matched_hypothesis_id
+            if hid is None:
+                return  # matched an in-flight lineage; evidence attaches below
+            self._strengthen(evidence, hid)
+            return
 
-        for hid in appraisal.contradicts:
-            self._contradict(evidence, hid)
+        # DISTINCT_NEW -- the durable id is issued HERE, after adjudication.
+        hid = HypothesisId(d.ids.new_id("hyp"))
+        self.lineages.append(
+            HypothesisLineage(
+                hypothesis_id=hid, subject_id=self.subject_id,
+                space_id=self.space_id, signature_subject=signature.subject,
+                attribution=signature.attribution, created_at=self.now,
+            )
+        )
+        self.statement_versions.append(
+            StatementVersion(
+                id=StatementVersionId(d.ids.new_id("sv")), hypothesis_id=hid,
+                statement=proposal.statement, claim_class=signature.claim_class,
+                stance=signature.stance, temporal_scope=signature.temporal_scope,
+                created_at_version=self.new_version_id,
+            )
+        )
+        # R6: initial support comes from the existing application-owned
+        # mechanism, applied to the triggering evidence. No separate constant.
+        support = support_after_support(
+            0.0, evidence.reliability.value, d.config.support_learning_rate
+        )
+        record = self._hyp_record(
+            hypothesis_id=hid, statement=proposal.statement, support=support,
+            supporting=(evidence.id,), contradicting=(), supersedes=None,
+        )
+        self.working[hid] = record
+        self.in_flight[key] = LineageView(
+            hypothesis_id=hid, key=key, current_stance=signature.stance,
+            in_flight=True, in_flight_statement=proposal.statement,
+            in_flight_signature=signature,
+        )
+        self.intents.append(
+            _Intent(
+                self._event(affected=hid, outcome=RevisionOutcome.HYPOTHESIZE,
+                            evidence_id=evidence.id),
+                record,
+            )
+        )
+        self.edges.append(
+            self._edge(evidence.id, hid, DependencyRelation.SUPPORTS)
+        )
+
+    def _strengthen(self, evidence: EvidenceRecord, hid: HypothesisId) -> None:
+        """Attach supporting evidence to an existing lineage.
+
+        One support event per (observation, lineage) regardless of path (F-3):
+        a redundant SUPPORTS bearing coinciding with a MATCH_EXISTING attachment
+        applies once and the duplicate is recorded, not applied twice.
+        """
+        prev = self.working.get(hid)
+        if prev is None:
+            return
+        if evidence.id in prev.supporting_evidence_ids:
+            return  # already applied for this (observation, lineage)
+        new_support = support_after_support(
+            prev.support.value, evidence.reliability.value,
+            self.deps.config.support_learning_rate,
+        )
+        record = self._hyp_record(
+            hypothesis_id=hid, statement=prev.statement, support=new_support,
+            supporting=_dedup(prev.supporting_evidence_ids, (evidence.id,)),
+            contradicting=prev.contradicting_evidence_ids,
+            supersedes=prev.record_id,
+        )
+        self.working[hid] = record
+        self.intents.append(
+            _Intent(
+                self._event(affected=hid, outcome=RevisionOutcome.STRENGTHEN,
+                            evidence_id=evidence.id),
+                record,
+            )
+        )
+        self.edges.append(self._edge(evidence.id, hid, DependencyRelation.SUPPORTS))
 
     def _contradict(self, evidence: EvidenceRecord, hid: HypothesisId) -> None:
         prev = self.working.get(hid)
@@ -325,20 +548,134 @@ class _RevisionRun:
         return AnomalyDisposition.REJECT
 
 
+@dataclass(frozen=True, slots=True)
+class PlannedRevision:
+    """The complete intended mutation for one interaction. Nothing is written.
+
+    Built by :meth:`ModelRevisionEngine.plan` at sequence step 9, validated at
+    step 13 and handed to :func:`commit_plan` at step 14. Derived state is
+    deliberately absent: it is a computed projection, not a store write
+    (§5.1, F-9).
+    """
+
+    subject_id: SubjectId
+    space_id: SpaceId
+    evidence: tuple[EvidenceRecord, ...]
+    committed_events: tuple[RevisionEvent, ...]
+    records: tuple[Hypothesis, ...]
+    edges: tuple[DependencyEdge, ...]
+    anomalies: tuple[AnomalyResolution, ...]
+    lineages: tuple = ()
+    statement_versions: tuple = ()
+    adjudications: tuple = ()
+    predictions: tuple[Prediction, ...] = ()
+    inquiry: Inquiry | None = None
+    provenance: ProvenanceRecord | None = None
+    model: WorldModel | None = None
+    current_pointer: CurrentModelSnapshot | None = None
+    committed: bool = False
+    result: ModelRevisionResult | None = None
+    appraised: tuple = ()
+
+
+def commit_plan(deps: ReasoningDependencies, plan: PlannedRevision) -> None:
+    """**The sole writer** of governed reasoning state (§1.5, §3.1 step 14).
+
+    No module other than this function may call a mutating method on a store in
+    the reasoning bundle. It runs only inside an open ``UnitOfWork`` and only
+    after complete-plan validation, so every write below is expected to succeed;
+    a failure here is an internal invariant breach, not a model-behaviour
+    outcome.
+
+    Evidence is written **here**, with everything else -- not before appraisal.
+    That is what closes the evidence-first partial mutation at the old
+    ``core_loop.py:155-159``: a failed appraisal can no longer leave evidence
+    persisted with no revision, because nothing is persisted until the whole
+    plan is validated.
+    """
+    for record in plan.evidence:
+        deps.evidence.add(record)
+    for anomaly in plan.anomalies:
+        deps.anomalies.add(anomaly)
+    # Semantic-state stores are optional: a bundle that predates the boundary
+    # (the SQLite adapter) simply has none, and a plan built against it carries
+    # nothing for them.
+    if deps.lineages is not None:
+        for lineage in plan.lineages:
+            deps.lineages.add(lineage)
+    if deps.statement_versions is not None:
+        for version in plan.statement_versions:
+            deps.statement_versions.append(version)
+    if deps.identity_adjudications is not None:
+        for adjudication in plan.adjudications:
+            deps.identity_adjudications.add(adjudication)
+    for record in plan.records:
+        deps.hypotheses.add(record)
+    for event in plan.committed_events:
+        deps.ledger.append(event)
+    for edge in plan.edges:
+        deps.dependencies.add_edge(edge)
+    for prediction in plan.predictions:
+        deps.predictions.add(prediction)
+    if plan.inquiry is not None:
+        deps.inquiries.add(plan.inquiry)
+    # The model version, its pointer and the provenance record exist only when a
+    # revision actually committed. On a hold ``plan.model`` is the *existing*
+    # model, carried for reporting -- re-appending it would duplicate a version.
+    if plan.committed:
+        if plan.provenance is not None:
+            deps.provenance.add(plan.provenance)
+        if plan.model is not None:
+            deps.world_models.append_version(plan.model)
+        if plan.current_pointer is not None:
+            deps.world_models.set_current_pointer(plan.current_pointer)
+
+
 class ModelRevisionEngine:
     """Revises the persistent model in response to appraised evidence."""
 
     def __init__(self, deps: ReasoningDependencies) -> None:
+        from sanuvia.application.reasoning.identity import DeterministicAdjudicator
+
+        # Deterministic arm only. The R1 model-assisted resolver is Slice 2 and
+        # is deliberately NOT wired: with none configured, a plausible-but-inexact
+        # candidate parks rather than committing on an unmade judgement (§2 G).
+        self._adjudicator = DeterministicAdjudicator(resolver=None)
         self._d = deps
 
-    def revise(
+    def _committed_views(self, subject_id, entering, space_id) -> dict:
+        """Committed lineages, keyed by the immutable (subject, attribution)."""
+        from sanuvia.application.reasoning.identity import LineageView
+        from sanuvia.domain import Stance
+
+        d = self._d
+        store = getattr(d, "lineages", None)
+        versions = getattr(d, "statement_versions", None)
+        if store is None:
+            return {}
+        views: dict = {}
+        for lineage in store.list_for_subject(subject_id, space_id=space_id):
+            history = tuple(versions.history(lineage.hypothesis_id)) if versions else ()
+            current = history[-1].stance if history else Stance.OPEN
+            views[lineage.lineage_key] = LineageView(
+                hypothesis_id=lineage.hypothesis_id, key=lineage.lineage_key,
+                current_stance=current, versions=history,
+            )
+        return views
+
+    def plan(
         self,
         subject_id: SubjectId,
         evidence_batch: tuple[EvidenceRecord, ...],
         current_model: WorldModel | None,
         *,
         space_id: SpaceId = DEFAULT_SPACE_ID,
-    ) -> RevisionApplied:
+    ) -> PlannedRevision:
+        """Construct the complete revision plan. **Writes nothing** (step 9).
+
+        Durable hypothesis ids are issued inside this call, but only after
+        identity adjudication, and only into the plan -- never into a store.
+        """
         d = self._d
         now = d.clock.now()
         run = _RevisionRun(
@@ -357,46 +694,49 @@ class ModelRevisionEngine:
                 for h in d.hypotheses.list_for_subject(subject_id, space_id=space_id)
             },
         )
+        entering = tuple(d.hypotheses.list_for_subject(subject_id, space_id=space_id))
+        run.entering = entering
+        run.adjudicator = self._adjudicator
+        run.committed_views = self._committed_views(subject_id, entering, space_id)
 
         for evidence in evidence_batch:
             run.ingest(evidence)
-
-        # Anomaly resolutions are recorded regardless of whether a revision
-        # committed — the disposition itself is part of the authoritative record.
-        for anomaly in run.anomalies:
-            d.anomalies.add(anomaly)
 
         committed_intents = [
             i for i in run.intents if d.commit_policy.should_commit(i.event)
         ]
         if not committed_intents:
-            # Nothing committed: the model holds (FR-MR-003). Evidence and any
-            # anomaly resolutions are still recorded; understanding is unchanged.
-            return RevisionApplied(
-                model=current_model,
+            # Nothing committed: the model holds (FR-MR-003). Evidence, anomaly
+            # resolutions and any parked candidates still belong to the plan;
+            # understanding is unchanged.
+            return PlannedRevision(
+                subject_id=subject_id, space_id=space_id,
+                evidence=tuple(evidence_batch),
+                committed_events=(), records=(), edges=(),
+                anomalies=tuple(run.anomalies),
+                lineages=tuple(run.lineages),
+                statement_versions=tuple(run.statement_versions),
+                adjudications=tuple(run.adjudications),
+                appraised=tuple(run.appraised),
                 result=ModelRevisionResult(
-                    subject_id=subject_id,
-                    revision_events=(),
+                    subject_id=subject_id, revision_events=(),
                     anomaly_resolutions=tuple(run.anomalies),
-                    new_model_version_id=None,
-                    space_id=space_id,
+                    new_model_version_id=None, space_id=space_id,
                 ),
-                predictions=(),
-                inquiry=None,
-                committed=False,
+                model=current_model, committed=False,
             )
 
         committed_events: list[RevisionEvent] = []
+        records: list[Hypothesis] = []
         for intent in committed_intents:
             if intent.record is not None:
-                d.hypotheses.add(intent.record)
-            event = intent.event.committed(run.new_version_id)
-            d.ledger.append(event)
-            committed_events.append(event)
-        for edge in run.edges:
-            d.dependencies.add_edge(edge)
+                records.append(intent.record)
+            committed_events.append(intent.event.committed(run.new_version_id))
 
-        active = list(d.hypotheses.list_for_subject(subject_id, space_id=space_id))
+        # Prospective post-commit active set. Equivalent to re-reading the store
+        # after the writes, because ``working`` holds the latest evaluation per
+        # lineage in first-seen order -- the same contract list_for_subject has.
+        active = list(run.working.values())
         supports = [h.support.value for h in active]
         model_uncertainty = aggregate_model_uncertainty(supports)
 
@@ -413,7 +753,6 @@ class ModelRevisionEngine:
             created_at=now,
             space_id=space_id,
         )
-        d.provenance.add(provenance)
 
         model = WorldModel(
             model_version_id=run.new_version_id,
@@ -428,18 +767,30 @@ class ModelRevisionEngine:
             provenance_record_id=provenance.id,
             space_id=space_id,
         )
-        d.world_models.append_version(model)
-        d.world_models.set_current_pointer(
-            CurrentModelSnapshot(
-                subject_id=subject_id,
-                model_version_id=run.new_version_id,
-                committed_at=now,
-                space_id=space_id,
-            )
+        pointer = CurrentModelSnapshot(
+            subject_id=subject_id,
+            model_version_id=run.new_version_id,
+            committed_at=now,
+            space_id=space_id,
         )
 
-        return RevisionApplied(
+        return PlannedRevision(
+            subject_id=subject_id, space_id=space_id,
+            evidence=tuple(evidence_batch),
+            committed_events=tuple(committed_events),
+            records=tuple(records),
+            edges=tuple(run.edges),
+            anomalies=tuple(run.anomalies),
+            lineages=tuple(run.lineages),
+            statement_versions=tuple(run.statement_versions),
+            adjudications=tuple(run.adjudications),
+            appraised=tuple(run.appraised),
+            predictions=predictions,
+            inquiry=inquiry,
+            provenance=provenance,
             model=model,
+            current_pointer=pointer,
+            committed=True,
             result=ModelRevisionResult(
                 subject_id=subject_id,
                 revision_events=tuple(committed_events),
@@ -447,9 +798,6 @@ class ModelRevisionEngine:
                 new_model_version_id=run.new_version_id,
                 space_id=space_id,
             ),
-            predictions=predictions,
-            inquiry=inquiry,
-            committed=True,
         )
 
     def _regenerate_predictions(
@@ -489,9 +837,9 @@ class ModelRevisionEngine:
                 created_at=run.now,
                 space_id=run.space_id,
             )
-            self._d.predictions.add(prediction)
             predictions.append(prediction)
-            self._d.dependencies.add_edge(
+            # Mutation-free: the edge joins the plan and commit_plan writes it.
+            run.edges.append(
                 run._edge(prediction.id, h.hypothesis_id,
                           DependencyRelation.DERIVED_FROM)
             )
@@ -532,5 +880,4 @@ class ModelRevisionEngine:
             ),
             space_id=run.space_id,
         )
-        self._d.inquiries.add(inquiry)
         return inquiry

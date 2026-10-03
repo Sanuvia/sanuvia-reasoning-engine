@@ -47,7 +47,8 @@ from sanuvia.domain import (
 )
 
 from .dependencies import ReasoningDependencies
-from .model_revision import ModelRevisionEngine
+from .plan_validation import RevisionPlan, validate_plan
+from .model_revision import ModelRevisionEngine, PlannedRevision, RevisionApplied, commit_plan
 from .scoring import expected_information_gain
 
 
@@ -151,12 +152,27 @@ class CoreLoop:
         cognitive = d.cognitive_state.current_state(subject_id)
         strategy = select_acquisition_strategy(cognitive)
 
-        # 7. acquire_evidence (Phase 0: record the supplied batch)
-        for evidence in batch:
-            d.evidence.add(evidence)
+        # 7. acquire_evidence -- NOT a write.
+        #
+        # Technical Design v1.5.4 §3.4. The old code added every record to the
+        # evidence store here, BEFORE appraisal, so a failed appraisal left
+        # evidence persisted with no revision -- partial in-memory mutation that
+        # serialisation masked but did not prevent. Evidence admission is now
+        # part of the plan, not a precondition of it: the batch is handed to the
+        # planner and written by ``commit_plan`` with everything else, or not at
+        # all.
 
-        # 8. revise_model -> ModelRevisionResult
-        applied = self._engine.revise(subject_id, batch, current, space_id=space_id)
+        # 8. plan (pure) -> validate the COMPLETE plan -> commit atomically.
+        planned = self._engine.plan(subject_id, batch, current, space_id=space_id)
+        self._validate(planned, subject_id, space_id)
+        commit_plan(d, planned)
+        applied = RevisionApplied(
+            model=planned.model,
+            result=planned.result,
+            predictions=planned.predictions,
+            inquiry=planned.inquiry,
+            committed=planned.committed,
+        )
 
         since = tuple(d.ledger.read_since(subject_id, prior_seq, space_id=space_id))
         return InteractionResult(
@@ -190,3 +206,50 @@ class CoreLoop:
         """Rank competing hypotheses, strongest support first — the live
         contenders whose competition drives model uncertainty (FR-IQ-005)."""
         return tuple(sorted(hypotheses, key=lambda h: h.support.value, reverse=True))
+
+
+    def _validate(self, planned, subject_id, space_id) -> None:
+        """Complete-plan validation before any mutation (§3.1 step 13, §3.2).
+
+        Mutation-free. Raises ``GovernedRejection`` on the first failure, which
+        the caller's UnitOfWork turns into a restore plus a rejected-plan audit
+        record -- nothing reaches a store.
+        """
+        d = self._d
+        committed = {
+            r.id: r for r in d.evidence.list_for_subject(subject_id, space_id=space_id)
+        }
+        active = {
+            h.hypothesis_id: h
+            for h in d.hypotheses.list_for_subject(subject_id, space_id=space_id)
+        }
+        lineage_keys: dict = {}
+        stances: dict = {}
+        store = getattr(d, "lineages", None)
+        versions = getattr(d, "statement_versions", None)
+        if store is not None:
+            from sanuvia.domain import Stance
+
+            for lineage in store.list_for_subject(subject_id, space_id=space_id):
+                lineage_keys[lineage.lineage_key] = lineage.hypothesis_id
+                history = (
+                    tuple(versions.history(lineage.hypothesis_id)) if versions else ()
+                )
+                stances[lineage.hypothesis_id] = (
+                    history[-1].stance if history else Stance.OPEN
+                )
+        plan = RevisionPlan(
+            subject_id=subject_id,
+            space_id=space_id,
+            admitted=tuple(planned.evidence),
+            appraised=tuple(planned.appraised),
+            edges=tuple(planned.edges),
+            intended_evidence_ids=tuple(r.id for r in planned.evidence),
+        )
+        validate_plan(
+            plan,
+            committed_evidence=committed,
+            active_hypotheses=active,
+            lineage_stance=stances,
+            lineage_key_index=lineage_keys,
+        )

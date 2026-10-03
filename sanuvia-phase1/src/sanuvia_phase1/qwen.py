@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from . import prompts
-from .evidence_appraisers.external import AppraisalRequest, ExternalEvidenceAppraiser
+from .evidence_appraisers.external import AppraisalPrompt, ExternalEvidenceAppraiser
 from .evidence_extractors.external import ExtractionRequest, ExternalEvidenceExtractor
 from .failures import BoundaryKind, Maybe, ModelError
 from .language_models.external import ExternalLanguageModel
@@ -124,7 +124,7 @@ def compose_extraction_prompt(request: ExtractionRequest) -> str:
     return f"{request.system}\n\nTEXT:\n{request.transcript_text}\n\n{request.instruction}"
 
 
-def compose_appraisal_prompt(request: AppraisalRequest) -> str:
+def compose_appraisal_prompt(request: AppraisalPrompt) -> str:
     hypotheses = (
         "\n".join(f"- {hid}: {statement}" for hid, statement in request.active_hypotheses)
         or "(no current hypotheses)"
@@ -205,8 +205,8 @@ class QwenClient:
 
         return client
 
-    def appraisal_client(self) -> Callable[[AppraisalRequest], str]:
-        def client(request: AppraisalRequest) -> str:
+    def appraisal_client(self) -> Callable[[AppraisalPrompt], str]:
+        def client(request: AppraisalPrompt) -> str:
             return self._generate_recorded(
                 BoundaryKind.EVIDENCE_APPRAISAL,
                 "evidence_appraisal",

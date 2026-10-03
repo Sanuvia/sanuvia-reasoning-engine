@@ -69,6 +69,13 @@ class ProposedHypothesis:
     initial_support: float
     supporting_evidence_ids: tuple[EvidenceRecordId, ...]
     predicted_trajectory: FutureTrajectory | None = None
+    #: Optional authored commitment signature (Technical Design v1.5.4 §2 H).
+    #:
+    #: When a fixture supplies one it is used verbatim and the Scripted adapter's
+    #: migration does not run. When absent, that migration derives lineage
+    #: distinctness from ``hypothesis_id`` and records its remaining assumptions
+    #: explicitly -- see ``scripted_appraiser`` for A1-A3.
+    signature: "CommitmentSignatureView | None" = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +181,22 @@ class AppraisalRequest:
     observation: ObservationView
     existing: tuple[HypothesisView, ...] = ()
     divergence_candidates: tuple[EvidenceCandidateView, ...] = ()
+    #: Request-scoped participant labels available to this call. Opaque and
+    #: non-guessable across requests, like every other handle; a candidate's
+    #: signature ``subject`` must be one of these or it fails resolution.
+    participants: tuple[ParticipantLabel, ...] = ()
+    #: ENGINE-ONLY. The canonical id of the record under appraisal.
+    #:
+    #: Deliberately **not** part of ``ObservationView`` and never rendered into a
+    #: prompt: it exists because §1.3 keeps Scripted fixtures "keyed by canonical
+    #: ``EvidenceRecordId``", and an adapter cannot honour that without knowing
+    #: which record it is appraising. §2 B already states the adapter receives
+    #: the engine-owned handle table; this carries the one field of it the
+    #: Scripted path needs, without widening the model-facing surface.
+    #:
+    #: The External adapter must never render this. TD-V1 asserts no canonical
+    #: identifier reaches any *view*, which is the model-facing boundary.
+    observation_id: EvidenceRecordId | None = None
 
 
 class BearingKind(Enum):

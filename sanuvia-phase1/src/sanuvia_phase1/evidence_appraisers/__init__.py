@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from .external import (
     AppraisalClient,
-    AppraisalRequest,
+    AppraisalPrompt,
     ExternalEvidenceAppraiser,
     evidence_appraiser_from_env,
 )
@@ -20,6 +20,6 @@ from .external import (
 __all__ = [
     "ExternalEvidenceAppraiser",
     "AppraisalClient",
-    "AppraisalRequest",
+    "AppraisalPrompt",
     "evidence_appraiser_from_env",
 ]

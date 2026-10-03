@@ -56,5 +56,14 @@ class ReasoningDependencies:
     appraiser: EvidenceAppraiser
     cognitive_state: CognitiveStateProvider
     commit_policy: RevisionCommitPolicy
+    # Semantic-state persistence ports (Technical Design v1.5.4 §5.1, F-9).
+    # Optional so store bundles that predate the semantic-state boundary -- the
+    # SQLite adapter, the HTTP test-case store -- keep working unchanged.
+    lineages: object | None = None
+    statement_versions: object | None = None
+    identity_adjudications: object | None = None
+    #: The whole bundle, so the service can open a UnitOfWork over every store
+    #: by enumeration rather than a fixed list (§5.1, N-1).
+    store_bundle: object | None = None
     # tunable policy
     config: ReasoningConfig = ReasoningConfig()
