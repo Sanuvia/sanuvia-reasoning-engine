@@ -107,12 +107,21 @@ def test_real_appraiser_end_to_end_forms_hypothesis_via_frozen_engine() -> None:
     )
     assert tdr.mode == "real"
     sanuvia = tdr.demonstration.records_by_condition["sanuvia_persistent"]
-    # The appraiser PROPOSED H_real; the FROZEN ENGINE performed the revision and
-    # assigned the model version — the boundary is respected.
-    assert any(h.hypothesis_id == "H_real" for h in sanuvia[0].hypotheses)
+    # The appraiser PROPOSED a reading; the FROZEN ENGINE performed the revision,
+    # assigned the model version AND issued the durable identity. Under Technical
+    # Design v1.5.4 the boundary is stronger than it was: locked §3.3 gives the
+    # engine every durable hypothesis id, so the appraiser's "H_real" must NOT
+    # survive into reasoning state.
+    (hypothesis,) = sanuvia[0].hypotheses
+    assert hypothesis.hypothesis_id != "H_real", (
+        "a model-authored id must never become durable identity"
+    )
+    assert hypothesis.statement == (
+        "H_real: a candidate reading proposed by the appraiser."
+    ), "the proposed language is kept; only the identity is the engine's"
     assert sanuvia[0].model_version_id == "wm-1"
     assert [e.outcome for e in sanuvia[0].revision_events] == ["hypothesize"]
-    assert sanuvia[0].revision_events[0].affected_object_id == "H_real"
+    assert sanuvia[0].revision_events[0].affected_object_id == hypothesis.hypothesis_id
 
 
 def test_malformed_proposal_is_rejected_not_silently_skipped() -> None:

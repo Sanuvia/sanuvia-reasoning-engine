@@ -27,6 +27,23 @@ def _conditions(case: object) -> list:  # type: ignore[type-arg]
         ScriptedLanguageModel(("{}",) * n),
     )
 
+def _durable(conds, case) -> dict[str, str]:
+    """Authored fixture id -> engine-issued durable id.
+
+    Locked §3.3: the engine issues every durable hypothesis id after
+    adjudication. The Scripted fixture migration carries the authored id in the
+    lineage attribution, so these assertions stay exactly as strong as before
+    instead of weakening to a count.
+    """
+    sanuvia = next(c for c in conds if isinstance(c, SanuviaPersistentCondition))
+    return {
+        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
+        for lineage in sanuvia._store.lineages.list_for_subject(
+            case.subject_id, space_id=case.space_id
+        )
+    }
+
+
 
 def test_prediction_invalidation_through_demonstrator() -> None:
     conds = _conditions(CASE_PREDICTION_INVALIDATION)
@@ -39,12 +56,13 @@ def test_prediction_invalidation_through_demonstrator() -> None:
     assert metrics.prediction_count_series(san) == [0, 1, 0, 0, 0]
     assert len(san[1].predictions) == 1
     assert len(san[2].predictions) == 0
+    durable = _durable(conds, CASE_PREDICTION_INVALIDATION)
     assert any(
-        e.outcome == "contradict" and e.affected_object_id == "H_inv"
+        e.outcome == "contradict" and e.affected_object_id == durable["H_inv"]
         for e in san[2].revision_events
     )
     # invalidation is caused by support crossing back below threshold
-    support = metrics.support_series(san)["H_inv"]
+    support = metrics.support_series(san)[durable["H_inv"]]
     assert support[1] is not None and support[1] >= 0.6
     assert support[2] is not None and support[2] < 0.6
 
@@ -57,9 +75,11 @@ def test_failed_acquisition_generates_competing_explanations_not_discarded() -> 
     assert len(san) == 5
     # After the FAILED_ACQUISITION interaction (seq-2), the engine holds >= two
     # COMPETING candidate explanations — not a single default conclusion.
+    durable = _durable(conds, CASE_FAILED_ACQUISITION)
+    expected = {durable[H_ALT_A], durable[H_ALT_B]}
     ids_after = metrics.hypothesis_ids(san[1])
-    assert {H_ALT_A, H_ALT_B} <= ids_after
-    assert len({H_ALT_A, H_ALT_B} & ids_after) >= 2
+    assert expected <= ids_after
+    assert len(expected & ids_after) >= 2
 
     # The failed-acquisition record is RECORDED (not discarded).
     sanuvia_condition = conds[0]

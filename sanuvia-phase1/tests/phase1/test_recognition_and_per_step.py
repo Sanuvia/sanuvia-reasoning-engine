@@ -13,11 +13,33 @@ from sanuvia_phase1.trajectory import TrajectoryRecord
 
 
 def _sanuvia() -> list[TrajectoryRecord]:
+    recs, _ = _sanuvia_with_ids()
+    return recs
+
+
+def _sanuvia_with_ids() -> tuple[list[TrajectoryRecord], dict[str, str]]:
     c = SanuviaPersistentCondition(CASE_001)
     c.start()
     recs = [c.step(i) for i in CASE_001.interactions]
     c.finish()
-    return recs
+    return recs, _durable_ids(c)
+
+def _durable_ids(condition) -> dict[str, str]:
+    """Authored fixture id -> engine-issued durable id.
+
+    Locked §3.3 / Technical Design v1.5.4: the engine issues every durable
+    hypothesis id after adjudication, so the fixture's authored ids are no
+    longer what the engine reports. The Scripted fixture migration carries the
+    authored id in the lineage attribution, so these tests keep asserting the
+    exact lineage rather than weakening to a count or a shape.
+    """
+    return {
+        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
+        for lineage in condition._store.lineages.list_for_subject(
+            CASE_001.subject_id, space_id=CASE_001.space_id
+        )
+    }
+
 
 
 def _stateless() -> list[TrajectoryRecord]:
@@ -53,25 +75,37 @@ def test_recognition_records_not_applicable_for_fm() -> None:
 
 
 def test_per_step_supporting_and_contradicting_evidence_surfaced() -> None:
-    recs = _sanuvia()
-    h1 = next(h for h in recs[5].hypotheses if h.hypothesis_id == H1)
-    assert "evidence-5" in h1.supporting_evidence_ids
-    assert "evidence-1" in h1.supporting_evidence_ids  # provenance to ER-001 preserved
+    recs, durable = _sanuvia_with_ids()
+    h1 = next(h for h in recs[5].hypotheses if h.hypothesis_id == durable[H1])
+    # Support attaches to the observation under appraisal, deterministically.
+    assert "evidence-5" in h1.supporting_evidence_ids  # where H1 was proposed
+    assert "evidence-8" in h1.supporting_evidence_ids  # and where it was supported
+    # The fixture additionally authored ``supporting_evidence_ids=(evidence-1,)``
+    # on this proposal. Technical Design v1.5.4 §2 C REMOVES that field from the
+    # model-facing surface -- "Proposal support attaches the current evidence
+    # deterministically" (locked §3.1) -- so a proposal can no longer name an
+    # evidence record at all. That is the structural closure of the Run 002
+    # defect in which `e1`, `obs1` and `observation_1` were persisted as
+    # model-invented evidence references.
+    assert "evidence-1" not in h1.supporting_evidence_ids
+    assert all(
+        e in ("evidence-5", "evidence-8") for e in h1.supporting_evidence_ids
+    ), "every attachment must be an observation actually appraised against H1"
     assert h1.contradicting_evidence_ids == ()
     # Contradiction is preserved separately, never collapsed into support:
-    h3 = next(h for h in recs[5].hypotheses if h.hypothesis_id == H3)
+    h3 = next(h for h in recs[5].hypotheses if h.hypothesis_id == durable[H3])
     assert h3.contradicting_evidence_ids == ("evidence-5",)
 
 
 def test_revision_events_are_structured_not_only_counts() -> None:
-    recs = _sanuvia()
+    recs, durable = _sanuvia_with_ids()
     # count and structured events agree
     for r in recs:
         assert len(r.revision_events) == r.revision_count
     # seq-1: a single HYPOTHESIZE citing evidence-1
     assert [e.outcome for e in recs[0].revision_events] == ["hypothesize"]
     assert recs[0].revision_events[0].triggering_evidence_ids == ("evidence-1",)
-    assert recs[0].revision_events[0].affected_object_id == "H3_anticipatory_protection"
+    assert recs[0].revision_events[0].affected_object_id == durable[H3]
     # seq-4: multiple structured events, including a WEAKEN of H3
     outcomes = {e.outcome for e in recs[3].revision_events}
     assert {"hypothesize", "weaken"} <= outcomes
@@ -82,8 +116,8 @@ def test_revision_events_are_structured_not_only_counts() -> None:
 
 
 def test_prediction_supporting_hypothesis_links() -> None:
-    recs = _sanuvia()
+    recs, durable = _sanuvia_with_ids()
     p = recs[5].predictions[0]
-    assert p.derived_from_hypothesis_ids == (H1,)          # traceable to hypothesis
+    assert p.derived_from_hypothesis_ids == (durable[H1],)  # traceable to hypothesis
     assert len(p.derived_from_evidence_ids) > 0            # and to evidence
     assert p.model_version_id == "wm-6"                    # and to a model snapshot

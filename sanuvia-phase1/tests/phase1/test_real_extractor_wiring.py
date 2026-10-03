@@ -115,5 +115,9 @@ def test_real_mode_end_to_end_wiring_with_fake_client() -> None:
     assert tdr.mode == "real"
     assert tdr.extractor_id == "fake-real"
     sanuvia = tdr.demonstration.records_by_condition["sanuvia_persistent"]
-    # Real extraction + real appraisal fed the frozen engine, which formed the hypothesis.
-    assert any(h.hypothesis_id == "H_x" for h in sanuvia[0].hypotheses)
+    # Real extraction + real appraisal fed the frozen engine, which formed the
+    # hypothesis AND issued its durable identity (locked §3.3): the appraiser's
+    # proposed "H_x" must not survive into reasoning state.
+    (hypothesis,) = sanuvia[0].hypotheses
+    assert hypothesis.hypothesis_id != "H_x"
+    assert hypothesis.statement.startswith("H_x:")
