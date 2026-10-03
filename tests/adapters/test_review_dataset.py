@@ -22,6 +22,30 @@ def _predictions(state: dict[str, Any]) -> set[str]:
     return {p["from_hypotheses"][0] for p in state["predictions"]}
 
 
+def _durable(mgr) -> dict[str, str]:
+    """Authored dataset id -> engine-issued durable id.
+
+    Locked §3.3 / Technical Design v1.5.4: durable hypothesis identity is
+    engine-owned, so the dataset's authored ids (H_distance, ...) are no longer
+    what the engine reports. The Scripted fixture migration carries the authored
+    id in the lineage attribution, so these stay exact identity assertions.
+    """
+    case = mgr.current()
+    store = getattr(case, "_store", None)
+    lineages = getattr(store, "lineages", None)
+    if lineages is None:
+        return {}   # SQLite backend has no semantic-state stores
+    return {
+        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
+        for lineage in lineages.list_for_subject(case.subject)
+    }
+
+
+def _expected_ids(mgr, authored: list[str]) -> set[str]:
+    durable = _durable(mgr)
+    return {durable.get(a, a) for a in authored}
+
+
 @pytest.mark.parametrize("case", DATASET, ids=[c["id"] for c in DATASET])
 def test_dataset_case_matches_expected_evolution(case: dict[str, Any]) -> None:
     mgr = TestCaseManager()
@@ -43,7 +67,9 @@ def test_dataset_case_matches_expected_evolution(case: dict[str, Any]) -> None:
         assert bool(state["inquiries"]) == exp["inquiry"], f"{where}: inquiry"
 
         # Active predictions (by originating hypothesis)
-        assert _predictions(state) == set(exp["predictions"]), f"{where}: predictions"
+        assert _predictions(state) == _expected_ids(mgr, exp["predictions"]), (
+            f"{where}: predictions"
+        )
 
         # Anomaly disposition
         dispositions = [a["disposition"] for a in state["anomaly_resolutions"]]

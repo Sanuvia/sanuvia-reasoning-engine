@@ -131,7 +131,17 @@ def test_scenario_produces_persistent_reasoning() -> None:
     assert len(set(versions)) == 5, "each committing interaction yields a new version"
 
     # --- competing hypotheses retained -----------------------------------
-    assert {h.hypothesis_id for h in r1.active_hypotheses} == {H_A, H_B}
+    # Locked §3.3: the engine issues durable ids, so the authored H_A/H_B are
+    # not what the engine reports. The Scripted fixture migration carries the
+    # authored id in the lineage attribution, so this stays an exact identity
+    # assertion rather than a count.
+    durable = {
+        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
+        for lineage in store.lineages.list_for_subject(SUBJECT)
+    }
+    assert {h.hypothesis_id for h in r1.active_hypotheses} == {
+        durable[H_A], durable[H_B]
+    }
     assert r1.inquiry is not None, "genuine competition should raise an inquiry"
 
     # --- uncertainty reduces on consolidation, increases on destabilisation
@@ -148,14 +158,14 @@ def test_scenario_produces_persistent_reasoning() -> None:
             for hid in p.derived_from_hypothesis_ids
         }
 
-    assert H_B in hyp_ids_with_predictions(r3), "H_B established -> prediction exists"
-    assert H_B not in hyp_ids_with_predictions(r4), "H_B contradicted -> invalidated"
-    assert H_A in hyp_ids_with_predictions(r4), "H_A now leads -> its prediction exists"
+    assert durable[H_B] in hyp_ids_with_predictions(r3), "H_B established -> prediction exists"
+    assert durable[H_B] not in hyp_ids_with_predictions(r4), "H_B contradicted -> invalidated"
+    assert durable[H_A] in hyp_ids_with_predictions(r4), "H_A now leads -> its prediction exists"
 
     # prediction likelihood tracks its hypothesis support (grounding)
-    b_pred_i3 = next(p for p in r3.predictions if H_B in p.derived_from_hypothesis_ids)
+    b_pred_i3 = next(p for p in r3.predictions if durable[H_B] in p.derived_from_hypothesis_ids)
     b_support_i3 = next(
-        h.support.value for h in r3.active_hypotheses if h.hypothesis_id == H_B
+        h.support.value for h in r3.active_hypotheses if h.hypothesis_id == durable[H_B]
     )
     assert b_pred_i3.likelihood.value == b_support_i3
 

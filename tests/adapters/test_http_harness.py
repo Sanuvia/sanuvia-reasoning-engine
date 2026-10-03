@@ -232,8 +232,36 @@ def test_harness_appraiser_relays_and_consumes() -> None:
         classification_confidence=ClassificationConfidence(0.9),
         occurred_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
-    assert appraiser.appraise(SubjectId("s"), evidence, []).supports == (HypothesisId("H1"),)
-    assert appraiser.appraise(SubjectId("s"), evidence, []).supports == ()
+    # Technical Design v1.5.4 §2 C: the port takes an AppraisalRequest and
+    # returns an AppraisalResponse in handle space. The behaviour under test is
+    # unchanged -- the pending appraisal is relayed once, then consumed.
+    from sanuvia.application.ports.reasoning import (
+        AppraisalRequest,
+        EvidenceStandingView,
+        ObservationView,
+    )
+    from sanuvia.domain import EvidenceRole, EvidenceSourceKind, EvidenceSubjectKind
+
+    def _request() -> AppraisalRequest:
+        return AppraisalRequest(
+            request_id="req-1",
+            subject_id=SubjectId("s"),
+            space_id=evidence.space_id,
+            observation=ObservationView(
+                handle="req-1::E0",
+                content=evidence.content,
+                standing=EvidenceStandingView(
+                    role=EvidenceRole.EVENT_OBSERVATION,
+                    source_kind=EvidenceSourceKind.PARTICIPANT,
+                    subject_kind=EvidenceSubjectKind.NONE,
+                ),
+            ),
+            participants=("req-1::P1",),
+            observation_id=evidence.id,
+        )
+
+    assert len(appraiser.appraise(_request()).bearings) == 1   # relayed
+    assert appraiser.appraise(_request()).bearings == ()       # consumed
 
 
 def test_live_server_end_to_end() -> None:

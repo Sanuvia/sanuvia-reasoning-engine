@@ -83,6 +83,27 @@ def _hyps_with_predictions(result: InteractionResult) -> set[HypothesisId]:
     }
 
 
+
+
+def _durable_ids(store: InMemoryReasoningStore) -> dict[str, HypothesisId]:
+    """Authored scenario id -> engine-issued durable id.
+
+    Technical Design v1.5.4 / locked §3.3: the engine issues every durable
+    hypothesis id after adjudication, so the scenario's authored H_A / H_B are
+    no longer what the engine reports. The Scripted fixture migration carries
+    the authored id in the lineage attribution, which lets these pass conditions
+    keep their original meaning -- "competing hypotheses are retained",
+    "predictions are revised as evidence changes" -- at full strength.
+    """
+    lineages = getattr(store, "lineages", None)
+    if lineages is None:
+        return {}
+    return {
+        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
+        for lineage in lineages.list_for_subject(SUBJECT)
+    }
+
+
 # --- individual pass conditions ----------------------------------------------
 
 
@@ -113,12 +134,14 @@ def _check_versions_appended_not_mutated(
 def _check_competing_hypotheses(
     store: InMemoryReasoningStore, results: list[InteractionResult]
 ) -> CheckResult:
+    durable = _durable_ids(store)
+    a, b = durable.get(H_A, H_A), durable.get(H_B, H_B)
     after_i1 = _lineages(results[0])
     both_retained = (
-        store.hypotheses.latest(H_A, SUBJECT) is not None
-        and store.hypotheses.latest(H_B, SUBJECT) is not None
+        store.hypotheses.latest(a, SUBJECT) is not None
+        and store.hypotheses.latest(b, SUBJECT) is not None
     )
-    passed = {H_A, H_B} <= after_i1 and both_retained
+    passed = {a, b} <= after_i1 and both_retained
     return CheckResult(
         "Competing hypotheses are retained",
         passed,
@@ -127,10 +150,14 @@ def _check_competing_hypotheses(
     )
 
 
-def _check_predictions_revised(results: list[InteractionResult]) -> CheckResult:
-    b_at_i3 = H_B in _hyps_with_predictions(results[2])
-    b_gone_i4 = H_B not in _hyps_with_predictions(results[3])
-    a_at_i4 = H_A in _hyps_with_predictions(results[3])
+def _check_predictions_revised(
+    results: list[InteractionResult], store: InMemoryReasoningStore
+) -> CheckResult:
+    durable = _durable_ids(store)
+    a, b = durable.get(H_A, H_A), durable.get(H_B, H_B)
+    b_at_i3 = b in _hyps_with_predictions(results[2])
+    b_gone_i4 = b not in _hyps_with_predictions(results[3])
+    a_at_i4 = a in _hyps_with_predictions(results[3])
     passed = b_at_i3 and b_gone_i4 and a_at_i4
     return CheckResult(
         "Predictions are revised as evidence changes",
@@ -226,7 +253,7 @@ def run() -> HarnessReport:
     checks = (
         _check_versions_appended_not_mutated(store, versions, results),
         _check_competing_hypotheses(store, results),
-        _check_predictions_revised(results),
+        _check_predictions_revised(results, harness.store),
         _check_uncertainty_both_directions(results),
         _check_failed_acquisition_competing(results),
         _check_no_inference_as_evidence(store),
