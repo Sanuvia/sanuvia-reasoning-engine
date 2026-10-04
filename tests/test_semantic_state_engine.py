@@ -29,6 +29,7 @@ from sanuvia.application.ports.reasoning import (
     ProposedHypothesis,
 )
 from sanuvia.application.reasoning import model_revision
+from sanuvia.application.reasoning.unit_of_work import bundle_stores
 from sanuvia.domain import (
     BreachKind,
     ClaimClass,
@@ -781,3 +782,186 @@ def test_source_ref_index_is_restored_on_rejection():
     svc2, store2, _ = _service(appraiser=ScriptedAppraiser({}))
     svc2.record_interaction(SUBJECT, [_ev_ref("retry", ref)])
     assert store2.evidence.id_for_ref(ref) is not None
+
+
+# --- 1.3: HypothesisView signatures come from stored state ------------------
+
+
+class _CapturesRequests:
+    """Records each AppraisalRequest, proposing once so a lineage exists."""
+
+    def __init__(self, statement: str = "a reading") -> None:
+        self.seen: list = []
+        self._inner = ScriptedAppraiser({})
+        self._statement = statement
+        self._proposed = False
+
+    def appraise(self, request):
+        self.seen.append(request)
+        if self._proposed:
+            return AppraisalResponse()
+        self._proposed = True
+        self._inner.set(
+            request.observation_id,
+            Appraisal(proposals=(ProposedHypothesis("H1", self._statement, 0.4, ()),)),
+        )
+        return self._inner.appraise(request)
+
+
+def test_hypothesis_view_signature_uses_the_stored_lineage_values():
+    """M-1.3: subject and attribution are read from the lineage, not rebuilt.
+
+    The stored values are whose commitment the lineage records. Substituting
+    the request's participant label would silently re-attribute a commitment
+    whenever a later request concerns a different participant -- the
+    cross-attribution merge §2 H's immutable pair exists to prevent.
+    """
+    appraiser = _CapturesRequests()
+    svc, store, _ = _service(appraiser=appraiser)
+    svc.record_interaction(SUBJECT, [_ev("first")])
+    svc.record_interaction(SUBJECT, [_ev("second")])
+
+    (lineage,) = store.lineages.list_for_subject(SUBJECT)
+    # The second request offers the committed hypothesis back to the appraiser.
+    offered = appraiser.seen[1].existing
+    assert len(offered) == 1
+    signature = offered[0].signature
+    assert signature.attribution == lineage.attribution
+    assert signature.subject == lineage.signature_subject
+
+
+def test_hypothesis_view_signature_uses_current_statement_version_fields():
+    """M-1.3: claim_class/stance/temporal_scope are versioned, not hardcoded.
+
+    They were pinned to INTERPRETATION/OPEN, so the view disagreed with stored
+    state for any lineage whose current version differed.
+    """
+    appraiser = _CapturesRequests()
+    svc, store, _ = _service(appraiser=appraiser)
+    svc.record_interaction(SUBJECT, [_ev("first")])
+
+    (lineage,) = store.lineages.list_for_subject(SUBJECT)
+    (version,) = list(store.statement_versions.history(lineage.hypothesis_id))
+
+    svc.record_interaction(SUBJECT, [_ev("second")])
+    signature = appraiser.seen[1].existing[0].signature
+    assert signature.claim_class is version.claim_class
+    assert signature.stance is version.stance
+    assert signature.temporal_scope == version.temporal_scope
+
+
+def test_hypothesis_view_signature_never_carries_a_durable_identifier():
+    """M-1.3: identity is not reconstructed into the attribution.
+
+    The lineage-less fallback previously used the durable hypothesis id as the
+    attribution, which made identity look like a voice label.
+    """
+    appraiser = _CapturesRequests()
+    svc, store, _ = _service(appraiser=appraiser)
+    svc.record_interaction(SUBJECT, [_ev("first")])
+    svc.record_interaction(SUBJECT, [_ev("second")])
+
+    (lineage,) = store.lineages.list_for_subject(SUBJECT)
+    signature = appraiser.seen[1].existing[0].signature
+    assert str(lineage.hypothesis_id) not in signature.attribution
+    assert str(lineage.hypothesis_id) not in signature.subject
+
+
+def test_lineage_less_bundle_presents_a_constant_attribution():
+    """M-1.3: the legacy path gets a constant, which cannot encode identity."""
+    from sanuvia.application.reasoning.model_revision import UNGOVERNED_ATTRIBUTION
+    from sanuvia.adapters.persistence.sqlite_store import SqliteReasoningStore
+    from sanuvia.adapters.wiring import build_sqlite_dependencies
+
+    appraiser = _CapturesRequests()
+    deps = build_sqlite_dependencies(
+        store=SqliteReasoningStore(":memory:"), appraiser=appraiser,
+        ids=SequentialIdGenerator(), clock=ManualClock(),
+    )
+    svc = ReasoningService(deps)
+    svc.record_interaction(SUBJECT, [_ev("first")])
+    svc.record_interaction(SUBJECT, [_ev("second")])
+
+    offered = appraiser.seen[1].existing
+    assert len(offered) == 1, "the legacy path still offers its hypotheses"
+    assert offered[0].signature.attribution == UNGOVERNED_ATTRIBUTION
+
+
+# --- M-7: transaction and sole-writer integrity -----------------------------
+
+
+def test_td18_rejected_interaction_audit_is_distinct_from_rejected_state():
+    """TD-18: a rejected interaction is recorded; its reasoning state is not.
+
+    These are different boundaries. The interaction's rejection is audit and
+    is reported to the caller; the reasoning-state mutation it attempted is
+    rolled back in full. Asserting only one of the two would let either
+    collapse into the other.
+    """
+    svc, store, _ = _service(appraiser=_CreatesThenReferencesUnknown())
+    with pytest.raises(GovernedRejection) as exc:
+        svc.record_interaction(SUBJECT, [_ev("first")])
+
+    # Audit: the rejection is a governed, identified outcome, not an opaque error.
+    assert exc.value.outcome is GovernedOutcome.UNKNOWN_HYPOTHESIS_REFERENCE
+    assert exc.value.references
+
+    # Reasoning state: nothing survived, across every store in the bundle.
+    for name, s in bundle_stores(store).items():
+        lister = getattr(s, "list_for_subject", None)
+        if lister is not None:
+            assert list(lister(SUBJECT)) == [], f"{name} retained rejected state"
+
+def test_mid_commit_failure_rolls_back_atomically():
+    """M-7: a failure part-way through commit_plan leaves nothing behind.
+
+    Evidence is written first inside commit_plan, so failing a later write is
+    the case that would otherwise leave evidence persisted with no revision --
+    the evidence-first partial mutation the sole-writer boundary exists to
+    close. The failure is injected after evidence has already been added.
+    """
+    store = InMemoryReasoningStore()
+    deps = build_in_memory_dependencies(
+        store=store,
+        appraiser=ScriptedAppraiser(_proposes("evidence-1", "a reading")),
+        ids=SequentialIdGenerator(), clock=ManualClock(),
+    )
+
+    real_add = store.hypotheses.add
+    calls = {"n": 0}
+
+    def exploding_add(record):
+        calls["n"] += 1
+        raise RuntimeError("injected mid-commit failure")
+
+    object.__setattr__(store.hypotheses, "add", exploding_add)
+    with pytest.raises(RuntimeError, match="injected mid-commit failure"):
+        ReasoningService(deps).record_interaction(SUBJECT, [_ev("first")])
+    object.__setattr__(store.hypotheses, "add", real_add)
+
+    assert calls["n"] == 1, "the failure must have been reached mid-commit"
+    # Evidence was written BEFORE the failing write, and must not survive it.
+    assert store.evidence.list_for_subject(SUBJECT) == []
+    assert store.lineages.list_for_subject(SUBJECT) == []
+    assert store.ledger.read(SUBJECT) == []
+    assert store.world_models.get_current_model(SUBJECT) is None
+
+
+def test_mid_commit_failure_restores_identifier_counters():
+    """M-7 + F-6: counters are part of the same boundary as the stores."""
+    store = InMemoryReasoningStore()
+    ids = SequentialIdGenerator()
+    deps = build_in_memory_dependencies(
+        store=store,
+        appraiser=ScriptedAppraiser(_proposes("evidence-1", "a reading")),
+        ids=ids, clock=ManualClock(),
+    )
+    real_add = store.hypotheses.add
+    object.__setattr__(store.hypotheses, "add",
+                       lambda r: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        ReasoningService(deps).record_interaction(SUBJECT, [_ev("first")])
+    object.__setattr__(store.hypotheses, "add", real_add)
+
+    assert ids.new_id("evidence") == "evidence-1"
+    assert ids.new_id("req") == "req-1"

@@ -10,6 +10,7 @@ asserted unreachable rather than skipped.
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 
 import pytest
@@ -975,3 +976,113 @@ def test_build_committed_views_groups_lineages_sharing_a_bound():
     )
     assert isinstance(views[key], list)
     assert len(views[key]) == 1
+
+
+# --- M-7: per-store snapshot/restore round trips ----------------------------
+
+
+def _containers(store) -> dict:
+    """Every mutable container the store owns, by attribute name."""
+    return {
+        name: value
+        for name, value in vars(store).items()
+        if isinstance(value, (list, dict, set))
+    }
+
+
+def _poison(container) -> None:
+    """Mutate a container in place, including one level down.
+
+    The nested write is the point: the ledger is a dict of lists and
+    ``append`` mutates an inner list, so a token that copied only the outer
+    dict would restore a mapping whose inner lists are the mutated ones (F-9).
+    """
+    if isinstance(container, list):
+        container.append("__poison__")
+    elif isinstance(container, set):
+        container.add("__poison__")
+    elif isinstance(container, dict):
+        for value in list(container.values()):
+            if isinstance(value, (list, set, dict)):
+                _poison(value)
+        container["__poison__"] = "__poison__"
+
+
+@pytest.mark.parametrize("store_name", sorted(bundle_stores(InMemoryReasoningStore())))
+def test_every_bundle_store_round_trips_snapshot_and_restore(store_name):
+    """M-7 / §5.1 / F-9: snapshot/restore round trips, for EVERY bundle store.
+
+    The previous coverage asserted the two methods exist. A store can satisfy
+    that and still hand back a token that shares mutable structure with the
+    live store, in which case ``restore`` puts back the already-mutated
+    container and rollback silently does nothing.
+
+    This mutates every container the store owns -- to one level of nesting --
+    between the snapshot and the restore, then asserts the store is back
+    exactly where it started. An aliasing token fails here because the
+    mutation is already inside it.
+    """
+    bundle = InMemoryReasoningStore()
+    store = bundle_stores(bundle)[store_name]
+
+    before = copy.deepcopy(_containers(store))
+    token = store.snapshot()
+
+    containers = _containers(store)
+    assert containers, f"{store_name} exposes no mutable container to test"
+    for container in containers.values():
+        _poison(container)
+    assert _containers(store) != before, f"{store_name}: mutation did not take"
+
+    store.restore(token)
+    assert _containers(store) == before, (
+        f"{store_name}: restore did not undo the mutation -- the snapshot "
+        f"token aliases live store state"
+    )
+
+
+def test_snapshot_token_does_not_alias_live_store_state():
+    """F-9, end to end: a token taken before a write undoes that write."""
+    bundle = InMemoryReasoningStore()
+    token = bundle.evidence.snapshot()
+    bundle.evidence.add(_record(901, space=DEFAULT_SPACE_ID))
+    bundle.evidence.restore(token)
+    assert bundle.evidence.list_for_subject("subject-1", space_id=DEFAULT_SPACE_ID) == []
+
+
+# --- M-7: the sole-writer boundary, application-wide ------------------------
+
+
+def test_no_module_outside_commit_plan_writes_to_a_reasoning_store():
+    """§1.5 sole-writer, across the whole application layer.
+
+    The existing check was scoped to model_revision. An alternate mutation
+    path in any other application module would bypass the commit boundary and
+    the UnitOfWork with it, which is exactly the class of defect the
+    invariant exists to prevent, so the scan covers them all.
+    """
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "sanuvia"
+    mutators = r"(add|append|add_edge|append_version|set_current_pointer)"
+    pattern = re.compile(
+        r"\b(?:deps|d|self\._d|self\._deps)\.(\w+)\." + mutators + r"\("
+    )
+
+    offenders: list[str] = []
+    for path in sorted((root / "application").rglob("*.py")):
+        source = path.read_text()
+        if path.name == "model_revision.py":
+            # Everything outside commit_plan in this module is already covered
+            # by its own focused test; exclude the function itself here.
+            start = source.index("def commit_plan")
+            end = source.index("class ModelRevisionEngine")
+            source = source[:start] + source[end:]
+        for i, line in enumerate(source.splitlines(), start=1):
+            if line.lstrip().startswith("#"):
+                continue
+            if pattern.search(line):
+                offenders.append(f"{path.name}:{i}: {line.strip()}")
+
+    assert offenders == [], "store writes outside commit_plan:\n" + "\n".join(offenders)

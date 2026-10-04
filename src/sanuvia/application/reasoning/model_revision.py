@@ -329,23 +329,67 @@ class _RevisionRun:
         return found
 
     def _signature_views(self, table) -> dict:
-        """Signature projections for the hypotheses offered to the appraiser."""
+        """Signature projections for the hypotheses offered to the appraiser.
+
+        M-1.3. Every field is read from stored state rather than reconstructed:
+
+        * ``subject`` -- the lineage's stored ``signature_subject``, not the
+          request's first participant label. The label is whoever this request
+          happens to concern; the stored value is whose commitment the lineage
+          actually records. Substituting the label silently re-attributes a
+          commitment whenever a request's participant differs from the one the
+          lineage was founded under, which is precisely the cross-attribution
+          merge §2 H's immutable pair exists to prevent.
+        * ``attribution`` -- the lineage's stored, immutable value.
+        * ``claim_class`` / ``stance`` / ``temporal_scope`` -- the **current**
+          StatementVersion's values (§2 H: these are versioned with the
+          statement). They were hardcoded to INTERPRETATION / OPEN, so a
+          lineage that had been refined still presented its original class and
+          stance to the appraiser, and the view disagreed with stored state.
+
+        The participant label is still used for the *handle-space* projection
+        of the subject, so no durable ParticipantId reaches the model: the
+        stored subject is mapped back through the request's participant table
+        where it appears there, and only then presented.
+        """
         from sanuvia.application.ports.reasoning import CommitmentSignatureView
         from sanuvia.domain import ClaimClass, Stance
+
+        versions = getattr(self.deps, "statement_versions", None)
         label = next(iter(table.participants), None)
         views = {}
         for hid in table.hypotheses.values():
             lineage = self.deps_lineage(hid)
-            if lineage is not None and label is not None:
+            if lineage is None:
+                # A bundle with no lineage store is the legacy path §5.9 places
+                # outside Phase 1 (the SQLite adapters). It still has to offer
+                # its hypotheses to the appraiser, so a signature is presented,
+                # but it carries a CONSTANT attribution rather than the durable
+                # hypothesis id the previous fallback used. A per-hypothesis
+                # value there made the attribution look like identity; a
+                # constant cannot encode identity at all. It is inert on this
+                # path in any case: with no lineage store, retrieval returns
+                # nothing and no candidate is ever adjudicated against it.
                 views[hid] = CommitmentSignatureView(
-                    subject=label, attribution=lineage.attribution,
-                    claim_class=ClaimClass.INTERPRETATION, stance=Stance.OPEN,
+                    subject=label if label is not None else str(self.subject_id),
+                    attribution=UNGOVERNED_ATTRIBUTION,
+                    claim_class=ClaimClass.INTERPRETATION,
+                    stance=Stance.OPEN,
                 )
-            elif label is not None:
-                views[hid] = CommitmentSignatureView(
-                    subject=label, attribution=str(hid),
-                    claim_class=ClaimClass.INTERPRETATION, stance=Stance.OPEN,
-                )
+                continue
+            history = tuple(versions.history(hid)) if versions is not None else ()
+            current = history[-1] if history else None
+            views[hid] = CommitmentSignatureView(
+                # Stored subject, projected into handle space where the request
+                # knows this participant; otherwise presented as stored.
+                subject=table.participants.get(
+                    lineage.signature_subject, lineage.signature_subject
+                ),
+                attribution=lineage.attribution,
+                claim_class=current.claim_class if current else ClaimClass.INTERPRETATION,
+                stance=current.stance if current else Stance.OPEN,
+                temporal_scope=current.temporal_scope if current else None,
+            )
         return views
 
     def deps_lineage(self, hid: HypothesisId):
@@ -610,6 +654,12 @@ class PlannedRevision:
     committed: bool = False
     result: ModelRevisionResult | None = None
     appraised: tuple = ()
+
+
+#: Attribution presented on a bundle that keeps no HypothesisLineage records
+#: (the legacy/SQLite path, outside Phase 1 per §5.9). Constant by design: it
+#: must not vary per hypothesis, or it would encode identity.
+UNGOVERNED_ATTRIBUTION = "legacy:no-lineage-store"
 
 
 def commit_plan(deps: ReasoningDependencies, plan: PlannedRevision) -> None:
