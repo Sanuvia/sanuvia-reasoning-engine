@@ -91,8 +91,9 @@ def _evidence() -> EvidenceInput:
 def test_original_duplicate_id_failure_reproduced(tmp_path: Any) -> None:
     """WITHOUT the fix: deterministic ids + a reused durable file collide.
 
-    This is the exact defect Lillian reproduced — a rerun re-issues ``evidence-1``
-    while the row from the first run still exists on disk."""
+    This is the exact defect reported against the durable backend — a rerun
+    re-issues ``evidence-1`` while the row from the first run still exists on
+    disk."""
     db = str(tmp_path / "collision.db")
 
     # First run: deterministic ids write evidence-1.

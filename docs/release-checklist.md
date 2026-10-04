@@ -147,4 +147,4 @@ A reviewer, using only **https://buyafraction.com**, can:
 - [ ] Download the **Complete Review Package**
 - [ ] Run the **Exit Test**
 
-- [ ] **Ready for Lillian / Felix review** ✅
+- [ ] **Ready for engineering review** ✅

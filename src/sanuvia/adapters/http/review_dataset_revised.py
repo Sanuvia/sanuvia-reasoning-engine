@@ -172,19 +172,18 @@ REFERRED_TO_GOVERNANCE: tuple[dict[str, Any], ...] = (
             "outright, giving 0.41 and a fall."
         ),
         "why_governance": (
-            "The arithmetic is not in doubt; what the case is asserting is. "
-            "Flipping 'down' to 'up' changes a documented behavioural claim "
-            "about what this case demonstrates, and would require rewriting its "
-            "narrative. There is a real argument that the new behaviour is MORE "
-            "faithful to the stated uncertainty intent -- scoring.py says "
-            "'two strongly-supported rivals (genuine competition) -> HIGHER "
-            "uncertainty', and step 3 creates exactly that near-tie (0.405 vs "
-            "0.35). But deciding that a curated review case should now "
-            "demonstrate the opposite trend is a governance call, not an "
-            "implementation one. Left unchanged, so the test still fails and the "
-            "question stays open. The case's stated PURPOSE -- that a failed "
-            "acquisition yields competing candidates rather than a single "
-            "default -- is unaffected and still holds."
+            "The derivation is determinate; the behavioural claim is not. "
+            "Changing 'down' to 'up' revises a documented statement about what "
+            "this case demonstrates and requires a corresponding narrative "
+            "revision. The observed behaviour is consistent with the stated "
+            "uncertainty intent in scoring.py ('two strongly-supported rivals "
+            "(genuine competition) -> HIGHER uncertainty'), which step 3 "
+            "satisfies with a near-tie of 0.405 against 0.35. Revising a "
+            "curated review case to demonstrate the opposite trend is a "
+            "governance decision, outside implementation scope. Left unchanged, "
+            "so the expectation remains failing and the item remains open. The "
+            "case's stated purpose -- a failed acquisition yields competing "
+            "candidates rather than a single default -- is unaffected."
         ),
     },
 )
