@@ -1,0 +1,19 @@
+# Protected-evidence capture
+# Date (UTC):   2026-10-04T19:04:06Z
+# Repository:   /Users/elite/Documents/sanuvia
+# Branch:       phase1-semantic-state-v1.5.4
+# HEAD:         a1d978819e050efdeaa25e67c588e9c6b56d827c
+# Base:         9883e6c37328a96fcf58d9c59786b4dee4f657e1
+
+$ git status --porcelain
+?? docs/repair-evidence/
+?? sanuvia-phase1/local_run001/
+?? sanuvia-phase1/local_run002/README_FOR_REVIEW.txt
+?? sanuvia-phase1/local_run002/_superseded/
+?? sanuvia-phase1/local_run002/evidence_case001/
+?? sanuvia-phase1/local_run002/evidence_preseal/
+?? sanuvia-phase1/local_run002/run002_final_evidence_v0.7.tar.gz
+?? sanuvia-phase1/local_run002/run002_final_evidence_v0.7.tar.gz.sha256
+
+# The seven protected Run 001 / Run 002 evidence paths above are UNTRACKED
+# (?? prefix). They are not staged, not modified and not deleted.

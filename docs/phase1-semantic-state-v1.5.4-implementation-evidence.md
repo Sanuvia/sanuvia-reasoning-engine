@@ -3,6 +3,7 @@
 **Branch:** `phase1-semantic-state-v1.5.4`
 **Base commit:** `9883e6c37328a96fcf58d9c59786b4dee4f657e1`
 **Status:** read-only review. Not merged, not frozen, not deployed.
+**Superseded in part by:** [the bounded repair reconciliation](phase1-semantic-state-v1.5.4-repair-reconciliation.md), which records the repair applied after this review and the one finding referred to governance.
 **Date:** 2026-10-04
 
 ---
