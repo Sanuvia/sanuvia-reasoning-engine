@@ -30,6 +30,7 @@ from sanuvia.application.ports.reasoning import (
 )
 from sanuvia.application.reasoning import model_revision
 from sanuvia.domain import (
+    BreachKind,
     ClaimClass,
     EvidenceClass,
     EvidenceRecordId,
@@ -603,3 +604,180 @@ def test_held_interaction_still_preserves_its_audit_record():
     # But no reasoning state was committed for it.
     assert store.lineages.list_for_subject(SUBJECT) == []
     assert store.hypotheses.list_for_subject(SUBJECT) == []
+
+
+# --- M-5: unavailable rollback is a visible governed condition ---------------
+
+
+def test_rollback_capability_is_reported_not_inferred():
+    """M-5: the service answers directly whether a rollback boundary exists."""
+    svc, _, _ = _service(_proposes("evidence-1", "a reading"))
+    available, reason = svc.rollback_capability()
+    assert available is True
+    assert "snapshotable" in reason
+
+
+def test_semantic_state_path_without_rollback_is_a_governed_failure():
+    """M-5: the mutation path must not run silently without the boundary.
+
+    A bundle carrying the Phase 1 semantic-state stores is on the governed
+    path, so a missing rollback boundary is a commit-atomicity breach rather
+    than a configuration detail. Previously this returned None and the whole
+    mutation path ran with nothing to undo it.
+    """
+    store = InMemoryReasoningStore()
+    deps = build_in_memory_dependencies(
+        store=store,
+        appraiser=ScriptedAppraiser(_proposes("evidence-1", "a reading")),
+        ids=SequentialIdGenerator(), clock=ManualClock(),
+    )
+
+    # Remove snapshot support from one store in the bundle.
+    class _NoSnapshot:
+        def __getattr__(self, name):
+            if name == "snapshot":
+                raise AttributeError(name)
+            return getattr(store.evidence, name)
+
+    object.__setattr__(store, "evidence", _NoSnapshot())
+    svc = ReasoningService(deps)
+
+    available, reason = svc.rollback_capability()
+    assert available is False
+    assert "evidence" in reason
+
+    with pytest.raises(GovernedRejection) as exc:
+        svc.record_interaction(SUBJECT, [_ev("first")])
+    assert exc.value.outcome is GovernedOutcome.NON_ATOMIC_REVISION_PLAN
+    assert exc.value.breach_kind is BreachKind.COMMIT_ATOMICITY
+    # The mutation path did not run.
+    assert store.hypotheses.list_for_subject(SUBJECT) == []
+
+
+def test_documented_sqlite_scope_exclusion_is_preserved():
+    """M-5: §5.9 keeps SQLite outside the Phase 1 path -- it still runs.
+
+    The governed condition must not become a blanket requirement that breaks
+    an adapter the design explicitly excludes. A bundle carrying none of the
+    semantic-state stores proceeds without the boundary, as before.
+    """
+    from sanuvia.adapters.persistence.sqlite_store import SqliteReasoningStore
+    from sanuvia.adapters.wiring import build_sqlite_dependencies
+
+    sqlite_store = SqliteReasoningStore(":memory:")
+    deps = build_sqlite_dependencies(
+        store=sqlite_store,
+        appraiser=ScriptedAppraiser(_proposes("evidence-1", "a reading")),
+        ids=SequentialIdGenerator(), clock=ManualClock(),
+    )
+    svc = ReasoningService(deps)
+
+    # It carries no semantic-state stores, so it is outside the governed path.
+    assert deps.lineages is None
+    # And it records an interaction without raising.
+    result = svc.record_interaction(SUBJECT, [_ev("first")])
+    assert result is not None
+    assert sqlite_store.evidence.list_for_subject(SUBJECT) != []
+
+
+# --- M-4 / TD-03: source-reference mapping on the RUNNING engine -------------
+
+
+def _ev_ref(text: str, ref) -> EvidenceInput:
+    return EvidenceInput(
+        subject_id=SUBJECT, evidence_class=EvidenceClass.NARRATIVE, content=text,
+        source="extractor:test", reliability=0.8, classification_confidence=0.9,
+        source_ref=ref,
+    )
+
+
+def test_td03_round_trip_resolves_in_both_directions_through_the_engine():
+    """TD-03: evidence-N <-> (transcript, interaction, k), both ways.
+
+    Driven through ``record_interaction`` rather than an index the test builds
+    itself, which is the distinction M-4 draws: the mapping is validated on the
+    running engine, not merely in principle.
+    """
+    from sanuvia.domain import SourceObservationRef
+
+    refs = [SourceObservationRef("case-001", 3, k) for k in range(3)]
+    svc, store, _ = _service(appraiser=ScriptedAppraiser({}))
+    svc.record_interaction(SUBJECT, [_ev_ref(f"observation {k}", r)
+                                     for k, r in enumerate(refs)])
+
+    records = store.evidence.list_for_subject(SUBJECT)
+    assert len(records) == 3
+
+    for record in records:
+        # forward: source observation -> canonical evidence id
+        assert store.evidence.id_for_ref(record.source_ref) == record.id
+        # reverse: canonical evidence id -> source observation
+        assert store.evidence.ref_for_id(record.id) == record.source_ref
+
+
+def test_td03_within_interaction_index_keeps_observations_distinct():
+    """TD-03: k distinct.
+
+    §2 A records the gap this closes: without the within-interaction index,
+    one interaction's three observations were indistinguishable.
+    """
+    from sanuvia.domain import SourceObservationRef
+
+    refs = [SourceObservationRef("case-001", 3, k) for k in range(3)]
+    svc, store, _ = _service(appraiser=ScriptedAppraiser({}))
+    svc.record_interaction(SUBJECT, [_ev_ref(f"observation {k}", r)
+                                     for k, r in enumerate(refs)])
+
+    mapped = {store.evidence.id_for_ref(r) for r in refs}
+    assert len(mapped) == 3, "three observations must map to three distinct ids"
+    assert {store.evidence.ref_for_id(m).observation_index for m in mapped} == {0, 1, 2}
+
+
+def test_td03_conflicting_source_mapping_is_a_governed_failure_on_the_engine():
+    """TD-03 / check 7: a ref that already maps elsewhere rejects the plan.
+
+    The second interaction re-presents interaction 3's k=0 observation under a
+    new canonical id. Because the index is now supplied from the store, the
+    running engine detects the conflict; previously check 7 received an empty
+    mapping and could not fire however the engine behaved.
+    """
+    from sanuvia.domain import SourceObservationRef
+
+    ref = SourceObservationRef("case-001", 3, 0)
+    svc, store, _ = _service(appraiser=ScriptedAppraiser({}))
+    svc.record_interaction(SUBJECT, [_ev_ref("first admission", ref)])
+
+    with pytest.raises(GovernedRejection) as exc:
+        svc.record_interaction(SUBJECT, [_ev_ref("second admission", ref)])
+    assert exc.value.outcome is GovernedOutcome.SOURCE_REFERENCE_MAPPING_FAILURE
+
+    # Rejected: the second admission wrote nothing.
+    assert len(store.evidence.list_for_subject(SUBJECT)) == 1
+
+
+def test_source_ref_index_is_restored_on_rejection():
+    """M-4 + F-9: the ref index is a mutable container the store owns.
+
+    If a rejected plan left it populated, check 7 would reject the retry of an
+    interaction that never committed.
+    """
+    from sanuvia.domain import SourceObservationRef
+
+    ref = SourceObservationRef("case-001", 1, 0)
+
+    class _Unknown:
+        def appraise(self, request):
+            return AppraisalResponse(
+                bearings=(Bearing(HypothesisHandle("never-issued"),
+                                  BearingKind.SUPPORTS),)
+            )
+
+    svc, store, _ = _service(appraiser=_Unknown())
+    with pytest.raises(GovernedRejection):
+        svc.record_interaction(SUBJECT, [_ev_ref("first", ref)])
+
+    assert store.evidence.source_ref_index() == {}, "index must roll back too"
+    # The same ref is therefore admissible afterwards.
+    svc2, store2, _ = _service(appraiser=ScriptedAppraiser({}))
+    svc2.record_interaction(SUBJECT, [_ev_ref("retry", ref)])
+    assert store2.evidence.id_for_ref(ref) is not None

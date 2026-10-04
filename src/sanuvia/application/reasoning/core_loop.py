@@ -246,10 +246,16 @@ class CoreLoop:
             edges=tuple(planned.edges),
             intended_evidence_ids=tuple(r.id for r in planned.evidence),
         )
+        # M-4 / TD-03: the source-reference index is supplied from the evidence
+        # store, so check 7 validates the real mapping on the running engine.
+        # It previously defaulted to an empty mapping here, which made the
+        # check structurally unable to fire however the engine behaved.
+        index_of = getattr(d.evidence, "source_ref_index", None)
         validate_plan(
             plan,
             committed_evidence=committed,
             active_hypotheses=active,
             lineage_stance=stances,
             lineage_key_index=lineage_keys,
+            source_ref_index=index_of() if index_of is not None else None,
         )

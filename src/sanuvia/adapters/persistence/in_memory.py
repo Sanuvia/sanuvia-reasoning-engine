@@ -43,6 +43,7 @@ from sanuvia.domain import (
     RevisionEvent,
     RevisionLedgerEntry,
     RevisionStatus,
+    SourceObservationRef,
     SpaceId,
     StatementVersion,
     SubjectId,
@@ -53,15 +54,26 @@ from sanuvia.domain import (
 
 
 class InMemoryEvidenceStore:
-    """Implements ``EvidenceStore``."""
+    """Implements ``EvidenceStore``, with the TD-03 source-reference index.
+
+    The index is the ``SourceRefIndex`` §2 A requires: it "gives both
+    directions", so a canonical ``evidence-N`` resolves to its
+    ``(transcript, interaction, k)`` source observation and back. The
+    within-interaction index ``k`` is what makes one interaction's three
+    observations distinguishable -- the gap §2 A records.
+    """
 
     def __init__(self) -> None:
         self._by_id: dict[EvidenceRecordId, EvidenceRecord] = {}
+        #: source observation -> canonical evidence id (the forward direction).
+        self._by_ref: dict[SourceObservationRef, EvidenceRecordId] = {}
 
     def add(self, record: EvidenceRecord) -> None:
         if record.id in self._by_id:
             raise InvariantViolation(f"EvidenceRecord {record.id} already exists")
         self._by_id[record.id] = record
+        if record.source_ref is not None:
+            self._by_ref[record.source_ref] = record.id
 
     def get(self, evidence_id: EvidenceRecordId) -> EvidenceRecord | None:
         return self._by_id.get(evidence_id)
@@ -75,16 +87,36 @@ class InMemoryEvidenceStore:
             if e.subject_id == subject_id and e.space_id == space_id
         ]
 
+    # -- TD-03 source-reference mapping, both directions --------------------
+
+    def id_for_ref(self, ref: SourceObservationRef) -> EvidenceRecordId | None:
+        """Source observation -> canonical evidence id."""
+        return self._by_ref.get(ref)
+
+    def ref_for_id(self, evidence_id: EvidenceRecordId) -> SourceObservationRef | None:
+        """Canonical evidence id -> source observation."""
+        record = self._by_id.get(evidence_id)
+        return None if record is None else record.source_ref
+
+    def source_ref_index(self) -> dict[SourceObservationRef, EvidenceRecordId]:
+        """The forward index, as complete-plan check 7 consumes it."""
+        return dict(self._by_ref)
+
     # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
     #
     # Each store copies **every mutable container it owns**, to whatever depth
     # its own shape requires. Record immutability is why these copies stay
-    # cheap; it is NOT why they are correct.
+    # cheap; it is NOT why they are correct. The ref index is a second mutable
+    # container owned by this store, so it is copied too -- a rejected plan
+    # that left it populated would make check 7 reject the retry.
     def snapshot(self) -> object:
-        return dict(self._by_id)
+        return (dict(self._by_id), dict(self._by_ref))
 
     def restore(self, token: object) -> None:
-        self._by_id = dict(token)  # type: ignore[index,arg-type]
+        by_id, by_ref = token  # type: ignore[misc]
+        self._by_id = dict(by_id)
+        self._by_ref = dict(by_ref)
+
 
 class InMemoryInferenceStore:
     """Implements ``InferenceStore`` — kept wholly separate from evidence."""

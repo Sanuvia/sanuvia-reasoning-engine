@@ -27,6 +27,9 @@ from sanuvia.domain import (
     SourceObservationRef,
     DEFAULT_SPACE_ID,
     ActorId,
+    BreachKind,
+    GovernedOutcome,
+    GovernedRejection,
     ClassificationConfidence,
     EvidenceClass,
     EvidenceRecord,
@@ -102,6 +105,10 @@ class ReasoningService:
         # atomicity test would still pass.
         uow = self._unit_of_work()
         if uow is None:
+            # Running without a rollback boundary is permitted ONLY on a bundle
+            # that is outside the Phase 1 semantic-state path (§5.9). That is
+            # checked, not assumed -- see ``_require_rollback_or_excluded``.
+            self._require_rollback_or_excluded()
             records = tuple(self._to_record(i, space_id=space_id) for i in inputs)
             return self._loop.ingest(subject_id, records, space_id=space_id)
 
@@ -117,26 +124,88 @@ class ReasoningService:
         uow.commit()
         return result
 
+    #: Stores that exist only on the Phase 1 semantic-state path. Their presence
+    #: is what distinguishes a governed Phase 1 bundle from a legacy bundle that
+    #: §5.9 places outside this path.
+    _SEMANTIC_STATE_STORES = ("lineages", "statement_versions", "identity_adjudications")
+
+    def rollback_capability(self) -> tuple[bool, str]:
+        """Whether a rollback boundary is available, and why (M-5).
+
+        Reported rather than inferred. A caller, a test or an operator can ask
+        this directly instead of deducing it from whether a mutation happened
+        to be reverted.
+        """
+        bundle = getattr(self._deps, "store_bundle", None)
+        if bundle is None:
+            return False, "the dependencies carry no store bundle"
+        from sanuvia.application.reasoning.unit_of_work import bundle_stores
+
+        try:
+            stores = bundle_stores(bundle)
+        except GovernedRejection as exc:
+            return False, str(exc)
+        missing = sorted(n for n, st in stores.items() if not hasattr(st, "snapshot"))
+        if missing:
+            return False, f"stores without snapshot support: {', '.join(missing)}"
+        return True, "every store in the bundle is snapshotable"
+
+    def _on_semantic_state_path(self) -> bool:
+        """True when this bundle carries the Phase 1 semantic-state stores."""
+        return any(
+            getattr(self._deps, name, None) is not None
+            for name in self._SEMANTIC_STATE_STORES
+        )
+
+    def _require_rollback_or_excluded(self) -> None:
+        """M-5: unavailable rollback is a visible governed condition.
+
+        The mutation path must not run silently without the rollback boundary
+        §3.1 step 0 requires. Previously the absence of that boundary was a bare
+        ``return None`` -- including from an ``except Exception`` that swallowed
+        the governed rejection ``bundle_stores`` raises -- so a bundle with no
+        rollback capability executed the full mutation path and nothing said so.
+
+        The documented scope exclusion is preserved exactly as §5.9 states it:
+        Phase 1 uses ``InMemoryReasoningStore`` exclusively and "the SQLite
+        adapters remain out of the Phase 1 path and are not modified". A bundle
+        carrying none of the semantic-state stores is therefore outside this
+        path and may proceed without the boundary. A bundle that carries them is
+        on the governed path, where missing rollback is a breach of commit
+        atomicity rather than a configuration detail.
+
+        No durable transaction architecture is introduced: this reports on the
+        existing snapshot/restore capability, it does not add one.
+        """
+        available, reason = self.rollback_capability()
+        if available or not self._on_semantic_state_path():
+            return
+        raise GovernedRejection(
+            GovernedOutcome.NON_ATOMIC_REVISION_PLAN,
+            "the reasoning bundle carries Phase 1 semantic-state stores but has "
+            f"no rollback boundary ({reason}); §3.1 step 0 requires one before "
+            "any identifier is allocated, so the mutation path must not run",
+            breach_kind=BreachKind.COMMIT_ATOMICITY,
+        )
+
     def _unit_of_work(self):
         """A UnitOfWork over this service's stores, when they support snapshots.
 
-        Returns ``None`` for a store bundle that predates snapshot support, so
-        adapters outside the Phase 1 path keep working unchanged.
+        ``None`` means no rollback boundary is available. That is not by itself
+        permission to proceed -- ``_require_rollback_or_excluded`` decides
+        whether this bundle is one §5.9 places outside the governed path.
         """
         from sanuvia.application.reasoning.unit_of_work import UnitOfWork
 
+        available, _ = self.rollback_capability()
+        if not available:
+            return None
         bundle = getattr(self._deps, "store_bundle", None)
-        if bundle is None:
-            return None
-        try:
-            from sanuvia.application.reasoning.unit_of_work import bundle_stores
+        from sanuvia.application.reasoning.unit_of_work import bundle_stores
 
-            stores = bundle_stores(bundle)
-        except Exception:
-            return None
-        if not all(hasattr(s, "snapshot") for s in stores.values()):
-            return None
-        return UnitOfWork(stores=stores, ids=getattr(self._deps, "ids", None))
+        return UnitOfWork(
+            stores=bundle_stores(bundle), ids=getattr(self._deps, "ids", None)
+        )
 
     def view(self) -> WorldModelView:
         """A read-only projection of current understanding. The returned view has
