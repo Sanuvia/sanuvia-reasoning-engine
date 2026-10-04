@@ -77,7 +77,12 @@ def test_add_does_not_run_until_run_next() -> None:
     state = controllers.run_next(mgr)
     assert state["sequence"][0]["ran"] is True
     assert state["world_model"]["version"] == "wm-1"
-    assert {h["hypothesis_id"] for h in state["hypotheses"]} == {"H_avoid", "H_reassure"}
+    # Durable identity is engine-owned (locked §3.3); the authored ids are
+    # resolved through the statements they were authored with.
+    d = mgr.current().authored_to_durable()
+    assert {h["hypothesis_id"] for h in state["hypotheses"]} == {
+        d["H_avoid"], d["H_reassure"]
+    }
     assert state["inquiries"]
     assert state["model_uncertainty"] == 0.5
 
@@ -103,7 +108,8 @@ def test_add_and_run_sequence_consolidates() -> None:
     state = controllers.run_next(mgr)
     assert state["world_model"]["version"] == "wm-2"
     assert state["model_uncertainty"] < 0.5
-    assert any("H_reassure" in p["from_hypotheses"] for p in state["predictions"])
+    reassure = mgr.current().authored_to_durable()["H_reassure"]
+    assert any(reassure in p["from_hypotheses"] for p in state["predictions"])
     assert state["metadata"]["interactions_run"] == 2
 
 
@@ -161,7 +167,8 @@ def test_new_and_switch_test_cases_are_isolated() -> None:
 
     state = controllers.select_test_case(mgr, {"test_case_id": "test-case-1"})
     assert state["world_model"]["version"] == "wm-1"
-    assert "H_avoid" in controllers.get_trace(mgr)["markdown"]
+    avoid = mgr.current().authored_to_durable()["H_avoid"]
+    assert avoid in controllers.get_trace(mgr)["markdown"]
 
 
 def test_duplicate_copies_sequence_unran() -> None:
@@ -200,15 +207,25 @@ def test_trace_graph_reflect_test_case_reference_is_canonical() -> None:
     controllers.run_next(mgr)
 
     trace = controllers.get_trace(mgr)["markdown"]
-    assert "H_avoid" in trace and "H_reassure" in trace
-    assert "H_emotional_distance" not in trace
+    d = mgr.current().authored_to_durable()
+    assert d["H_avoid"] in trace and d["H_reassure"] in trace
+
+    # The discriminator is the authored STATEMENT, not the id. Durable ids are
+    # issued per subject in sequence, so this test case and the canonical
+    # reference BOTH contain "hyp-1" and "hyp-2" -- an id-based contrast would
+    # now silently prove nothing. The statements are what actually distinguish
+    # one case's reasoning from the other's, and they are authored, so this
+    # stays an exact assertion that the harness trace is THIS test case's and
+    # the reference trace is the canonical one.
+    assert "avoids conflict" in trace and "seeks reassurance" in trace
+    assert "increasing emotional distance" not in trace
 
     graph = controllers.get_graph(mgr)
     assert graph["mermaid"].startswith("flowchart LR")
 
     ref = controllers.get_reference_trace()["markdown"]
-    assert "H_emotional_distance" in ref
-    assert "H_reassure" not in ref
+    assert "increasing emotional distance" in ref
+    assert "seeks reassurance" not in ref
 
 
 def test_exit_test_reuses_module_and_records_status() -> None:

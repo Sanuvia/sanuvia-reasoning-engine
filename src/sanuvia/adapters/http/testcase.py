@@ -643,6 +643,48 @@ class TestCase:
         overall = "PASS" if all(c["pass"] for c in checks) else "FAIL"
         return {"overall": overall, "checks": checks}
 
+    def authored_to_durable(self) -> dict[str, str]:
+        """Authored proposal id -> the engine-issued id that realised it.
+
+        Durable hypothesis identity became engine-owned in v1.5.4 (locked
+        §3.3): a test case authors ``H_distance``, the engine issues ``hyp-1``.
+        Expectations are written in authored terms, so a comparison panel that
+        comes AFTER identity adjudication has to translate before it compares,
+        or it reports a mismatch on every case for a reason that has nothing to
+        do with the reasoning being checked.
+
+        Matching is on the **statement**, which is the one thing both sides
+        author. That is the same basis ScriptedAppraiser uses to resolve an
+        authored reference, and unlike lineage attribution it works on every
+        backend -- the SQLite adapter carries no semantic-state lineage stores.
+
+        A statement authored by more than one proposal is left unmapped rather
+        than guessed: translating it would require deciding which lineage the
+        author meant, which is a semantic decision this layer has no standing
+        to take. An unmapped id simply stays authored and compares unequal,
+        which is visible, rather than being silently resolved to the wrong one.
+        """
+        by_statement: dict[str, list[str]] = {}
+        for spec in self._sequence:
+            for proposal in spec.proposals:
+                by_statement.setdefault(proposal.statement, []).append(
+                    proposal.hypothesis_id
+                )
+
+        durable_by_statement: dict[str, list[str]] = {}
+        for snap in self._step_snapshots:
+            for hyp in snap["hypotheses"]:
+                ids = durable_by_statement.setdefault(hyp["statement"], [])
+                if hyp["hypothesis_id"] not in ids:
+                    ids.append(hyp["hypothesis_id"])
+
+        mapping: dict[str, str] = {}
+        for statement, authored_ids in by_statement.items():
+            durable_ids = durable_by_statement.get(statement, [])
+            if len(authored_ids) == 1 and len(durable_ids) == 1:
+                mapping[authored_ids[0]] = durable_ids[0]
+        return mapping
+
     def expected_vs_actual(self) -> list[dict[str, Any]] | None:
         """Per-step Expected vs Actual comparison for Review Dataset cases."""
         if not self.expectations or not self._step_snapshots:
@@ -657,6 +699,10 @@ class TestCase:
                     seen.add(p.hypothesis_id)
                     cumulative.append(p.hypothesis_id)
             expected_hyps_by_step.append(list(cumulative))
+
+        # Expectations are authored against authored ids; the engine reports the
+        # ids it issued. Translate before comparing (see authored_to_durable).
+        translate = self.authored_to_durable()
 
         rows: list[dict[str, Any]] = []
         prev_u: float | None = None
@@ -677,7 +723,10 @@ class TestCase:
             else:
                 actual_trend = "flat"
             prev_u = u
-            exp_hyps = sorted(expected_hyps_by_step[i]) if i < len(expected_hyps_by_step) else []
+            raw_exp_hyps = (
+                expected_hyps_by_step[i] if i < len(expected_hyps_by_step) else []
+            )
+            exp_hyps = sorted(translate.get(h, h) for h in raw_exp_hyps)
 
             def cmp(exp_v: Any, act_v: Any) -> dict[str, Any]:
                 return {"expected": exp_v, "actual": act_v, "match": exp_v == act_v}
@@ -686,7 +735,10 @@ class TestCase:
                 "version": cmp(exp.get("version"), actual_version),
                 "hypotheses": cmp(exp_hyps, actual_hyps),
                 "uncertainty_trend": cmp(exp.get("uncertainty"), actual_trend),
-                "prediction": cmp(sorted(exp.get("predictions", [])), actual_preds),
+                "prediction": cmp(
+                    sorted(translate.get(h, h) for h in exp.get("predictions", [])),
+                    actual_preds,
+                ),
                 "inquiry": cmp(exp.get("inquiry"), actual_inquiry),
             }
             rows.append(

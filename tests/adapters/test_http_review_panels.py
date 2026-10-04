@@ -61,29 +61,47 @@ def test_verdict_pending_before_run() -> None:
 def test_uncertainty_series_from_timeline() -> None:
     _, state = _run("dataset-competing-resolve")
     us = [t["uncertainty_after"] for t in state["timeline"]]
-    assert us == [0.5, 0.395, 0.317, 0.247, 0.2]  # real engine values, no fake data
+    # Real engine values, no fake data. R6 derives a new lineage's support from
+    # the observation's reliability (0.5*0.7 = 0.35) rather than the authored
+    # 0.4, so the whole series sits slightly lower than it did; the uncertainty
+    # formula is unchanged and the series still falls monotonically, which is
+    # what this case exists to demonstrate.
+    assert us == [0.5, 0.386, 0.302, 0.241, 0.19]
+    assert us == sorted(us, reverse=True), "must still fall monotonically"
 
 
 # -- 4. Hypothesis evolution ---------------------------------------------------
 
 
 def test_hypothesis_evolution_series() -> None:
-    _, state = _run("dataset-longitudinal-eight")
+    mgr, state = _run("dataset-longitudinal-eight")
     he = state["hypothesis_evolution"]
     assert he["steps"] == 8
+    # Durable identity is engine-owned, so the authored ids are translated
+    # through the statement they were authored with.
+    d = mgr.current().authored_to_durable()
     series = {s["hypothesis_id"]: s["support"] for s in he["series"]}
-    assert series["H_distance"][0] == 0.4 and series["H_distance"][3] < 0.6  # contradicted
-    assert series["H_external"][:4] == [None, None, None, None]  # appears at step 5
-    assert series["H_external"][4] == 0.4
+
+    # R6: the opening support is 0.5*0.7 = 0.35, not the authored 0.4. The
+    # behaviour under test is unchanged -- it opens, then is contradicted
+    # below the 0.6 prediction threshold.
+    assert series[d["H_distance"]][0] == 0.35
+    assert series[d["H_distance"]][3] < 0.6  # contradicted
+
+    # H_external appears only at step 5, from reliability-0.3 evidence, so R6
+    # opens it at 0.5*0.3 = 0.15 rather than the authored 0.4.
+    assert series[d["H_external"]][:4] == [None, None, None, None]
+    assert series[d["H_external"]][4] == 0.15
 
 
 # -- 5. Prediction lifecycle ---------------------------------------------------
 
 
 def test_prediction_lifecycle_events() -> None:
-    _, state = _run("dataset-prediction-invalidation")
+    mgr, state = _run("dataset-prediction-invalidation")
+    d = mgr.current().authored_to_durable()
     life = {p["hypothesis_id"]: p["events"] for p in state["prediction_lifecycle"]}
-    events = [(e["event"], e.get("version")) for e in life["H_withdrawal"]]
+    events = [(e["event"], e.get("version")) for e in life[d["H_withdrawal"]]]
     assert ("created", "wm-2") in events
     assert any(e[0] == "invalidated" for e in events)
 

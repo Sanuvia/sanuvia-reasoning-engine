@@ -43,10 +43,13 @@ def test_dataset_purpose_absent_for_handbuilt() -> None:
 
 
 def test_reasoning_summary_generated_from_state() -> None:
-    _, state = _run("dataset-longitudinal-eight")
+    mgr, state = _run("dataset-longitudinal-eight")
     s = state["reasoning_summary"]
     assert "competing explanations" in s
-    assert "H_stress" in s  # a real hypothesis id from state
+    # A real hypothesis id from state. Durable identity is engine-owned, so the
+    # summary names the id the engine issued, resolved here from the statement
+    # the case authored it with.
+    assert mgr.current().authored_to_durable()["H_stress"] in s
     assert "uncertainty" in s.lower()
     assert "behaved consistently with the supplied evidence." in s or "Review the differences" in s
 
@@ -60,14 +63,17 @@ def test_reasoning_summary_pending_before_run() -> None:
 
 
 def test_explain_why_from_state() -> None:
-    _, state = _run("dataset-longitudinal-eight")
+    mgr, state = _run("dataset-longitudinal-eight")
     ew = state["explain_why"]
     assert ew
     top = ew[0]
-    assert top["hypothesis_id"] == "H_stress"
+    # The leading hypothesis is still the one the case authored as H_stress.
+    assert top["hypothesis_id"] == mgr.current().authored_to_durable()["H_stress"]
     assert top["supporting_evidence"]
     assert len(top["support_progression"]) == 8
-    assert top["current_support"] == 0.87
+    # R6 opens the lineage at 0.5*0.7 = 0.35 rather than the authored 0.4, so
+    # eight steps of the same strengthening end at 0.86 rather than 0.87.
+    assert top["current_support"] == 0.86
     assert "strengthening evidence" in top["reason"]
 
 
