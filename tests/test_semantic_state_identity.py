@@ -146,10 +146,15 @@ def _version(stmt: str, n: int = 1, *, cc: ClaimClass = ClaimClass.INTENTION,
 
 
 def _lineage(versions, stance: Stance = Stance.AFFIRMS) -> dict:
+    """One retrieval bound holding ONE lineage.
+
+    The bound maps to a list because it admits several lineages (M-2); this
+    helper is the single-lineage case.
+    """
     sig = _sig()
     key = (str(sig.subject), sig.attribution)
-    return {key: LineageView(hypothesis_id="hyp-1", key=key,
-                             current_stance=stance, versions=tuple(versions))}
+    return {key: [LineageView(hypothesis_id="hyp-1", key=key,
+                              current_stance=stance, versions=tuple(versions))]}
 
 
 # --- committed-state matching -----------------------------------------------
@@ -232,9 +237,10 @@ def test_in_flight_duplicate_within_one_uncommitted_plan_matches():
     committed yet. A rule scoped only to committed state cannot see these."""
     sig = _sig()
     key = (str(sig.subject), sig.attribution)
-    in_flight = {key: LineageView(hypothesis_id=None, key=key,
-                                  current_stance=Stance.AFFIRMS, in_flight=True,
-                                  in_flight_statement=STMT, in_flight_signature=sig)}
+    in_flight = {key: [LineageView(hypothesis_id=None, key=key,
+                                   current_stance=Stance.AFFIRMS, in_flight=True,
+                                   in_flight_statement=STMT,
+                                   in_flight_signature=sig)]}
     d = DeterministicAdjudicator().adjudicate(
         CandidateProposal("c2", STMT, _view()), sig, committed={}, in_flight=in_flight,
     )
@@ -831,9 +837,9 @@ def test_r1a_guard_blocks_a_merge_if_exact_match_is_ever_reached():
     key = (str(sig.subject), sig.attribution)
     # Impossible by construction: a historical AFFIRMS version under a lineage
     # whose current stance is NEGATES.
-    corrupt = {key: LineageView(hypothesis_id="hyp-1", key=key,
-                                current_stance=Stance.NEGATES,
-                                versions=(_version(STMT, stance=Stance.AFFIRMS),))}
+    corrupt = {key: [LineageView(hypothesis_id="hyp-1", key=key,
+                                 current_stance=Stance.NEGATES,
+                                 versions=(_version(STMT, stance=Stance.AFFIRMS),))]}
     d = DeterministicAdjudicator().adjudicate(
         CandidateProposal("c1", STMT, _view(stance=Stance.AFFIRMS)), sig,
         committed=corrupt, in_flight={},
@@ -841,3 +847,131 @@ def test_r1a_guard_blocks_a_merge_if_exact_match_is_ever_reached():
     assert d.outcome is IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED
     assert d.outcome is not IdentityOutcome.MATCH_EXISTING
     assert d.rationale and "R1a" in d.rationale
+
+
+# --- M-2: a retrieval bound admits MANY lineages -----------------------------
+
+
+def _lineages(*statements, stance: Stance = Stance.AFFIRMS) -> dict:
+    """One retrieval bound holding SEVERAL distinct lineages."""
+    sig = _sig()
+    key = (str(sig.subject), sig.attribution)
+    return {
+        key: [
+            LineageView(hypothesis_id=f"hyp-{i}", key=key, current_stance=stance,
+                        versions=(_version(stmt),))
+            for i, stmt in enumerate(statements, start=1)
+        ]
+    }
+
+
+def test_several_lineages_can_share_one_retrieval_bound():
+    """M-2: the bound is (subject, attribution), which many commitments share.
+
+    ``subject`` and ``attribution`` are a voice-and-person pair, so every
+    distinct commitment one voice holds about one person lands on the same
+    key. A mapping of one lineage per key silently discarded all but the last.
+    """
+    committed = _lineages("the first reading", "the second reading",
+                          "the third reading")
+    key = next(iter(committed))
+    assert len(committed[key]) == 3
+
+
+@pytest.mark.parametrize("target,expected", [
+    ("the first reading", "hyp-1"),
+    ("the second reading", "hyp-2"),
+    ("the third reading", "hyp-3"),
+])
+def test_exact_match_finds_any_lineage_under_a_shared_bound(target, expected):
+    """M-2: the match may be against ANY admitted lineage, not just the last.
+
+    Before the fix only one lineage survived retrieval, so a candidate exactly
+    matching either of the others fell through to a park -- founding a
+    duplicate of a commitment the system already held.
+    """
+    d = DeterministicAdjudicator().adjudicate(
+        CandidateProposal("c1", target, _view()), _sig(),
+        committed=_lineages("the first reading", "the second reading",
+                            "the third reading"),
+        in_flight={},
+    )
+    assert d.outcome is IdentityOutcome.MATCH_EXISTING
+    assert d.matched_hypothesis_id == expected
+
+
+def test_an_earlier_candidate_is_not_overwritten_by_a_later_one():
+    """M-2 as stated: do not overwrite an earlier candidate sharing the bound.
+
+    The first lineage must remain retrievable after a second is added under
+    the same key.
+    """
+    committed = _lineages("the first reading", "the second reading")
+    first = DeterministicAdjudicator().adjudicate(
+        CandidateProposal("c1", "the first reading", _view()), _sig(),
+        committed=committed, in_flight={},
+    )
+    assert first.matched_hypothesis_id == "hyp-1", "the earlier lineage survived"
+
+
+def test_parking_preserves_every_plausible_match_not_merely_the_first():
+    """M-2: the parked record must carry the full ambiguity that caused it.
+
+    Recording one plausible match would hide the very ambiguity being
+    referred: reviewing a parked candidate needs every lineage it might
+    belong to.
+    """
+    d = DeterministicAdjudicator().adjudicate(
+        CandidateProposal("c1", "an unrelated new reading", _view()), _sig(),
+        committed=_lineages("the first reading", "the second reading",
+                            "the third reading"),
+        in_flight={},
+    )
+    assert d.outcome is IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED
+    assert d.plausible_matches == ("hyp-1", "hyp-2", "hyp-3")
+    assert d.rationale and "3 plausible lineage(s)" in d.rationale
+
+
+def test_retrieval_order_is_deterministic_across_repeated_adjudications():
+    """M-2: retrieval must not depend on iteration accident."""
+    committed = _lineages("the first reading", "the second reading",
+                          "the third reading")
+    outcomes = [
+        DeterministicAdjudicator().adjudicate(
+            CandidateProposal("c1", "an unrelated new reading", _view()), _sig(),
+            committed=committed, in_flight={},
+        ).plausible_matches
+        for _ in range(5)
+    ]
+    assert len(set(outcomes)) == 1, "retrieval order varied between runs"
+
+
+def test_committed_arm_is_searched_before_the_in_flight_arm():
+    """§2 G resolution order: committed state first, then in-flight."""
+    sig = _sig()
+    key = (str(sig.subject), sig.attribution)
+    committed = _lineages("the shared reading")
+    in_flight = {key: [LineageView(hypothesis_id=None, key=key,
+                                   current_stance=Stance.AFFIRMS, in_flight=True,
+                                   in_flight_statement="the shared reading",
+                                   in_flight_signature=sig)]}
+    d = DeterministicAdjudicator().adjudicate(
+        CandidateProposal("c1", "the shared reading", _view()), sig,
+        committed=committed, in_flight=in_flight,
+    )
+    assert d.matched_in_flight is False
+    assert d.matched_hypothesis_id == "hyp-1"
+
+
+def test_build_committed_views_groups_lineages_sharing_a_bound():
+    """M-2 at the projection boundary: grouping, not overwriting."""
+    from sanuvia.application.reasoning.identity import build_committed_views
+
+    key = ("p1", "sanuvia-working-reading")
+    views = build_committed_views(
+        lineage_keys={key: "hyp-1"},
+        current_stance={"hyp-1": Stance.OPEN},
+        histories={"hyp-1": (_version("a reading"),)},
+    )
+    assert isinstance(views[key], list)
+    assert len(views[key]) == 1

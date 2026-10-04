@@ -30,7 +30,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from uuid import uuid4
 
 from sanuvia.application.ports.reasoning import AppraisalRequest
 from sanuvia.domain import (
@@ -135,7 +134,8 @@ class _RevisionRun:
     adjudicator: object = None
     #: Committed lineage views, keyed by the immutable (subject, attribution).
     committed_views: dict = field(default_factory=dict)
-    #: Plan-local lineage key -> LineageView, for in-flight adjudication (§2 G).
+    #: Plan-local lineage key -> list[LineageView], for in-flight adjudication
+    #: (§2 G). A list because one bound admits several lineages (M-2).
     in_flight: dict = field(default_factory=dict)
     lineages: list = field(default_factory=list)
     statement_versions: list = field(default_factory=list)
@@ -222,7 +222,16 @@ class _RevisionRun:
             # Admitted and preserved; never appraised (Q1).
             return
 
-        request_id = f"req-{uuid4().hex[:12]}"
+        # M-6: the governed request identifier is allocated through the
+        # injected IdGenerator, never ad-hoc. Two reasons, both governed rather
+        # than cosmetic. It must be deterministic, so an identical run is
+        # byte-reproducible -- a uuid4 made every request id differ between two
+        # otherwise identical runs, and request ids appear in handles and in
+        # every governed rejection message. And it must participate in the
+        # snapshot/restore boundary (F-4, F-6): a rejected plan must not
+        # permanently consume an identifier, which only holds if allocation goes
+        # through the generator the UnitOfWork restores.
+        request_id = self.deps.ids.new_id("req")
         participants = self._participants_for(evidence)
         table = _handles.build_table(
             request_id=request_id,
@@ -423,10 +432,16 @@ class _RevisionRun:
             supporting=(evidence.id,), contradicting=(), supersedes=None,
         )
         self.working[hid] = record
-        self.in_flight[key] = LineageView(
-            hypothesis_id=hid, key=key, current_stance=signature.stance,
-            in_flight=True, in_flight_statement=proposal.statement,
-            in_flight_signature=signature,
+        # Appended, not assigned (M-2): two candidates in one plan may found
+        # distinct lineages under the same bound, and the second must not erase
+        # the first from the in-flight set the next candidate adjudicates
+        # against.
+        self.in_flight.setdefault(key, []).append(
+            LineageView(
+                hypothesis_id=hid, key=key, current_stance=signature.stance,
+                in_flight=True, in_flight_statement=proposal.statement,
+                in_flight_signature=signature,
+            )
         )
         self.intents.append(
             _Intent(
@@ -616,15 +631,41 @@ def commit_plan(deps: ReasoningDependencies, plan: PlannedRevision) -> None:
         deps.evidence.add(record)
     for anomaly in plan.anomalies:
         deps.anomalies.add(anomaly)
+
+    # M-3: durable reasoning state is written only for hypotheses that actually
+    # committed.
+    #
+    # A lineage and its statement version are created provisionally at
+    # DISTINCT_NEW, before the commit policy has ruled on the revision event
+    # they belong to. If that event does not commit, the interaction holds: no
+    # Hypothesis record, no ledger entry and no WorldModel version are written.
+    # Writing the lineage anyway would leave a HypothesisLineage for a
+    # hypothesis the model does not hold, and a StatementVersion whose
+    # ``created_at_version`` names a WorldModel version that was never
+    # appended -- orphan reasoning state, unreachable and unrevisable.
+    #
+    # The guard lives here, in the sole writer, rather than in the one plan
+    # path that can currently produce the condition. That makes it an
+    # invariant of the write boundary instead of a property of one caller, so
+    # a future plan path cannot reintroduce the orphan by construction.
+    #
+    # This does NOT touch audit preservation. Evidence, anomaly resolutions and
+    # parked identity adjudications are written above and below regardless of
+    # whether the model committed: a rejected or held *interaction* is still
+    # recorded, while rejected *reasoning state* is not (TD-18).
+    committed_hypotheses = {record.hypothesis_id for record in plan.records}
+
     # Semantic-state stores are optional: a bundle that predates the boundary
     # (the SQLite adapter) simply has none, and a plan built against it carries
     # nothing for them.
     if deps.lineages is not None:
         for lineage in plan.lineages:
-            deps.lineages.add(lineage)
+            if lineage.hypothesis_id in committed_hypotheses:
+                deps.lineages.add(lineage)
     if deps.statement_versions is not None:
         for version in plan.statement_versions:
-            deps.statement_versions.append(version)
+            if version.hypothesis_id in committed_hypotheses:
+                deps.statement_versions.append(version)
     if deps.identity_adjudications is not None:
         for adjudication in plan.adjudications:
             deps.identity_adjudications.add(adjudication)
@@ -663,7 +704,12 @@ class ModelRevisionEngine:
         self._d = deps
 
     def _committed_views(self, subject_id, entering, space_id) -> dict:
-        """Committed lineages, keyed by the immutable (subject, attribution)."""
+        """Committed lineages, keyed by the immutable (subject, attribution).
+
+        Each key maps to a **list**: the bound admits several lineages (M-2),
+        and assigning rather than appending silently dropped every candidate
+        but the last one retrieved.
+        """
         from sanuvia.application.reasoning.identity import LineageView
         from sanuvia.domain import Stance
 
@@ -676,9 +722,11 @@ class ModelRevisionEngine:
         for lineage in store.list_for_subject(subject_id, space_id=space_id):
             history = tuple(versions.history(lineage.hypothesis_id)) if versions else ()
             current = history[-1].stance if history else Stance.OPEN
-            views[lineage.lineage_key] = LineageView(
-                hypothesis_id=lineage.hypothesis_id, key=lineage.lineage_key,
-                current_stance=current, versions=history,
+            views.setdefault(lineage.lineage_key, []).append(
+                LineageView(
+                    hypothesis_id=lineage.hypothesis_id, key=lineage.lineage_key,
+                    current_stance=current, versions=history,
+                )
             )
         return views
 

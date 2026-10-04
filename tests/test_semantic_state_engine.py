@@ -395,3 +395,211 @@ def test_evidence_attaches_to_the_matched_lineage():
     (h,) = store.hypotheses.list_for_subject(SUBJECT)
     assert set(h.supporting_evidence_ids) == {"evidence-1", "evidence-2"}
     assert h.support.value > 0.4, "the second observation strengthened the lineage"
+
+
+# --- M-6: the governed request identifier comes from the injected generator ---
+
+
+def _request_ids_seen(appraiser_box: list) -> list[str]:
+    return [r.request_id for r in appraiser_box]
+
+
+class _RecordsRequests:
+    """Appraiser that records the request id it was handed, then proposes."""
+
+    def __init__(self, statement: str = "a reading", authored_id: str = "H1") -> None:
+        self.seen: list = []
+        self._inner = ScriptedAppraiser({})
+        self._statement, self._authored = statement, authored_id
+
+    def appraise(self, request):
+        self.seen.append(request)
+        self._inner.set(
+            request.observation_id,
+            Appraisal(proposals=(ProposedHypothesis(self._authored, self._statement, 0.4, ()),)),
+        )
+        return self._inner.appraise(request)
+
+
+def test_request_id_is_allocated_through_the_injected_generator():
+    """M-6: no ad-hoc uuid or process-local identifier on the governed path.
+
+    The request id appears in every handle and in the text of every governed
+    rejection, so an ad-hoc source makes two otherwise identical runs differ.
+    """
+    appraiser = _RecordsRequests()
+    ids = SequentialIdGenerator()
+    svc, _, _ = _service(appraiser=appraiser, ids=ids)
+    svc.record_interaction(SUBJECT, [_ev("first")])
+
+    assert len(appraiser.seen) == 1
+    request_id = appraiser.seen[0].request_id
+    # Allocated by the generator under the "req" kind, not uuid4.
+    assert request_id == "req-1"
+    # The generator's own counter advanced, which is what makes it restorable.
+    assert ids.new_id("req") == "req-2"
+
+
+def test_request_ids_are_reproducible_across_identical_runs():
+    """M-6: an identical run must allocate identical request ids."""
+    def run() -> list[str]:
+        appraiser = _RecordsRequests()
+        svc, _, _ = _service(appraiser=appraiser, ids=SequentialIdGenerator(),
+                             clock=ManualClock())
+        svc.record_interaction(SUBJECT, [_ev("first")])
+        svc.record_interaction(SUBJECT, [_ev("second")])
+        return _request_ids_seen(appraiser.seen)
+
+    first, second = run(), run()
+    assert first == second == ["req-1", "req-2"]
+
+
+def test_rejected_interaction_does_not_consume_a_request_identifier():
+    """M-6 + F-4/F-6: request-id allocation participates in snapshot/restore.
+
+    A rejected plan must not permanently consume an identifier. Because the
+    request id is now allocated through the generator the UnitOfWork restores,
+    the next interaction allocates the SAME id the rejected one did -- which is
+    the property that makes a rerun after a rejection byte-reproducible.
+    """
+    class _UnknownThenPropose:
+        """Rejects the first interaction, proposes normally on the second."""
+
+        def __init__(self) -> None:
+            self.seen: list = []
+            self._calls = 0
+            self._inner = ScriptedAppraiser({})
+
+        def appraise(self, request):
+            self.seen.append(request)
+            self._calls += 1
+            if self._calls == 1:
+                return AppraisalResponse(
+                    bearings=(Bearing(HypothesisHandle("never-issued"),
+                                      BearingKind.SUPPORTS),)
+                )
+            self._inner.set(
+                request.observation_id,
+                Appraisal(proposals=(ProposedHypothesis("H1", "a reading", 0.4, ()),)),
+            )
+            return self._inner.appraise(request)
+
+    appraiser = _UnknownThenPropose()
+    ids = SequentialIdGenerator()
+    svc, store, _ = _service(appraiser=appraiser, ids=ids)
+
+    with pytest.raises(GovernedRejection):
+        svc.record_interaction(SUBJECT, [_ev("first")])
+    assert store.evidence.list_for_subject(SUBJECT) == []
+
+    svc.record_interaction(SUBJECT, [_ev("second")])
+    # The rejected interaction's request id was returned to the pool.
+    assert _request_ids_seen(appraiser.seen) == ["req-1", "req-1"]
+    assert store.evidence.list_for_subject(SUBJECT) != []
+
+
+# --- M-3: a refused commit leaves no orphan durable reasoning state ----------
+
+
+class _CreatesThenReferencesUnknown:
+    """Founds a lineage, then forces a governed rejection in the same response."""
+
+    def appraise(self, request):
+        return AppraisalResponse(
+            proposals=(
+                CandidateProposal(
+                    "c1", "a provisional reading",
+                    CommitmentSignatureView(
+                        subject="p1", attribution="voice",
+                        claim_class=ClaimClass.INTERPRETATION, stance=Stance.OPEN,
+                    ),
+                ),
+            ),
+            bearings=(Bearing(HypothesisHandle("never-issued"), BearingKind.SUPPORTS),),
+        )
+
+
+def test_rejection_after_provisional_creation_leaves_no_orphan_state():
+    """M-3: provisional lineage/version state must not survive a refusal.
+
+    The candidate founds a lineage during planning; an unknown hypothesis
+    handle in the same response then rejects the interaction. Nothing may
+    persist -- not the lineage, not its statement version, not the hypothesis.
+    """
+    svc, store, _ = _service(appraiser=_CreatesThenReferencesUnknown())
+    with pytest.raises(GovernedRejection) as exc:
+        svc.record_interaction(SUBJECT, [_ev("first")])
+    assert exc.value.outcome is GovernedOutcome.UNKNOWN_HYPOTHESIS_REFERENCE
+
+    assert store.lineages.list_for_subject(SUBJECT) == []
+    assert list(store.statement_versions.history("hyp-1")) == []
+    assert store.hypotheses.list_for_subject(SUBJECT) == []
+    assert store.evidence.list_for_subject(SUBJECT) == []
+    assert store.ledger.read(SUBJECT) == []
+
+
+class _DeclinesHypothesize:
+    """Commit policy that refuses to commit a HYPOTHESIZE event.
+
+    The shipped PlaceholderCommitAllPolicy commits everything, so this
+    condition is latent rather than currently reachable. The RevisionCommitPolicy
+    port exists precisely so a real policy can be injected (FR-MR-003), and a
+    policy that declines a hypothesize is the case that exposes the orphan.
+    """
+
+    def should_commit(self, event) -> bool:
+        return event.outcome.value != "hypothesize"
+
+
+def test_hold_after_provisional_creation_persists_no_lineage_or_version():
+    """M-3: a held interaction must not write state for uncommitted hypotheses.
+
+    When the commit policy declines the revision event, the interaction holds:
+    no hypothesis record, no ledger entry, no WorldModel version. The lineage
+    and statement version created provisionally during adjudication belong to a
+    hypothesis the model does not hold, so persisting them would leave a
+    StatementVersion whose created_at_version names a WorldModel version that
+    was never appended.
+    """
+    store = InMemoryReasoningStore()
+    deps = build_in_memory_dependencies(
+        store=store,
+        appraiser=ScriptedAppraiser(_proposes("evidence-1", "a reading")),
+        ids=SequentialIdGenerator(),
+        clock=ManualClock(),
+    )
+    object.__setattr__(deps, "commit_policy", _DeclinesHypothesize())
+    result = ReasoningService(deps).record_interaction(SUBJECT, [_ev("first")])
+
+    # The interaction held: nothing committed.
+    assert result.committed is False
+    assert store.hypotheses.list_for_subject(SUBJECT) == []
+    assert store.ledger.read(SUBJECT) == []
+
+    # ... and therefore no orphan reasoning state for the uncommitted lineage.
+    assert store.lineages.list_for_subject(SUBJECT) == []
+    assert list(store.statement_versions.history("hyp-1")) == []
+
+
+def test_held_interaction_still_preserves_its_audit_record():
+    """M-3 / TD-18: rejected reasoning state and interaction audit differ.
+
+    The same hold that writes no lineage must still record that the
+    interaction happened. Audit preservation is governed and survives; the
+    uncommitted reasoning state does not.
+    """
+    store = InMemoryReasoningStore()
+    deps = build_in_memory_dependencies(
+        store=store,
+        appraiser=ScriptedAppraiser(_proposes("evidence-1", "a reading")),
+        ids=SequentialIdGenerator(),
+        clock=ManualClock(),
+    )
+    object.__setattr__(deps, "commit_policy", _DeclinesHypothesize())
+    ReasoningService(deps).record_interaction(SUBJECT, [_ev("first")])
+
+    # The evidence that drove the held interaction is preserved as audit.
+    assert len(store.evidence.list_for_subject(SUBJECT)) == 1
+    # But no reasoning state was committed for it.
+    assert store.lineages.list_for_subject(SUBJECT) == []
+    assert store.hypotheses.list_for_subject(SUBJECT) == []

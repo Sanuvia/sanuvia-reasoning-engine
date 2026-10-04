@@ -40,6 +40,13 @@ from sanuvia.domain import (
 
 #: A plan-local lineage key: ``(signature subject, attribution)``.
 #:
+#: The bound admits **many** lineages, not one (M-2). ``subject`` and
+#: ``attribution`` are a voice-and-person pair -- "whose commitment is this" --
+#: so every distinct commitment one voice holds about one person shares the key.
+#: Retrieval therefore returns a *set* of candidates and the adjudicator chooses
+#: among them; a mapping that held one lineage per key silently discarded every
+#: candidate but the last, which is the defect M-2 names.
+#:
 #: This is the **immutable retrieval bound** (F-2). ``claim_class`` is
 #: deliberately absent: bounding retrieval on a versioned field would mean a
 #: candidate proposing the very refinement §2 H calls legitimate failed to
@@ -126,8 +133,8 @@ class DeterministicAdjudicator:
         candidate: CandidateProposal,
         signature: CommitmentSignature,
         *,
-        committed: Mapping[LineageKey, LineageView],
-        in_flight: Mapping[LineageKey, LineageView],
+        committed: Mapping[LineageKey, Sequence[LineageView]],
+        in_flight: Mapping[LineageKey, Sequence[LineageView]],
     ) -> IdentityDecision:
         """Adjudicate one candidate against committed state and the in-flight set.
 
@@ -140,20 +147,23 @@ class DeterministicAdjudicator:
         normalised = normalise_statement(candidate.statement)
 
         # Case 2 -- exact normalised match, committed arm first, then in-flight.
+        # Every lineage the bound admits is scanned, in retrieval order (M-2):
+        # with several commitments under one (subject, attribution), the match
+        # may be against any of them, not merely the most recent.
         for source, is_in_flight in ((committed, False), (in_flight, True)):
-            lineage = source.get(key)
-            if lineage is None:
-                continue
-            if self._exact_match(lineage, normalised, signature):
-                # R1a merge protection. Unreachable under R1a itself -- a lineage
-                # can never invert its own stance, because the only way to append
-                # a version is REFINE_EXISTING and R1a forbids stance inversion
-                # as refinement -- but asserted here so a future change cannot
-                # silently merge two opposed commitments into one hypothesis_id.
+            for lineage in source.get(key, ()):
+                if not self._exact_match(lineage, normalised, signature):
+                    continue
+                # R1a merge protection. Unreachable under R1a itself -- a
+                # lineage can never invert its own stance, because the only way
+                # to append a version is REFINE_EXISTING and R1a forbids stance
+                # inversion as refinement -- but asserted here so a future
+                # change cannot silently merge two opposed commitments into one
+                # hypothesis_id.
                 if inverts(lineage.current_stance, signature.stance):
                     return self._park(
                         candidate,
-                        lineage,
+                        [lineage],
                         rationale=(
                             "exact statement match, but the candidate stance "
                             "inverts the lineage's current stance; merging would "
@@ -169,8 +179,15 @@ class DeterministicAdjudicator:
                     rationale="exact normalised statement and signature match",
                 )
 
-        # Case 3 -- no plausible candidate under the signature bound.
-        plausible = [src[key] for src in (committed, in_flight) if key in src]
+        # Case 3 -- no plausible candidate under the signature bound. Every
+        # lineage the bound admits is a plausible candidate (§2 G: the resolver
+        # receives "only the plausible existing candidates the signature bound
+        # admits"), so this is empty only when the bound retrieves nothing.
+        plausible: list[LineageView] = [
+            lineage
+            for src in (committed, in_flight)
+            for lineage in src.get(key, ())
+        ]
         if not plausible:
             return IdentityDecision(
                 outcome=IdentityOutcome.DISTINCT_NEW,
@@ -180,22 +197,25 @@ class DeterministicAdjudicator:
             )
 
         # Case 4 -- plausible but not exact.
-        lineage = plausible[0]
         if self._resolver is None:
             # The stated configuration rule (§2 G): park rather than commit on an
             # unmade judgement. This is NOT a deterministic substitute for the R1
             # resolver; it is the explicit unconfigured behaviour.
             return self._park(
                 candidate,
-                lineage,
+                plausible,
                 rationale=(
-                    "plausible lineage retrieved under (subject, attribution) but "
-                    "no exact match, and no IdentityResolver is configured (R1 "
-                    "remains Slice 2)"
+                    f"{len(plausible)} plausible lineage(s) retrieved under "
+                    "(subject, attribution) but no exact match, and no "
+                    "IdentityResolver is configured (R1 remains Slice 2)"
                 ),
             )
+        # The resolver receives EVERY plausible candidate the bound admits
+        # (§2 G bounded inputs), not merely the first retrieved.
         return self._resolver.resolve(
-            candidate, [(lineage.hypothesis_id, "")] if lineage.hypothesis_id else []
+            candidate,
+            [(lv.hypothesis_id, self._statement_of(lv))
+             for lv in plausible if lv.hypothesis_id is not None],
         )
 
     # -- internals ----------------------------------------------------------
@@ -224,8 +244,18 @@ class DeterministicAdjudicator:
         )
 
     @staticmethod
+    def _statement_of(lineage: LineageView) -> str:
+        """The lineage's current statement, for resolver presentation."""
+        if lineage.in_flight:
+            return lineage.in_flight_statement or ""
+        return lineage.versions[-1].statement if lineage.versions else ""
+
+    @staticmethod
     def _park(
-        candidate: CandidateProposal, lineage: LineageView, *, rationale: str
+        candidate: CandidateProposal,
+        plausible: Sequence[LineageView],
+        *,
+        rationale: str,
     ) -> IdentityDecision:
         """Park the candidate without creating or revising a hypothesis.
 
@@ -234,13 +264,18 @@ class DeterministicAdjudicator:
         ``IdentityAdjudication`` preserving the candidate content, its signature,
         the plausible matches and the decision provenance.
         """
+        first = plausible[0]
         return IdentityDecision(
             outcome=IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED,
             candidate_local_ref=candidate.local_ref,
-            matched_lineage_key=lineage.key,
-            matched_in_flight=lineage.in_flight,
-            plausible_matches=(
-                (lineage.hypothesis_id,) if lineage.hypothesis_id else ()
+            matched_lineage_key=first.key,
+            matched_in_flight=any(lv.in_flight for lv in plausible),
+            # EVERY plausible match is preserved on the parked record (M-2).
+            # Recording only the first would lose the very ambiguity that
+            # caused the park, and the review of a parked candidate needs to
+            # see all the lineages it might belong to.
+            plausible_matches=tuple(
+                lv.hypothesis_id for lv in plausible if lv.hypothesis_id is not None
             ),
             rationale=rationale,
         )
@@ -251,14 +286,21 @@ def build_committed_views(
     lineage_keys: Mapping[LineageKey, HypothesisId],
     current_stance: Mapping[HypothesisId, Stance],
     histories: Mapping[HypothesisId, Sequence[StatementVersion]],
-) -> dict[LineageKey, LineageView]:
-    """Project committed lineages into the adjudicator's view."""
-    views: dict[LineageKey, LineageView] = {}
+) -> dict[LineageKey, list[LineageView]]:
+    """Project committed lineages into the adjudicator's view.
+
+    Keys map to **lists**: one retrieval bound may admit several lineages
+    (M-2), and appending rather than assigning is what stops an earlier
+    candidate being discarded by a later one sharing the bound.
+    """
+    views: dict[LineageKey, list[LineageView]] = {}
     for key, hid in lineage_keys.items():
-        views[key] = LineageView(
-            hypothesis_id=hid,
-            key=key,
-            current_stance=current_stance.get(hid, Stance.OPEN),
-            versions=tuple(histories.get(hid, ())),
+        views.setdefault(key, []).append(
+            LineageView(
+                hypothesis_id=hid,
+                key=key,
+                current_stance=current_stance.get(hid, Stance.OPEN),
+                versions=tuple(histories.get(hid, ())),
+            )
         )
     return views
