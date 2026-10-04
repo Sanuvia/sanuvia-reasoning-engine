@@ -23,14 +23,19 @@ from sanuvia.adapters.wiring import build_sqlite_dependencies
 from sanuvia.application.api import EvidenceInput, ReasoningService
 from sanuvia.application.ports.reasoning import Appraisal, ProposedHypothesis
 from sanuvia.domain import (
+    BreachKind,
     EvidenceClass,
+    GovernedOutcome,
+    GovernedRejection,
     HypothesisId,
-    InvariantViolation,
     SubjectId,
 )
 
 SUBJECT = SubjectId("subject-reset-test")
 H = HypothesisId("H_durable")
+
+
+_STATEMENT = "durable explanation"
 
 
 class _AlwaysProposes:
@@ -48,17 +53,24 @@ class _AlwaysProposes:
         # One translator for the life of the double, so the authored-id ->
         # statement catalogue accumulates and a later supports= resolves.
         if getattr(self, "_translator", None) is None:
-            self._translator = ScriptedAppraiser({})
+            # The catalogue is supplied explicitly because this double is
+            # rebuilt per session while the STORE persists. Reopening a durable
+            # file gives a fresh double that never saw the proposal defining
+            # H's statement, so it could not resolve a later supports=(H,) by
+            # statement and would emit an unresolvable handle -- correctly
+            # rejected by the engine as UNKNOWN_HYPOTHESIS_REFERENCE. The
+            # adapter exposes `catalogue` for exactly this case: a hypothesis
+            # the script references but never proposes in this session.
+            self._translator = ScriptedAppraiser({}, catalogue={H: _STATEMENT})
         self._translator.set(request.observation_id, authored)
         return self._translator.appraise(request)
 
     def _authored(self, subject_id: Any, existing: Any) -> Appraisal:
         """Authored in canonical terms; existing lineages are matched by
         statement, because durable ids are engine-issued (v1.5.4 §2 C)."""
-        statement = "durable explanation"
-        if any(v.statement == statement for v in existing):
+        if any(v.statement == _STATEMENT for v in existing):
             return Appraisal(supports=(H,))
-        return Appraisal(proposals=(ProposedHypothesis(H, statement, 0.7, ()),))
+        return Appraisal(proposals=(ProposedHypothesis(H, _STATEMENT, 0.7, ()),))
 
 
 
@@ -96,8 +108,20 @@ def test_original_duplicate_id_failure_reproduced(tmp_path: Any) -> None:
         path=db, appraiser=ScriptedAppraiser({}),
         clock=ManualClock(), ids=SequentialIdGenerator(),
     )
-    with pytest.raises(InvariantViolation, match="evidence-1 already exists"):
+    # v1.5.4 moves this detection EARLIER and makes it governed. The collision
+    # is now caught by complete-plan validation (§3.2) before any write occurs,
+    # and surfaces as the COMMIT_ATOMICITY governed outcome rather than as a
+    # store-level InvariantViolation raised mid-write. The defect being
+    # reproduced is identical -- a rerun re-issues evidence-1 while the first
+    # run's row is still on disk -- and it is now refused atomically.
+    with pytest.raises(GovernedRejection, match="evidence-1 already exists") as exc:
         ReasoningService(deps2).record_interaction(SUBJECT, [_evidence()])
+    assert exc.value.outcome is GovernedOutcome.NON_ATOMIC_REVISION_PLAN
+    assert exc.value.breach_kind is BreachKind.COMMIT_ATOMICITY
+
+    # Nothing was written: the rejected rerun left the first run's single
+    # evidence row untouched, which is the point of catching it pre-write.
+    assert len(deps2.evidence.list_for_subject(SUBJECT)) == 1
 
 
 # -- 2. The fix: harness reset/rerun is clean and deterministic ----------------

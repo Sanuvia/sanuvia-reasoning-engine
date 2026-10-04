@@ -77,6 +77,20 @@ def _evidence() -> EvidenceInput:
     )
 
 
+def _durable_id(store: Any) -> str:
+    """The engine-issued id for the lineage this session committed.
+
+    Durable hypothesis identity is engine-owned (locked §3.3), so the authored
+    ``H_space`` is no longer what the renderers emit. Reading the id back from
+    the store keeps these assertions EXACT -- they still name one specific
+    hypothesis -- and keeps them backend-agnostic, which matters because the
+    SQLite adapter carries no semantic-state lineage stores.
+    """
+    committed = store.hypotheses.list_for_subject(SUBJECT, space_id=SHARED)
+    assert len(committed) == 1, f"expected one lineage, got {committed}"
+    return committed[0].hypothesis_id
+
+
 def _make_session(backend: str):
     if backend == "memory":
         store: Any = InMemoryReasoningStore()
@@ -103,6 +117,7 @@ def test_trace_and_graph_preserve_non_default_space(backend: str) -> None:
     # from_interactions recovers the space from the interactions themselves.
     state = from_interactions(SUBJECT, interactions, store)
     assert state.space_id == SHARED  # not DEFAULT_SPACE_ID
+    hid = _durable_id(store)
 
     trace = render_trace(state)
     graph_md = render_mermaid(build_graph(state))
@@ -110,7 +125,7 @@ def test_trace_and_graph_preserve_non_default_space(backend: str) -> None:
     # The trace contains the interaction/revision/ledger information.
     assert "RevisionLedger (authoritative history)" in trace
     assert "evidence-1" in trace                      # the ingested evidence
-    assert "H_space" in trace                         # the committed hypothesis
+    assert hid in trace                               # the committed hypothesis
     assert "hypothesize" in trace.lower()             # the committed revision outcome
     assert "_no committed revisions yet_" not in trace
     assert "_no hypotheses yet_" not in trace
@@ -118,7 +133,7 @@ def test_trace_and_graph_preserve_non_default_space(backend: str) -> None:
     # The graph contains the WorldModel / evidence / revision lineage.
     assert "flowchart" in graph_md
     assert "evidence-1" in graph_md                   # evidence node
-    assert "H_space" in graph_md                      # hypothesis node
+    assert hid in graph_md                            # hypothesis node
     assert "wm-1" in graph_md                         # WorldModel version node
     assert "hypothesize" in graph_md.lower()          # revision edge label
 
@@ -130,6 +145,7 @@ def test_renderers_do_not_fall_back_to_default_space(backend: str) -> None:
     the shared space), while the correct space yields populated ones."""
     store, interactions = _make_session(backend)
 
+    hid = _durable_id(store)
     wrong = from_interactions(SUBJECT, interactions, store, space_id=DEFAULT_SPACE_ID)
     right = from_interactions(SUBJECT, interactions, store, space_id=SHARED)
 
@@ -153,5 +169,5 @@ def test_renderers_do_not_fall_back_to_default_space(backend: str) -> None:
     # space it does. This is the direct "does not fall back to DEFAULT" proof.
     wrong_graph = render_mermaid(build_graph(wrong))
     right_graph = render_mermaid(build_graph(right))
-    assert "H_space" not in wrong_graph and "evidence-1" not in wrong_graph and "wm-1" not in wrong_graph
-    assert "H_space" in right_graph and "evidence-1" in right_graph and "wm-1" in right_graph
+    assert hid not in wrong_graph and "evidence-1" not in wrong_graph and "wm-1" not in wrong_graph
+    assert hid in right_graph and "evidence-1" in right_graph and "wm-1" in right_graph

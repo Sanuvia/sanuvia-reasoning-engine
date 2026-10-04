@@ -288,13 +288,20 @@ def test_two_subjects_same_space_are_isolated() -> None:
 
     a = view.understanding(A, space_id=SHARED_1)
     b = view.understanding(B, space_id=SHARED_1)
-    assert {h.hypothesis_id for h in a.hypotheses} == {HypothesisId("H_subject-A")}
-    assert {h.hypothesis_id for h in b.hypotheses} == {HypothesisId("H_subject-B")}
+    # Durable identity is engine-owned (locked §3.3), so the authored ids are
+    # no longer what the engine reports. Isolation is asserted on the ids the
+    # engine actually issued: one lineage each, and NO id in common. That is a
+    # stronger statement than the authored-id comparison it replaces -- it
+    # fails if the two subjects share any lineage at all, whatever it is named.
+    a_ids = {h.hypothesis_id for h in a.hypotheses}
+    b_ids = {h.hypothesis_id for h in b.hypotheses}
+    assert len(a_ids) == 1 and len(b_ids) == 1
+    assert a_ids.isdisjoint(b_ids)
     # A's hypotheses/predictions never appear for B.
     assert all(h.subject_id == A for h in a.hypotheses)
     assert all(p.subject_id == B for p in b.predictions)
     # The WorldModel for B contains no hypothesis owned by A.
-    assert HypothesisId("H_subject-A") not in {h.hypothesis_id for h in b.hypotheses}
+    assert not (a_ids & b_ids)
 
 
 def test_same_subject_two_spaces_are_isolated() -> None:
