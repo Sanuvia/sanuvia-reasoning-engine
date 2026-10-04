@@ -15,8 +15,12 @@ from datetime import datetime, timezone
 import pytest
 
 from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
+from sanuvia.adapters.reasoning import ScriptedAppraiser
 from sanuvia.adapters.support.deterministic import SequentialIdGenerator
+from sanuvia.adapters.wiring import build_in_memory_dependencies
+from sanuvia.application.reasoning import CoreLoop
 from sanuvia.application.ports.reasoning import (
+    Appraisal,
     Bearing,
     BearingKind,
     CandidateProposal,
@@ -24,6 +28,7 @@ from sanuvia.application.ports.reasoning import (
     DivergenceProposal,
     EvidenceHandle,
     HypothesisHandle,
+    ProposedHypothesis,
 )
 from sanuvia.application.reasoning.handles import (
     MAX_DIVERGENCE_CANDIDATES,
@@ -49,12 +54,16 @@ from sanuvia.domain import (
     DependencyRelation,
     EvidenceClass,
     EvidenceRecord,
+    EvidenceRecordId,
     EvidenceRole,
     EvidenceSourceKind,
     EvidenceStanding,
     EvidenceSubjectKind,
+    DEFAULT_SPACE_ID,
+    FutureTrajectory,
     GovernedOutcome,
     GovernedRejection,
+    HypothesisId,
     IdentityOutcome,
     Provenance,
     RevisionEvent,
@@ -62,6 +71,8 @@ from sanuvia.domain import (
     SpaceKind,
     Stance,
     StatementVersion,
+    SubjectId,
+    TrajectoryKind,
     canonical_divergence_pair,
 )
 from sanuvia.domain.revision import RevisionOutcome, RevisionStatus
@@ -328,12 +339,70 @@ def test_open_stance_never_inverts():
 
 
 def test_candidate_proposal_carries_no_durable_identity():
-    """Locked §3.3/§3.1: the model proposes language, never identity or support."""
+    """Locked §3.3/§3.1: the model proposes language, never identity or support.
+
+    The set equality is deliberate and stays exact: it is the mutation guard.
+    Any field added to ``CandidateProposal`` must be added here too, which
+    forces the question "does this let the model propose identity or support?"
+    to be answered in review rather than by omission.
+
+    ``predicted_trajectory`` (errata E-1) is admitted as **content only**. The
+    assertions below are what make that claim testable rather than asserted:
+    it is optional, it defaults to absent, and it is a description -- it names
+    no hypothesis and carries no support value.
+    """
     fields = set(CandidateProposal.__dataclass_fields__)
-    assert fields == {"local_ref", "statement", "signature"}
+    assert fields == {"local_ref", "statement", "signature", "predicted_trajectory"}
     assert "hypothesis_id" not in fields
     assert "initial_support" not in fields
     assert "supporting_evidence_ids" not in fields
+
+    # Content only: optional, absent by default, and identity/support free.
+    bare = CandidateProposal("c1", "a new reading", _view())
+    assert bare.predicted_trajectory is None
+
+    carried = CandidateProposal(
+        "c1", "a new reading", _view(),
+        predicted_trajectory=FutureTrajectory(
+            TrajectoryKind.RECURRING_CYCLE, "distance then repair"
+        ),
+    )
+    traj_fields = set(type(carried.predicted_trajectory).__dataclass_fields__)
+    assert "hypothesis_id" not in traj_fields
+    assert "support" not in traj_fields and "initial_support" not in traj_fields
+
+
+def test_trajectory_on_a_proposal_cannot_create_a_prediction():
+    """Errata E-1: the carrier is content, so it must not reach the gate.
+
+    A trajectory hint is recorded against a lineage but read only by
+    ``_regenerate_predictions`` *after* ``prediction_support_threshold`` has
+    already admitted the hypothesis. A sub-threshold lineage carrying a hint
+    therefore yields no prediction -- if this ever passes, the hint has become
+    a support-bearing input and R6 is no longer the sole source of support.
+    """
+    evidence = _record(1, space=DEFAULT_SPACE_ID)  # reliability 0.8
+    script = {
+        EvidenceRecordId(evidence.id): Appraisal(
+            proposals=(
+                ProposedHypothesis(
+                    HypothesisId("H_t"), "a recurring cycle", 0.95, (),
+                    predicted_trajectory=FutureTrajectory(
+                        TrajectoryKind.RECURRING_CYCLE, "distance then repair"
+                    ),
+                ),
+            )
+        )
+    }
+    deps = build_in_memory_dependencies(
+        appraiser=ScriptedAppraiser(script), ids=SequentialIdGenerator()
+    )
+    subject = SubjectId(evidence.subject_id)
+    result = CoreLoop(deps).ingest(subject, [evidence])
+
+    # R6 derives 0.4 from reliability alone; the authored 0.95 is not consulted.
+    assert [h.support.value for h in deps.hypotheses.list_for_subject(subject)] == [0.4]
+    assert result.predictions == (), "a trajectory hint must not cross the gate"
 
 
 def test_no_durable_id_is_issued_by_adjudication_itself():

@@ -243,11 +243,22 @@ class CandidateProposal:
     ``initial_support`` (R6 fixes the derivation) and no
     ``supporting_evidence_ids`` (support attaches to the single observation
     deterministically).
+
+    ``predicted_trajectory`` is **content only** (v1.5.4 errata E-1). It carries
+    an authored trajectory *description* forward; it confers no support, crosses
+    no threshold and creates no prediction by itself. Prediction formation stays
+    governed solely by ``prediction_support_threshold`` against R6-derived
+    support, and that gate is unchanged. The field exists because §8 defers the
+    full prediction lifecycle -- deferred means **preserved unchanged**, not
+    dropped -- and the v1.5.4 port migration lost the carrier, leaving the
+    engine's ``traj_hints`` declared and read but never written.
     """
 
     local_ref: str
     statement: str
     signature: CommitmentSignatureView
+    #: Optional authored trajectory. Never affects whether a prediction forms.
+    predicted_trajectory: FutureTrajectory | None = None
 
 
 @dataclass(frozen=True, slots=True)

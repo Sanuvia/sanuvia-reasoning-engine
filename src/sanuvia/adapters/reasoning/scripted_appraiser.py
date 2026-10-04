@@ -147,6 +147,9 @@ class ScriptedAppraiser:
                 local_ref=str(p.hypothesis_id),
                 statement=p.statement,
                 signature=self._signature_for(p, request),
+                # Content only (errata E-1): carried so an authored trajectory
+                # survives the port, never so it can force a prediction.
+                predicted_trajectory=p.predicted_trajectory,
             )
             for p in authored.proposals
         )

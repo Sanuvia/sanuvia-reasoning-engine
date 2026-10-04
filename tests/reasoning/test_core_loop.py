@@ -224,6 +224,65 @@ def test_proposal_trajectory_hint_flows_into_prediction() -> None:
     assert result.predictions[0].trajectory.kind is TrajectoryKind.RECURRING_CYCLE
 
 
+def test_trajectory_hint_survives_the_port_once_r6_support_crosses_the_gate() -> None:
+    """The errata E-1 carrier: an authored trajectory reaches the prediction.
+
+    Companion to ``test_proposal_trajectory_hint_flows_into_prediction``, which
+    is held as a Case B record: under R6 a single 0.8-reliability observation
+    yields support 0.4, below ``prediction_support_threshold`` 0.6, so no
+    prediction forms and trajectory propagation is never exercised there. The
+    threshold and that fixture are both left alone.
+
+    This test reaches the gate the governed way -- a second supporting
+    observation, 0.4 -> 0.64 -- and then asserts what Case B masked: that the
+    authored trajectory actually crosses the port. Before the E-1 repair
+    ``CandidateProposal`` carried no ``predicted_trajectory``, so ``traj_hints``
+    was written nowhere and the prediction fell back to its generic
+    "trajectory consistent with:" description.
+    """
+    clock = ManualClock(datetime(2026, 2, 1, tzinfo=timezone.utc))
+
+    def _cycle() -> ProposedHypothesis:
+        return ProposedHypothesis(
+            HypothesisId("H_cycle"),
+            "a recurring distance/repair cycle",
+            0.7,
+            (),
+            predicted_trajectory=FutureTrajectory(
+                TrajectoryKind.RECURRING_CYCLE, "distance then repair"
+            ),
+        )
+
+    script = {
+        EvidenceRecordId("evX"): Appraisal(proposals=(_cycle(),)),
+        EvidenceRecordId("evY"): Appraisal(proposals=(_cycle(),)),
+    }
+    deps = build_in_memory_dependencies(
+        appraiser=ScriptedAppraiser(script), clock=clock, ids=SequentialIdGenerator()
+    )
+    loop = CoreLoop(deps)
+
+    # I1: R6 gives a new lineage 0.4. The gate holds -- this is the Case B shape.
+    first = loop.ingest(SUBJECT, [_ev(clock, "evX", reliability=0.8)])
+    assert [h.support.value for h in deps.hypotheses.list_for_subject(SUBJECT)] == [0.4]
+    assert first.predictions == ()
+
+    # I2: the same commitment re-proposed matches its own lineage rather than
+    # founding a second one, and support accumulates past the unchanged gate.
+    clock.tick()
+    second = loop.ingest(SUBJECT, [_ev(clock, "evY", reliability=0.8)])
+    hypotheses = deps.hypotheses.list_for_subject(SUBJECT)
+    assert len(hypotheses) == 1, "one commitment, one lineage"
+    assert hypotheses[0].support.value == 0.64
+
+    assert len(second.predictions) == 1
+    trajectory = second.predictions[0].trajectory
+    assert trajectory.kind is TrajectoryKind.RECURRING_CYCLE
+    # The authored description, not the generated fallback: this is the
+    # assertion the dropped carrier would fail.
+    assert trajectory.description == "distance then repair"
+
+
 def test_revision_events_reported_per_interaction() -> None:
     loop, clock, _ = _build()
     clock.tick()

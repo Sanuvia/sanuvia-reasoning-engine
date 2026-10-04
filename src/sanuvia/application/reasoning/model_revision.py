@@ -391,11 +391,13 @@ class _RevisionRun:
             hid = decision.matched_hypothesis_id
             if hid is None:
                 return  # matched an in-flight lineage; evidence attaches below
+            self._note_trajectory(hid, proposal)
             self._strengthen(evidence, hid)
             return
 
         # DISTINCT_NEW -- the durable id is issued HERE, after adjudication.
         hid = HypothesisId(d.ids.new_id("hyp"))
+        self._note_trajectory(hid, proposal)
         self.lineages.append(
             HypothesisLineage(
                 hypothesis_id=hid, subject_id=self.subject_id,
@@ -436,6 +438,23 @@ class _RevisionRun:
         self.edges.append(
             self._edge(evidence.id, hid, DependencyRelation.SUPPORTS)
         )
+
+    def _note_trajectory(self, hid: HypothesisId, proposal) -> None:
+        """Record an authored trajectory hint against a lineage (errata E-1).
+
+        Plan-local and **content only**. It records a description for a
+        prediction that may or may not form; it never confers support, never
+        crosses ``prediction_support_threshold`` and never causes a prediction.
+        ``_regenerate_predictions`` applies the gate first and consults these
+        hints only for hypotheses that already passed it, so a hint attached to
+        a sub-threshold lineage is simply never read.
+
+        A parked (``AMBIGUOUS_REVIEW_REQUIRED``) candidate reaches neither call
+        site: it creates no hypothesis, so it records no hint.
+        """
+        trajectory = getattr(proposal, "predicted_trajectory", None)
+        if trajectory is not None:
+            self.traj_hints.setdefault(hid, trajectory)
 
     def _strengthen(self, evidence: EvidenceRecord, hid: HypothesisId) -> None:
         """Attach supporting evidence to an existing lineage.
