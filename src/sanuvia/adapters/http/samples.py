@@ -12,7 +12,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from . import review_dataset
+from . import review_dataset_revised as review_dataset
 
 
 def _ev(
@@ -194,7 +194,9 @@ def list_samples() -> list[dict[str, Any]]:
     """Browsable catalogue: id, name, description, tags, number of steps.
 
     Includes the quick sample scenarios plus the official engineering review
-    dataset (see ``review_dataset``)."""
+    dataset. The harness serves the **revised** dataset
+    (``review_dataset_revised``); ``review_dataset`` itself is preserved
+    unmodified as the Phase 0 review evidence it is."""
     quick = [
         {
             "id": s["id"],

@@ -1,5 +1,11 @@
 """Machine-verification of the engineering review dataset.
 
+Runs against ``review_dataset_revised``. The original ``review_dataset`` is
+preserved byte-identical as Phase 0 review evidence; the revised module is an
+override layer over it whose every difference is declared, classified and
+derived. ``test_revised_dataset_changes_only_what_is_declared`` below is what
+makes that claim enforceable rather than asserted.
+
 Runs every dataset Test Case step-by-step through the real engine and asserts the
 documented per-step expected reasoning evolution actually holds. This both
 validates the dataset annotations and regression-tests the engine's behaviour
@@ -15,7 +21,10 @@ import pytest
 
 from sanuvia.adapters.http import controllers
 from sanuvia.adapters.http.manager import TestCaseManager
-from sanuvia.adapters.http.review_dataset import DATASET
+from sanuvia.adapters.http.review_dataset_revised import (
+    DATASET,
+    assert_only_declared_changes,
+)
 
 
 def _predictions(state: dict[str, Any]) -> set[str]:
@@ -135,9 +144,38 @@ def test_failed_acquisition_yields_multiple_candidates() -> None:
     controllers.run_next(mgr)                       # opens H_topic
     state = controllers.run_next(mgr)               # the failed acquisition
     hyp_ids = {h["hypothesis_id"] for h in state["hypotheses"]}
-    assert {"H_avoidance", "H_external"} <= hyp_ids  # competing candidates, not a default
+    # Durable identity is engine-owned, so the authored ids are resolved through
+    # the lineage attribution rather than compared literally. This stays an
+    # exact identity assertion: both authored candidates must be present, and
+    # the point of the case is that there are TWO of them, not one default.
+    assert _expected_ids(mgr, ["H_avoidance", "H_external"]) <= hyp_ids
+    assert len(_durable(mgr)) == 3, "H_topic plus the two competing candidates"
 
 
 def test_longitudinal_case_has_eight_steps() -> None:
     case = next(c for c in DATASET if c["id"] == "dataset-longitudinal-eight")
     assert len(case["evidence_specs"]) == 8
+
+
+def test_revised_dataset_changes_only_what_is_declared() -> None:
+    """No expectation may be revised without a declared, classified derivation.
+
+    The revised dataset is an override layer, so a silent rebaseline is
+    structurally impossible: this fails if any expectation differs from the
+    original without a matching row in ``REVISIONS``, if a declared row
+    changes nothing, or if any case's evidence specs were touched at all.
+    """
+    assert_only_declared_changes()
+
+
+def test_original_review_dataset_is_untouched_evidence() -> None:
+    """The original dataset is evidence and must not be edited in place."""
+    from sanuvia.adapters.http import review_dataset as original
+
+    # The authored expectations the revision layer moves are still the
+    # ORIGINAL values in the original module.
+    case = next(c for c in original.DATASET if c["id"] == "dataset-competing-resolve")
+    assert case["step_expectations"][1]["predictions"] == ["H_reassurance"]
+
+    case = next(c for c in original.DATASET if c["id"] == "dataset-oscillating-evidence")
+    assert case["step_expectations"][3]["predictions"] == ["H_pursue", "H_withdraw"]
