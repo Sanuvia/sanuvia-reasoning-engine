@@ -73,11 +73,13 @@ SYSTEM = (
     "predictions — you only (a) PROPOSE candidate hypotheses and (b) say which "
     "EXISTING hypotheses the observation supports or contradicts. Respond with ONLY "
     "a JSON object of the form:\n"
-    '{"supports": [hypothesis_id], "contradicts": [hypothesis_id], '
-    '"proposals": [{"hypothesis_id": string, "statement": string, '
-    '"initial_support": number, "supporting_evidence_ids": [evidence_id]}]}\n'
-    "Reference existing hypothesis ids exactly as given; you assign ids for new "
-    "proposals. Do not output any prose outside the JSON object."
+    '{"supports": [handle], "contradicts": [handle], '
+    '"proposals": [{"local_ref": string, "statement": string}]}\n'
+    "Reference existing hypotheses by the handle given for this request, exactly "
+    "as given. For a new proposal supply a local_ref that is unique within this "
+    "response; it labels the proposal in this reply only and is not an identifier. "
+    "Do not assign hypothesis ids, support values, or evidence references — those "
+    "are not yours to decide. Do not output any prose outside the JSON object."
 )
 
 INSTRUCTION = "Return the appraisal JSON now."
@@ -101,10 +103,13 @@ class ExternalEvidenceAppraiser:
         malformed reply raises ``MalformedOutputError`` and is never silently
         skipped or defaulted.
 
-        The prompt is unchanged: one observation against the current hypotheses,
-        exactly the shape Run 002 executed. Locked §8 authorises no prompt
-        change, so the handle table is rendered into the existing hypothesis
-        list rather than restructuring the prompt.
+        The prompt shape is unchanged -- one observation against the current
+        hypotheses, as Run 002 executed. The response **schema** is migrated to
+        v1.5.4 §2 C under the authorized schema migration: references are
+        handles, a proposal is ``local_ref`` plus ``statement``, and the three
+        retired model-facing fields are gone. This is a schema migration, not a
+        prompt redesign; the prompt id is bumped to v2 rather than edited in
+        place, so Run 002's ``...v1`` reference keeps meaning what it meant.
         """
         prompt = AppraisalPrompt(
             system=SYSTEM,
@@ -129,11 +134,22 @@ class ExternalEvidenceAppraiser:
         label = request.participants[0] if request.participants else None
         proposals = tuple(
             CandidateProposal(
-                local_ref=p.hypothesis_id,
+                local_ref=p.local_ref,
                 statement=p.statement,
                 signature=CommitmentSignatureView(
                     subject=label if label is not None else str(request.subject_id),
-                    attribution=f"external-appraisal:{p.hypothesis_id}",
+                    # B-1 OPEN: this still derives the immutable attribution from
+                    # a response-local reference, which lets a model-authored
+                    # label decide durable lineage identity. §2 H defines
+                    # attribution as a voice label ("participant account |
+                    # Sanuvia working reading"), not a per-proposal id.
+                    # Correcting it is blocked pending a governance decision --
+                    # see the repair report -- because a shared bound routes
+                    # every non-exact candidate to resolution-order case 4,
+                    # which has no resolver on the deterministic arm. Left as
+                    # the known-defective derivation rather than silently given
+                    # new semantics.
+                    attribution=f"external-appraisal:{p.local_ref}",
                     claim_class=ClaimClass.INTERPRETATION,
                     stance=Stance.OPEN,
                 ),

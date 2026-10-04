@@ -41,10 +41,22 @@ class ValidatedObservation:
 
 @dataclass(frozen=True, slots=True)
 class ValidatedProposal:
-    hypothesis_id: str
+    """A candidate reading as the model may state it (v1.5.4 §2 C).
+
+    ``local_ref`` is response-local and never becomes durable. Three fields the
+    v1 schema asked the model for are retired, because none of them is the
+    model's to decide:
+
+    * ``hypothesis_id`` -- the engine issues durable identity after
+      adjudication (locked §3.3);
+    * ``initial_support`` -- R6 derives support from the observation's
+      reliability;
+    * ``supporting_evidence_ids`` -- support attaches to the single observation
+      under appraisal, deterministically.
+    """
+
+    local_ref: str
     statement: str
-    initial_support: float
-    supporting_evidence_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,9 +217,12 @@ def validate_extraction(raw_text: str) -> tuple[ValidatedObservation, ...]:
 def validate_appraisal(raw_text: str) -> ValidatedAppraisal:
     """Validate an evidence-appraisal reply.
 
-    A proposal must carry a non-empty id AND statement AND an ``initial_support``
-    within ``[0,1]``; a malformed proposal is rejected (not silently skipped, not
-    defaulted to ``0.4``)."""
+    A proposal must carry a non-empty ``local_ref`` AND ``statement``; a
+    malformed proposal is rejected (not silently skipped, not defaulted).
+
+    Hypothesis references are **handles**, which the adapter issued for this
+    request. The validator checks shape only: whether a handle resolves is a
+    governed control that runs after this returns, in ``src/sanuvia``."""
     boundary = BoundaryKind.EVIDENCE_APPRAISAL
     data = parse_json_object(raw_text, boundary)
 
@@ -222,28 +237,25 @@ def validate_appraisal(raw_text: str) -> ValidatedAppraisal:
             raise MalformedOutputError(
                 boundary, f"proposals[{k}] must be an object", raw_text
             )
+        for retired in ("hypothesis_id", "initial_support", "supporting_evidence_ids"):
+            if retired in item:
+                raise MalformedOutputError(
+                    boundary,
+                    f"proposals[{k}].{retired} is retired in schema.appraisal.v2: "
+                    f"the engine issues durable identity, R6 derives support, and "
+                    f"support attaches to the observation under appraisal",
+                    raw_text,
+                )
         proposals.append(
             ValidatedProposal(
-                hypothesis_id=_require_nonempty_str(
-                    item.get("hypothesis_id"),
-                    f"proposals[{k}].hypothesis_id",
+                local_ref=_require_nonempty_str(
+                    item.get("local_ref"),
+                    f"proposals[{k}].local_ref",
                     boundary,
                     raw_text,
                 ),
                 statement=_require_nonempty_str(
                     item.get("statement"), f"proposals[{k}].statement", boundary, raw_text
-                ),
-                initial_support=_unit_interval(
-                    item.get("initial_support"),
-                    f"proposals[{k}].initial_support",
-                    boundary,
-                    raw_text,
-                ),
-                supporting_evidence_ids=_str_tuple(
-                    item.get("supporting_evidence_ids"),
-                    f"proposals[{k}].supporting_evidence_ids",
-                    boundary,
-                    raw_text,
                 ),
             )
         )

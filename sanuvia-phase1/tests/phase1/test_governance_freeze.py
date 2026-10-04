@@ -17,7 +17,7 @@ from sanuvia_phase1.transcript import Transcript, TranscriptInteraction
 
 # Immutability anchor — changing the version or any FROZEN key/value/blocking flag
 # changes this. Updated for freeze record v3.0-run001-verified (artifact verified).
-_EXPECTED_FREEZE_HASH = "3f46ef56e12c776251a223180cfbf842f228fbbcb743ff5c466f7acf45c0a2dd"
+_EXPECTED_FREEZE_HASH = "8cf8dd7d25588dc892211b6fdf7f8e8f74e83a718c3308e372b4af6c06dc925a"
 
 # The verified artifact/digest are now frozen; no blocking items remain.
 _BLOCKING_KEYS: set[str] = set()

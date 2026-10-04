@@ -4,8 +4,8 @@
 **Companion:** [Experiment Manifest](phase1-experiment-manifest.md) ·
 [Semantic Evaluation Protocol](phase1-semantic-evaluation-protocol.md)
 **Machine-readable source of truth:** `sanuvia_phase1.governance` (`FREEZE_RECORD`)
-**Freeze record version:** `3.0-run001-verified`
-**Freeze record hash:** `sha256:3f46ef56e12c776251a223180cfbf842f228fbbcb743ff5c466f7acf45c0a2dd`
+**Freeze record version:** `4.0-appraisal-schema-v2`
+**Freeze record hash:** `sha256:8cf8dd7d25588dc892211b6fdf7f8e8f74e83a718c3308e372b4af6c06dc925a`
 
 **Version history (audit trail — never overwritten):**
 | Version | freeze_record_sha256 |
@@ -13,6 +13,7 @@
 | `1.0-structure` | `8a8841ba3003bbab0aadff8fa0f3ccceab6ec965cf209d5cc2f77ae30a91a44f` |
 | `2.0-run001` | `0291e6e4b0452c4a4ca32daa4424e32982919b8da0558dc5b41d39644d8fe4ad` |
 | `3.0-run001-verified` | `3f46ef56e12c776251a223180cfbf842f228fbbcb743ff5c466f7acf45c0a2dd` |
+| `4.0-appraisal-schema-v2` | `8cf8dd7d25588dc892211b6fdf7f8e8f74e83a718c3308e372b4af6c06dc925a` |
 
 This record pins the frozen Phase 1 protocol for the first real run. As of
 `3.0-run001-verified`, the exact model artifact identity, its locally-computed
@@ -69,8 +70,8 @@ identity hash): `/Users/elite/models/qwen3-4b-q4_k_m/Qwen3-4B-Q4_K_M.gguf`.
 |---|---|
 | `extractor_prompt_version` | `extraction.observations.v1@sha256:a45066…97d1` |
 | `extractor_schema_version` | `schema.extraction.v1@sha256:a9cabe…c094` |
-| `appraiser_prompt_version` | `appraisal.support-contradict-propose.v1@sha256:790e63…8398` |
-| `appraiser_schema_version` | `schema.appraisal.v1@sha256:f36e78…1004` |
+| `appraiser_prompt_version` | `appraisal.support-contradict-propose.v2@sha256:c80603…fac4` |
+| `appraiser_schema_version` | `schema.appraisal.v2@sha256:71e5cf…499e` |
 | `stateless_prompt_version` | `baseline.reasoning.v1@sha256:355797…43bc` |
 | `stateless_schema_version` | `schema.baseline.v1@sha256:efa45b…c11e` |
 | `transcript_prompt_version` | `baseline.reasoning.v1` (shared with stateless) |

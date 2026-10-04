@@ -82,7 +82,10 @@ The appraiser boundary belongs to condition A only; it is never given to B or C.
 Model **Qwen3-4B**, local only, served via **llama.cpp (GGUF)** at **Q4_K_M** —
 approved and verified for Run 001. The installed artifact identity and SHA-256,
 and the installed llama.cpp build/commit, were verified locally and frozen in
-governance record `3.0-run001-verified`. **No model inference has been run.**
+governance record `3.0-run001-verified`, carried forward unchanged into
+`4.0-appraisal-schema-v2`, which pins the v1.5.4 evidence-appraisal response
+schema. The model artifact, runtime build and generation parameters are
+unchanged by that revision. **No model inference has been run.**
 
 | Field | Value | Status |
 |---|---|---|
@@ -114,7 +117,7 @@ a fairness requirement), so they carry the same IDs.
 | Role | Prompt ID | Prompt SHA-256 | Schema ID | Schema SHA-256 |
 |---|---|---|---|---|
 | Evidence extraction | `extraction.observations.v1` | `a45066719aa656a3ef544d6184988fd7e42461609ef9ffbb870cf14d218697d1` | `schema.extraction.v1` | `a9cabea9ce522314e9157b39862eb8a9103b3243e507865be4716eedc161c094` |
-| Evidence appraisal | `appraisal.support-contradict-propose.v1` | `790e63375fbfb49575924514b3fc277793e23ff68a6e116ffde4a3aa864e8398` | `schema.appraisal.v1` | `f36e78e0be64836de9b2df7e6aaffe0ac7087760a07c1aca6f56f2e5a1b91004` |
+| Evidence appraisal | `appraisal.support-contradict-propose.v2` | `c80603cf77c8f58d98c51730f4011d1deaf270544871987cd819859c6a70fac4` | `schema.appraisal.v2` | `71e5cf7acb0a53d9fa86fb1c7cf666893546034fe9927e5aff9a780b900d499e` |
 | Baseline (stateless) | `baseline.reasoning.v1` | `3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc` | `schema.baseline.v1` | `efa45b71e5043f3921048215677c04f140db7f3597b903b9b27a046582fbc11e` |
 | Baseline (transcript) | `baseline.reasoning.v1` (shared) | (as above) | `schema.baseline.v1` (shared) | (as above) |
 
@@ -326,7 +329,7 @@ looking at any existing output.
   semantic 0–2 rubric, two evaluators, blinding (§10–§11); negative-result
   disposition (a null/adverse result is valid, retained unchanged, no
   result-motivated tuning). Pinned in the governance freeze record
-  (`freeze_record_version 3.0-run001-verified`).
+  (`freeze_record_version 4.0-appraisal-schema-v2`).
 
 **PENDING GOVERNANCE APPROVAL (non-blocking)**
 - Eval hardware — recorded at run time (non-blocking).

@@ -76,10 +76,8 @@ def _appraise_client(request: AppraisalPrompt) -> str:
             {
                 "proposals": [
                     {
-                        "hypothesis_id": "H_x",
+                        "local_ref": "p1",
                         "statement": "H_x: a candidate reading.",
-                        "initial_support": 0.4,
-                        "supporting_evidence_ids": [],
                     }
                 ]
             }
@@ -119,5 +117,5 @@ def test_real_mode_end_to_end_wiring_with_fake_client() -> None:
     # hypothesis AND issued its durable identity (locked §3.3): the appraiser's
     # proposed "H_x" must not survive into reasoning state.
     (hypothesis,) = sanuvia[0].hypotheses
-    assert hypothesis.hypothesis_id != "H_x"
+    assert hypothesis.hypothesis_id != "p1"
     assert hypothesis.statement.startswith("H_x:")

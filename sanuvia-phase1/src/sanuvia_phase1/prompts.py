@@ -58,10 +58,14 @@ _EXTRACTION_SCHEMA = (
     '"provenance_confidence": number[0..1], "text_span": string|null}]}'
 )
 
+# v2 (Technical Design v1.5.4 §2 C). References are request-scoped handles; a
+# proposal is a response-local label plus a statement. Three v1 fields are
+# retired because none is the model's to decide: hypothesis_id (the engine
+# issues durable identity), initial_support (R6 derives it) and
+# supporting_evidence_ids (support attaches to the observation under appraisal).
 _APPRAISAL_SCHEMA = (
-    '{"supports": [hypothesis_id], "contradicts": [hypothesis_id], '
-    '"proposals": [{"hypothesis_id": string, "statement": string, '
-    '"initial_support": number[0..1], "supporting_evidence_ids": [evidence_id]}]}'
+    '{"supports": [handle], "contradicts": [handle], '
+    '"proposals": [{"local_ref": string, "statement": string}]}'
 )
 
 _BASELINE_SCHEMA = (
@@ -75,11 +79,11 @@ _BASELINE_SCHEMA = (
 # --- stable ids ---------------------------------------------------------------
 
 EXTRACTION_PROMPT_ID = "extraction.observations.v1"
-APPRAISAL_PROMPT_ID = "appraisal.support-contradict-propose.v1"
+APPRAISAL_PROMPT_ID = "appraisal.support-contradict-propose.v2"
 BASELINE_PROMPT_ID = "baseline.reasoning.v1"  # shared by both baselines
 
 EXTRACTION_SCHEMA_ID = "schema.extraction.v1"
-APPRAISAL_SCHEMA_ID = "schema.appraisal.v1"
+APPRAISAL_SCHEMA_ID = "schema.appraisal.v2"
 BASELINE_SCHEMA_ID = "schema.baseline.v1"  # shared by both baselines
 
 
@@ -105,7 +109,7 @@ SCHEMAS: dict[str, SchemaSpec] = {
 # longer matches, and both `verify_prompt_integrity()` and the preflight fail.
 EXPECTED_PROMPT_SHA256: dict[str, str] = {
     EXTRACTION_PROMPT_ID: "a45066719aa656a3ef544d6184988fd7e42461609ef9ffbb870cf14d218697d1",
-    APPRAISAL_PROMPT_ID: "790e63375fbfb49575924514b3fc277793e23ff68a6e116ffde4a3aa864e8398",
+    APPRAISAL_PROMPT_ID: "c80603cf77c8f58d98c51730f4011d1deaf270544871987cd819859c6a70fac4",
     BASELINE_PROMPT_ID: "3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc",
 }
 

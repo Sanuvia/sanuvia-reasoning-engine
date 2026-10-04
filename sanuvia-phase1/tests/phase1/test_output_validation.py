@@ -122,37 +122,50 @@ def test_extraction_valid_output_passes() -> None:
 
 def test_appraisal_missing_statement_is_rejected() -> None:
     with pytest.raises(MalformedOutputError):
-        validation.validate_appraisal(json.dumps({"proposals": [{"hypothesis_id": "H"}]}))
+        validation.validate_appraisal(json.dumps({"proposals": [{"local_ref": "p1"}]}))
 
 
-def test_appraisal_missing_or_out_of_range_support_is_rejected() -> None:
+def test_appraisal_missing_local_ref_is_rejected() -> None:
     with pytest.raises(MalformedOutputError):
+        validation.validate_appraisal(json.dumps({"proposals": [{"statement": "s"}]}))
+
+
+@pytest.mark.parametrize("retired,value", [
+    ("hypothesis_id", "H2"),
+    ("initial_support", 0.4),
+    ("supporting_evidence_ids", ["evidence-1"]),
+])
+def test_appraisal_retired_v1_fields_are_rejected(retired, value) -> None:
+    """v1.5.4 §2 C: none of the three is the model's to decide.
+
+    Rejected rather than ignored. Silently dropping them would let a model
+    keep asserting identity and support while the engine quietly disregarded
+    it, which hides a schema mismatch instead of surfacing it.
+    """
+    with pytest.raises(MalformedOutputError) as exc:
         validation.validate_appraisal(
-            json.dumps({"proposals": [{"hypothesis_id": "H", "statement": "s"}]})
+            json.dumps({
+                "supports": [], "contradicts": [],
+                "proposals": [{"local_ref": "p1", "statement": "s", retired: value}],
+            })
         )
-    with pytest.raises(MalformedOutputError):
-        validation.validate_appraisal(
-            json.dumps(
-                {"proposals": [{"hypothesis_id": "H", "statement": "s", "initial_support": 9}]}
-            )
-        )
+    assert retired in str(exc.value)
 
 
 def test_appraisal_valid_output_passes() -> None:
+    """v2 schema: handles for references, local_ref + statement for proposals."""
     result = validation.validate_appraisal(
         json.dumps(
             {
-                "supports": ["H1"],
+                "supports": ["req-1::H1"],
                 "contradicts": [],
-                "proposals": [
-                    {"hypothesis_id": "H2", "statement": "s", "initial_support": 0.4,
-                     "supporting_evidence_ids": ["evidence-1"]}
-                ],
+                "proposals": [{"local_ref": "p1", "statement": "s"}],
             }
         )
     )
-    assert result.supports == ("H1",)
-    assert result.proposals[0].hypothesis_id == "H2"
+    assert result.supports == ("req-1::H1",)
+    assert result.proposals[0].local_ref == "p1"
+    assert result.proposals[0].statement == "s"
 
 
 # --- C/D. baseline conditions -------------------------------------------------

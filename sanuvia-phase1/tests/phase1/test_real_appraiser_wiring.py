@@ -54,10 +54,8 @@ def _appraise_client(request: AppraisalPrompt) -> str:
             {
                 "proposals": [
                     {
-                        "hypothesis_id": "H_real",
+                        "local_ref": "p1",
                         "statement": "H_real: a candidate reading proposed by the appraiser.",
-                        "initial_support": 0.4,
-                        "supporting_evidence_ids": [],
                     }
                 ]
             }
@@ -113,7 +111,7 @@ def test_real_appraiser_end_to_end_forms_hypothesis_via_frozen_engine() -> None:
     # engine every durable hypothesis id, so the appraiser's "H_real" must NOT
     # survive into reasoning state.
     (hypothesis,) = sanuvia[0].hypotheses
-    assert hypothesis.hypothesis_id != "H_real", (
+    assert hypothesis.hypothesis_id != "p1", (
         "a model-authored id must never become durable identity"
     )
     assert hypothesis.statement == (
@@ -128,7 +126,7 @@ def test_malformed_proposal_is_rejected_not_silently_skipped() -> None:
     # HARDENED: a proposal missing 'statement' is malformed output. It must be
     # rejected (MalformedOutputError), never silently skipped or defaulted.
     def bad_appraise(_request: AppraisalPrompt) -> str:
-        return json.dumps({"proposals": [{"hypothesis_id": "H_bad"}]})
+        return json.dumps({"proposals": [{"local_ref": "p_bad"}]})
 
     stateless, transcript_model = _baselines()
     with pytest.raises(MalformedOutputError):

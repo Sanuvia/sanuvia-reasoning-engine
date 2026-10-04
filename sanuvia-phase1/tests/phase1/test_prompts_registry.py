@@ -7,12 +7,12 @@ from sanuvia_phase1 import prompts
 # Recorded artifact hashes — a change here means a prompt/schema was rewritten.
 _EXPECTED_PROMPT = {
     "extraction.observations.v1": "a45066719aa656a3ef544d6184988fd7e42461609ef9ffbb870cf14d218697d1",
-    "appraisal.support-contradict-propose.v1": "790e63375fbfb49575924514b3fc277793e23ff68a6e116ffde4a3aa864e8398",
+    "appraisal.support-contradict-propose.v2": "c80603cf77c8f58d98c51730f4011d1deaf270544871987cd819859c6a70fac4",
     "baseline.reasoning.v1": "3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc",
 }
 _EXPECTED_SCHEMA = {
     "schema.extraction.v1": "a9cabea9ce522314e9157b39862eb8a9103b3243e507865be4716eedc161c094",
-    "schema.appraisal.v1": "f36e78e0be64836de9b2df7e6aaffe0ac7087760a07c1aca6f56f2e5a1b91004",
+    "schema.appraisal.v2": "71e5cf7acb0a53d9fa86fb1c7cf666893546034fe9927e5aff9a780b900d499e",
     "schema.baseline.v1": "efa45b71e5043f3921048215677c04f140db7f3597b903b9b27a046582fbc11e",
 }
 
