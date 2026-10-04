@@ -138,6 +138,37 @@ REVISIONS: tuple[dict[str, Any], ...] = (
             "Convergence still occurs, one step later."
         ),
     },
+    {
+        "case": "dataset-failed-acquisition",
+        "step": 3,
+        "field": "uncertainty",
+        "before": "down",
+        "after": "up",
+        "classification": "A2",
+        "authority": "approved R6 support derivation; uncertainty trend decided",
+        "derivation": (
+            "A leader change, not a drift. UNCHANGED INPUTS: the evidence specs, "
+            "their reliabilities (0.7, 0.3, 0.6, 0.8), the support learning rate "
+            "(0.5) and aggregate_model_uncertainty ((1-top)+rival)/2 are all "
+            "exactly as authored; only R6's support derivation differs.\n"
+            "Step 2 under R6: H_topic = 0.5*0.7 = 0.35; H_avoidance and "
+            "H_external open from the reliability-0.3 failed acquisition at "
+            "0.5*0.3 = 0.15 each. Ordered 0.35/0.15/0.15, so "
+            "u2 = ((1-0.35)+0.15)/2 = 0.400.\n"
+            "Step 3 supports H_avoidance at reliability 0.6: "
+            "0.15 + 0.5*0.6*(1-0.15) = 0.405, which OVERTAKES H_topic at 0.35. "
+            "Ordered 0.405/0.35/0.15, so u3 = ((1-0.405)+0.35)/2 = 0.4725.\n"
+            "0.400 -> 0.4725 is a RISE. Pre-R6 the authored 0.4 starting points "
+            "let H_avoidance reach 0.4 + 0.5*0.6*0.6 = 0.58 and win outright, "
+            "giving ((1-0.58)+0.4)/2 = 0.41 and a fall.\n"
+            "The rise is what the unchanged scoring function is specified to "
+            "do: scoring.py states 'two strongly-supported rivals (genuine "
+            "competition) -> HIGHER uncertainty', and step 3 produces exactly "
+            "that near-tie, 0.405 against 0.35. The case's purpose -- a failed "
+            "acquisition yields competing candidates rather than a single "
+            "default -- is unaffected and still holds."
+        ),
+    },
 )
 
 #: Narrative prose corrected to match the applied changes. These are
@@ -146,6 +177,11 @@ REVISIONS: tuple[dict[str, Any], ...] = (
 #: dataset's own docstring warns about.
 NARRATIVE_REVISIONS: tuple[dict[str, str], ...] = (
     {
+        "case": "dataset-failed-acquisition",
+        "before": "A topic-avoidance reading opens. A failed acquisition (unanswered prompt) yields two competing candidates rather than a default; an inquiry appears. One candidate is then supported and leads with a prediction.",
+        "after": "A topic-avoidance reading opens. A failed acquisition (unanswered prompt) yields two competing candidates rather than a default; an inquiry appears. Support for one candidate then brings it to a near-tie with the original reading (0.405 against 0.35), which raises uncertainty before further evidence resolves it and the leader carries a prediction.",
+    },
+    {
         "case": "dataset-competing-resolve",
         "before": "Steps 2–3 strengthen reassurance past threshold (prediction; inquiry clears).",
         "after": "Steps 2–3 strengthen reassurance, crossing the prediction threshold at step 3 (inquiry clears).",
@@ -153,40 +189,10 @@ NARRATIVE_REVISIONS: tuple[dict[str, str], ...] = (
 )
 
 #: Recorded, NOT applied. Each needs a governance decision.
-REFERRED_TO_GOVERNANCE: tuple[dict[str, Any], ...] = (
-    {
-        "case": "dataset-failed-acquisition",
-        "step": 3,
-        "field": "uncertainty",
-        "current": "down",
-        "observed": "up",
-        "classification": "B",
-        "derivation": (
-            "Arithmetically determined, but the change is semantic. Under R6 the "
-            "step-2 supports are H_topic 0.35, H_avoidance 0.15, H_external 0.15, "
-            "giving uncertainty ((1-0.35)+0.15)/2 = 0.400. Step 3 lifts "
-            "H_avoidance to 0.15 + 0.5*0.6*(1-0.15) = 0.405, which OVERTAKES "
-            "H_topic at 0.35. The unchanged formula ((1-top)+rival)/2 then gives "
-            "((1-0.405)+0.35)/2 = 0.4725 -- uncertainty RISES. Pre-R6 the "
-            "authored 0.4 starting points let H_avoidance reach 0.58 and win "
-            "outright, giving 0.41 and a fall."
-        ),
-        "why_governance": (
-            "The derivation is determinate; the behavioural claim is not. "
-            "Changing 'down' to 'up' revises a documented statement about what "
-            "this case demonstrates and requires a corresponding narrative "
-            "revision. The observed behaviour is consistent with the stated "
-            "uncertainty intent in scoring.py ('two strongly-supported rivals "
-            "(genuine competition) -> HIGHER uncertainty'), which step 3 "
-            "satisfies with a near-tie of 0.405 against 0.35. Revising a "
-            "curated review case to demonstrate the opposite trend is a "
-            "governance decision, outside implementation scope. Left unchanged, "
-            "so the expectation remains failing and the item remains open. The "
-            "case's stated purpose -- a failed acquisition yields competing "
-            "candidates rather than a single default -- is unaffected."
-        ),
-    },
-)
+#:
+#: Empty: the one item previously held here -- dataset-failed-acquisition step 3
+#: -- was decided and is now applied as revision 6 below.
+REFERRED_TO_GOVERNANCE: tuple[dict[str, Any], ...] = ()
 
 
 def _revised() -> list[dict[str, Any]]:

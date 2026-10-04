@@ -198,8 +198,31 @@ def test_scenario_produces_persistent_reasoning() -> None:
 
 
 def test_proposal_trajectory_hint_flows_into_prediction() -> None:
-    # A proposal that is prediction-worthy on arrival (support >= threshold) and
-    # carries a trajectory hint yields a prediction with that trajectory kind.
+    """A trajectory hint on arrival forms NO prediction under R6.
+
+    SUPERSEDED PREMISE. This test was authored on the premise that a proposal
+    is "prediction-worthy on arrival" because it carries
+    ``initial_support=0.7``, which exceeded ``prediction_support_threshold``
+    0.600 directly. R6 retired that premise: support for a new lineage is
+    derived from the triggering observation's reliability, not from an
+    authored value, so arrival support is 0 + 0.5*0.8*(1-0) = 0.400.
+
+    0.400 < 0.600, so no prediction forms. The expectation is restated as
+    ``predictions == ()`` under the approved R6 derivation. Nothing else
+    moved: the threshold is unchanged at 0.600, the evidence reliability is
+    unchanged at 0.8, the learning rate is unchanged at 0.5, and the authored
+    fixture -- including ``initial_support=0.7`` -- is untouched, so the
+    now-ignored value stays visible rather than being quietly deleted.
+
+    The two facts must not be conflated. Trajectory CONTENT is carried
+    correctly across the port (errata E-1); it simply has nothing to attach
+    to here, because R6 support of 0.400 is below the existing prediction
+    threshold of 0.600. The kind and description assertions below are
+    retained against the carried proposal, and
+    ``test_trajectory_hint_survives_the_port_once_r6_support_crosses_the_gate``
+    asserts the same content reaching a real prediction once support crosses
+    the gate through R6 accumulation.
+    """
     clock = ManualClock(datetime(2026, 2, 1, tzinfo=timezone.utc))
     script = {
         EvidenceRecordId("evX"): Appraisal(
@@ -220,8 +243,23 @@ def test_proposal_trajectory_hint_flows_into_prediction() -> None:
         appraiser=ScriptedAppraiser(script), clock=clock, ids=SequentialIdGenerator()
     )
     result = CoreLoop(deps).ingest(SUBJECT, [_ev(clock, "evX", reliability=0.8)])
-    assert len(result.predictions) == 1
-    assert result.predictions[0].trajectory.kind is TrajectoryKind.RECURRING_CYCLE
+
+    # The hypothesis IS created -- this is not "nothing happened".
+    (hypothesis,) = deps.hypotheses.list_for_subject(SUBJECT)
+    assert hypothesis.support.value == 0.4, "R6 derives 0.5*0.8 from reliability"
+    assert deps.config.prediction_support_threshold == 0.6, "threshold unchanged"
+
+    # ... and 0.400 < 0.600, so no prediction forms.
+    assert result.predictions == ()
+
+    # The authored trajectory is still carried as content (errata E-1): the
+    # proposal reaching the engine holds both the kind and the description.
+    # Asserting them here keeps the distinction explicit -- the content is
+    # correct, there is simply no prediction for it to attach to.
+    authored = script[EvidenceRecordId("evX")].proposals[0].predicted_trajectory
+    assert authored is not None
+    assert authored.kind is TrajectoryKind.RECURRING_CYCLE
+    assert authored.description == "distance then repair"
 
 
 def test_trajectory_hint_survives_the_port_once_r6_support_crosses_the_gate() -> None:
