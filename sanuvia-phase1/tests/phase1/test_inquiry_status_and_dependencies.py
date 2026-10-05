@@ -5,6 +5,8 @@ Phase 0 engine and now surfaced by Phase 1 (no Phase 0 change)."""
 
 from __future__ import annotations
 
+from _identity_support import durable_ids
+
 from fixtures.longitudinal.case_001 import CASE_001, H1, H2, H3
 
 from sanuvia_phase1 import metrics
@@ -27,20 +29,8 @@ def _sanuvia() -> list[TrajectoryRecord]:
 
 
 def _durable_ids(condition) -> dict[str, str]:
-    """Authored fixture id -> engine-issued durable id.
-
-    Locked §3.3 / Technical Design v1.5.4: the engine issues every durable
-    hypothesis id after adjudication, so the fixture's authored ids are no
-    longer what the engine reports. The Scripted fixture migration carries the
-    authored id in the lineage attribution, so these tests keep asserting the
-    exact lineage rather than weakening to a count or a shape.
-    """
-    return {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in condition._store.lineages.list_for_subject(
-            CASE_001.subject_id, space_id=CASE_001.space_id
-        )
-    }
+    """Authored fixture id -> engine-issued durable id (see _identity_support)."""
+    return durable_ids(condition._store, CASE_001)
 
 
 def _stateless() -> list[TrajectoryRecord]:

@@ -48,6 +48,10 @@ from sanuvia.domain import (
     WorldModel,
 )
 
+from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    ScriptedIdentityResolver,
+)
+
 from .appraiser import HarnessAppraiser
 
 HARNESS_VERSION = "Persistent Reasoning Core (Phase 0) — review harness"
@@ -321,6 +325,14 @@ class TestCase:
         self._appraiser = HarnessAppraiser()
         self._clock = ManualClock()
         ids = SequentialIdGenerator()
+        # IDENTITY DECISIONS ARE AUTHORED BY THE TEST CASE. A review test case
+        # can hold several distinct commitments for one subject, stated by
+        # authoring a separate hypothesis id for each. Under a governed
+        # voice-label attribution those share one retrieval bound, so the
+        # fixture-authored resolver double supplies the authored decision at
+        # §2 G case 4. It performs no matching, and it is a harness component:
+        # it is never wired into a real-model path or a Run 003 configuration.
+        self._identity_resolver = ScriptedIdentityResolver()
         self._store: InMemoryReasoningStore | SqliteReasoningStore
         if self._backend == "sqlite":
             sqlite_store = SqliteReasoningStore(self._db_path)
@@ -329,6 +341,7 @@ class TestCase:
             deps = build_sqlite_dependencies(
                 store=sqlite_store, appraiser=self._appraiser,
                 clock=self._clock, ids=ids,
+                identity_resolver=self._identity_resolver,
             )
         else:
             memory_store = InMemoryReasoningStore()
@@ -336,6 +349,7 @@ class TestCase:
             deps = build_in_memory_dependencies(
                 store=memory_store, appraiser=self._appraiser,
                 clock=self._clock, ids=ids,
+                identity_resolver=self._identity_resolver,
             )
         self._service = ReasoningService(deps)
         self._history: list[InteractionResult] = []
@@ -372,6 +386,13 @@ class TestCase:
 
     def _run_spec(self, spec: EvidenceSpec) -> None:
         self._clock.tick()  # deterministic, advancing timestamp
+        # Record the identity decisions THIS step authors, before it runs. A
+        # test case states that two readings are distinct commitments by
+        # authoring a separate hypothesis id for each; that statement is what
+        # the resolver returns. Declared here rather than at reset() because
+        # the sequence is loaded and edited after the engine is built.
+        for proposal in spec.proposals:
+            self._identity_resolver.declare_distinct(proposal.hypothesis_id)
         self._appraiser.set_pending(
             Appraisal(
                 supports=tuple(HypothesisId(s) for s in spec.supports),

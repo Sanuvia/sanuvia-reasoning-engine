@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 
 from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
 from sanuvia.adapters.reasoning import ScriptedAppraiser
+from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    resolver_for_script,
+)
+
 from sanuvia.adapters.support import ManualClock, SequentialIdGenerator
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api import EvidenceInput, ReasoningService, WorldModelView
@@ -24,23 +28,37 @@ H1 = HypothesisId("H1")
 H2 = HypothesisId("H2")
 
 
-def _durable(store) -> dict[str, str]:
+def _durable_by_statement(store, script, subject) -> dict[str, str]:
     """Authored fixture id -> engine-issued durable id.
 
-    Locked §3.3: the engine owns durable hypothesis identity. The Scripted
-    fixture migration carries the authored id in the lineage attribution, so
-    these remain exact identity assertions.
+    Locked §3.3: the engine owns durable hypothesis identity.
+
+    **Derived independently of ``attribution`` (B-1).** Attribution is the
+    governed voice label and is identical across lineages, so it carries no
+    identity to recover. The mapping comes from the authored STATEMENT --
+    matched exactly, no heuristic -- which is what the fixture actually
+    authored alongside each id.
     """
-    return {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in store.lineages.list_for_subject(SUBJECT)
-    }
+    by_statement: dict[str, str] = {}
+    for hypothesis in store.hypotheses.list_for_subject(subject):
+        by_statement.setdefault(hypothesis.statement, hypothesis.hypothesis_id)
+    mapping: dict[str, str] = {}
+    for appraisal in script.values():
+        for proposal in appraisal.proposals:
+            durable = by_statement.get(proposal.statement)
+            if durable is not None:
+                mapping[str(proposal.hypothesis_id)] = durable
+    return mapping
 
 
-def _service() -> ReasoningService:
+def _durable(store) -> dict[str, str]:
+    return _durable_by_statement(store, _script(), SUBJECT)
+
+
+def _script() -> dict:
     # The service assigns evidence ids via the IdGenerator: "evidence-1", ...
     # so the scripted appraiser can be keyed by those deterministic ids.
-    script = {
+    return {
         EvidenceRecordId("evidence-1"): Appraisal(
             proposals=(
                 ProposedHypothesis(H1, "explanation one", 0.4, ()),
@@ -49,12 +67,22 @@ def _service() -> ReasoningService:
         ),
         EvidenceRecordId("evidence-2"): Appraisal(supports=(H1,)),
     }
+
+
+def _service() -> ReasoningService:
+    script = _script()
     store = InMemoryReasoningStore()
     deps = build_in_memory_dependencies(
         store=store,
         appraiser=ScriptedAppraiser(script),
         clock=ManualClock(datetime(2026, 3, 1, tzinfo=timezone.utc)),
         ids=SequentialIdGenerator(),
+        # Identity decisions are AUTHORED BY THE SCRIPT: this scenario holds
+        # several distinct commitments for one subject, stated by authoring a
+        # separate hypothesis id for each. Attribution is the governed voice
+        # label, so they share one retrieval bound and the fixture-authored
+        # resolver double supplies the authored decision (§2 G case 4).
+        identity_resolver=resolver_for_script(script),
     )
     return ReasoningService(deps), store
 

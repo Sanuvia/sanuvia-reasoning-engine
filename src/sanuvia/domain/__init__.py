@@ -34,6 +34,9 @@ from .evidence import (
     SourceObservationRef,
 )
 from .hypothesis import (
+    GOVERNED_VOICES,
+    VOICE_PARTICIPANT_ACCOUNT,
+    VOICE_SANUVIA_WORKING_READING,
     ClaimClass,
     CommitmentSignature,
     Hypothesis,
@@ -180,6 +183,9 @@ __all__ = [
     "AcquisitionStrategy",
     "APPRAISABLE_ROLES",
     "BreachKind",
+    "GOVERNED_VOICES",
+    "VOICE_PARTICIPANT_ACCOUNT",
+    "VOICE_SANUVIA_WORKING_READING",
     "ClaimClass",
     "CommitmentSignature",
     "EvidenceRole",

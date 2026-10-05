@@ -36,18 +36,16 @@ def _durable(mgr) -> dict[str, str]:
 
     Locked §3.3 / Technical Design v1.5.4: durable hypothesis identity is
     engine-owned, so the dataset's authored ids (H_distance, ...) are no longer
-    what the engine reports. The Scripted fixture migration carries the authored
-    id in the lineage attribution, so these stay exact identity assertions.
+    what the engine reports.
+
+    **Derived independently of ``attribution`` (B-1).** This previously split
+    the lineage attribution, which only worked while attribution wrongly
+    carried identity. Attribution is now the governed voice label and is
+    identical across lineages, so it carries nothing to split. The harness's
+    own ``authored_to_durable()`` resolves on the authored STATEMENT instead --
+    exact match, no heuristic -- and works on both backends.
     """
-    case = mgr.current()
-    store = getattr(case, "_store", None)
-    lineages = getattr(store, "lineages", None)
-    if lineages is None:
-        return {}   # SQLite backend has no semantic-state stores
-    return {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in lineages.list_for_subject(case.subject)
-    }
+    return mgr.current().authored_to_durable()
 
 
 def _expected_ids(mgr, authored: list[str]) -> set[str]:

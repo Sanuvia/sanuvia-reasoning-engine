@@ -69,6 +69,27 @@ def inverts(a: Stance, b: Stance) -> bool:
     return {a, b} == {Stance.AFFIRMS, Stance.NEGATES}
 
 
+#: The two governed voice labels (§2 H: "participant account | Sanuvia working
+#: reading"). ``attribution`` is immutable on the lineage and forms half the
+#: retrieval bound, so a participant's own account and Sanuvia's working
+#: reading can never merge into one lineage.
+#:
+#: These are constants, not free text, because the distinction is semantic: a
+#: commitment the participant made and an interpretation the system formed are
+#: different kinds of claim about the world, and conflating them would merge
+#: them into a single lineage.
+VOICE_PARTICIPANT_ACCOUNT = "participant account"
+VOICE_SANUVIA_WORKING_READING = "Sanuvia working reading"
+
+#: Every attribution an adapter may assign. An appraiser proposes
+#: interpretations, so a model-proposed reading is always the working reading;
+#: ``participant account`` is reserved for a commitment separately attributed
+#: to the participant and is never chosen by an appraiser.
+GOVERNED_VOICES: frozenset[str] = frozenset(
+    {VOICE_PARTICIPANT_ACCOUNT, VOICE_SANUVIA_WORKING_READING}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class CommitmentSignature:
     """What a candidate reading commits to (§2 H).

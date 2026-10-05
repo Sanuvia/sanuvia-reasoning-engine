@@ -563,7 +563,13 @@ class InMemoryHypothesisLineageStore:
 
     def __init__(self) -> None:
         self._by_id: dict[HypothesisId, HypothesisLineage] = {}
-        self._by_key: dict[tuple[SpaceId, SubjectId, str, str], HypothesisId] = {}
+        #: M-2: a retrieval bound admits MANY lineages, so the index holds a
+        #: list per key. ``attribution`` is a voice label (§2 H), so every
+        #: commitment one voice holds about one subject shares its bound; a
+        #: one-id-per-key index silently dropped all but the last.
+        self._by_key: dict[
+            tuple[SpaceId, SubjectId, str, str], list[HypothesisId]
+        ] = {}
 
     def add(self, lineage: HypothesisLineage) -> None:
         if lineage.hypothesis_id in self._by_id:
@@ -577,7 +583,9 @@ class InMemoryHypothesisLineageStore:
             str(lineage.signature_subject),
             lineage.attribution,
         )
-        self._by_key[key] = lineage.hypothesis_id
+        # Appended in insertion order, never assigned: an earlier lineage under
+        # the same bound must remain retrievable (M-2).
+        self._by_key.setdefault(key, []).append(lineage.hypothesis_id)
 
     def get(self, hypothesis_id: HypothesisId) -> HypothesisLineage | None:
         return self._by_id.get(hypothesis_id)
@@ -589,14 +597,21 @@ class InMemoryHypothesisLineageStore:
         attribution: str,
         *,
         space_id: SpaceId = DEFAULT_SPACE_ID,
-    ) -> HypothesisId | None:
-        """Retrieval bounded on the immutable pair only (F-2).
+    ) -> tuple[HypothesisId, ...]:
+        """Every lineage the bound admits, in insertion order (F-2, M-2).
 
         ``claim_class`` is deliberately absent from this key: bounding retrieval
         on a versioned field would mean a candidate proposing a legitimate
         refinement failed to retrieve its own lineage.
+
+        Returns a **tuple**, not a single id: the bound is
+        ``(subject, attribution)`` where ``attribution`` is a voice label, so
+        several distinct commitments legitimately share it once something with
+        the authority to decide has said they are distinct.
         """
-        return self._by_key.get((space_id, subject_id, signature_subject, attribution))
+        return tuple(
+            self._by_key.get((space_id, subject_id, signature_subject, attribution), ())
+        )
 
     def list_for_subject(
         self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
@@ -610,10 +625,18 @@ class InMemoryHypothesisLineageStore:
     # -- snapshot/restore (§5.3, F-9) ---------------------------------------
     # Two containers; both are restored together.
     def snapshot(self) -> object:
-        return (dict(self._by_id), dict(self._by_key))
+        # The key index now holds lists, so the inner lists are copied too --
+        # a shallow dict copy would share them with the live store and a
+        # rollback would leave an appended id behind (F-9).
+        return (
+            dict(self._by_id),
+            {key: list(ids) for key, ids in self._by_key.items()},
+        )
 
     def restore(self, token: object) -> None:
-        self._by_id, self._by_key = dict(token[0]), dict(token[1])  # type: ignore[index]
+        by_id, by_key = token  # type: ignore[misc]
+        self._by_id = dict(by_id)
+        self._by_key = {key: list(ids) for key, ids in by_key.items()}
 
 
 class InMemoryStatementVersionStore:

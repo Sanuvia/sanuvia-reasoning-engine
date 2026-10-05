@@ -232,7 +232,16 @@ class _RevisionRun:
         # permanently consume an identifier, which only holds if allocation goes
         # through the generator the UnitOfWork restores.
         request_id = self.deps.ids.new_id("req")
+        # The participant set must cover every subject the request will present,
+        # not only the observation's own standing. A lineage founded under a
+        # participant who does not appear in THIS observation still has to have
+        # its signature subject rendered as a request-scoped label, so its
+        # subject is projected into the table (TD-V1): without this the label
+        # lookup has nothing to find and the durable ParticipantId leaks.
         participants = self._participants_for(evidence)
+        for pid in self._lineage_subjects():
+            if pid not in participants:
+                participants.append(pid)
         table = _handles.build_table(
             request_id=request_id,
             observation=evidence,
@@ -355,8 +364,11 @@ class _RevisionRun:
         from sanuvia.application.ports.reasoning import CommitmentSignatureView
         from sanuvia.domain import ClaimClass, Stance
 
+        from sanuvia.domain import ParticipantId
+
         versions = getattr(self.deps, "statement_versions", None)
         label = next(iter(table.participants), None)
+        inverse_participants = {pid: lbl for lbl, pid in table.participants.items()}
         views = {}
         for hid in table.hypotheses.values():
             lineage = self.deps_lineage(hid)
@@ -380,10 +392,15 @@ class _RevisionRun:
             history = tuple(versions.history(hid)) if versions is not None else ()
             current = history[-1] if history else None
             views[hid] = CommitmentSignatureView(
-                # Stored subject, projected into handle space where the request
-                # knows this participant; otherwise presented as stored.
-                subject=table.participants.get(
-                    lineage.signature_subject, lineage.signature_subject
+                # Stored subject, projected into handle space. ``participants``
+                # maps label -> id, so looking it up BY id always missed and
+                # returned the durable ParticipantId itself -- a TD-V1 leak on
+                # the governed path. The inverse map is the correct direction,
+                # and the subject is guaranteed to be present because it was
+                # projected into the participant set above.
+                subject=inverse_participants.get(
+                    ParticipantId(str(lineage.signature_subject)),
+                    lineage.signature_subject,
                 ),
                 attribution=lineage.attribution,
                 claim_class=current.claim_class if current else ClaimClass.INTERPRETATION,
@@ -391,6 +408,19 @@ class _RevisionRun:
                 temporal_scope=current.temporal_scope if current else None,
             )
         return views
+
+    def _lineage_subjects(self) -> list:
+        """Signature subjects of every hypothesis this request will offer."""
+        from sanuvia.domain import ParticipantId
+
+        found: list = []
+        for hypothesis in self.entering:
+            lineage = self.deps_lineage(hypothesis.hypothesis_id)
+            if lineage is not None:
+                pid = ParticipantId(str(lineage.signature_subject))
+                if pid not in found:
+                    found.append(pid)
+        return found
 
     def deps_lineage(self, hid: HypothesisId):
         store = getattr(self.deps, "lineages", None)
@@ -747,10 +777,19 @@ class ModelRevisionEngine:
     def __init__(self, deps: ReasoningDependencies) -> None:
         from sanuvia.application.reasoning.identity import DeterministicAdjudicator
 
-        # Deterministic arm only. The R1 model-assisted resolver is Slice 2 and
-        # is deliberately NOT wired: with none configured, a plausible-but-inexact
-        # candidate parks rather than committing on an unmade judgement (§2 G).
-        self._adjudicator = DeterministicAdjudicator(resolver=None)
+        # Deterministic arm. The R1 model-assisted resolver is Slice 2 and is
+        # NOT implemented: with no resolver configured a plausible-but-inexact
+        # candidate parks rather than committing on an unmade judgement
+        # (§2 G, Reading A).
+        #
+        # ``deps.identity_resolver`` is None on every real path. The Scripted
+        # harness, the review dataset runner and the exit-test fixture inject
+        # the fixture-authored TEST DOUBLE so authored scenarios holding several
+        # distinct commitments per subject can be expressed; it performs no
+        # matching and is guarded out of every Run 003 configuration.
+        self._adjudicator = DeterministicAdjudicator(
+            resolver=getattr(deps, "identity_resolver", None)
+        )
         self._d = deps
 
     def _committed_views(self, subject_id, entering, space_id) -> dict:

@@ -39,6 +39,7 @@ def _deps_from_store(
     cognitive_state: CognitiveStateProvider | None,
     commit_policy: RevisionCommitPolicy | None,
     config: ReasoningConfig | None,
+    identity_resolver: object | None = None,
 ) -> ReasoningDependencies:
     return ReasoningDependencies(
         reasoning_system_id=ReasoningSystemId(reasoning_system_id),
@@ -55,6 +56,7 @@ def _deps_from_store(
         lineages=getattr(store, "lineages", None),
         statement_versions=getattr(store, "statement_versions", None),
         identity_adjudications=getattr(store, "identity_adjudications", None),
+        identity_resolver=identity_resolver,
         store_bundle=store,
         clock=clock,
         ids=ids,
@@ -75,6 +77,7 @@ def build_in_memory_dependencies(
     cognitive_state: CognitiveStateProvider | None = None,
     commit_policy: RevisionCommitPolicy | None = None,
     config: ReasoningConfig | None = None,
+    identity_resolver: object | None = None,
 ) -> ReasoningDependencies:
     """Assemble ``ReasoningDependencies`` from in-memory adapters (tests / exit
     test). Only the ``appraiser`` (the language-understanding boundary) must be
@@ -91,6 +94,7 @@ def build_in_memory_dependencies(
         cognitive_state=cognitive_state,
         commit_policy=commit_policy,
         config=config,
+        identity_resolver=identity_resolver,
     )
 
 
@@ -105,6 +109,7 @@ def build_sqlite_dependencies(
     cognitive_state: CognitiveStateProvider | None = None,
     commit_policy: RevisionCommitPolicy | None = None,
     config: ReasoningConfig | None = None,
+    identity_resolver: object | None = None,
 ) -> ReasoningDependencies:
     """Assemble ``ReasoningDependencies`` from the SQLite adapters. Identical in
     shape to the in-memory build — only the persistence backend differs.
@@ -126,4 +131,5 @@ def build_sqlite_dependencies(
         cognitive_state=cognitive_state,
         commit_policy=commit_policy,
         config=config,
+        identity_resolver=identity_resolver,
     )

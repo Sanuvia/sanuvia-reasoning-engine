@@ -22,14 +22,19 @@ not worked through for the signature.
 
 What is **derived from authored semantics** (no decision taken):
 
-* **lineage distinctness** -- from the authored ``hypothesis_id``. The fixture
-  already expresses lineage identity that way: two proposals sharing an authored
-  id are one lineage, different ids are different lineages. Carrying that id in
-  ``attribution`` reproduces the authored distinctness exactly, so Case 001's
-  H1..H4 remain four lineages and nothing about its behaviour changes.
 * **existing-hypothesis references** (``supports`` / ``contradicts``) -- resolved
   by matching the authored statement against ``HypothesisView.statement``. The
   catalogue is built from the script's own proposals, so no fixture supplies it.
+
+**Lineage distinctness is no longer derived here (B-1 corrected).** It used to
+be carried in ``attribution`` as the authored ``hypothesis_id``, which let a
+fixture label decide durable identity. ``attribution`` is now the governed
+voice label, so every appraiser-proposed reading for one subject shares one
+retrieval bound, and distinctness is decided by adjudication under §2 G --
+exact match attaches, non-exact parks without a resolver (Reading A). Fixtures
+that need authored identity decisions supply them through the injected
+``ScriptedIdentityResolver`` test double, which authors decisions explicitly
+rather than inferring them from a label.
 
 What is **assumed** (a semantic decision the fixtures cannot answer). These are
 recorded here and in the implementation report rather than buried:
@@ -67,7 +72,13 @@ from sanuvia.application.ports.reasoning import (
     CommitmentSignatureView,
     HypothesisHandle,
 )
-from sanuvia.domain import ClaimClass, EvidenceRecordId, HypothesisId, Stance
+from sanuvia.domain import (
+    VOICE_SANUVIA_WORKING_READING,
+    ClaimClass,
+    EvidenceRecordId,
+    HypothesisId,
+    Stance,
+)
 
 #: Marks a signature produced by fixture migration rather than authored.
 MIGRATION_ATTRIBUTION_PREFIX = "scripted-fixture-migration"
@@ -79,14 +90,26 @@ MIGRATED_STANCE = Stance.OPEN
 
 
 def migrated_attribution(authored_hypothesis_id: HypothesisId) -> str:
-    """Carry the authored lineage identity into the signature's immutable half.
+    """The governed voice label for an appraiser-proposed reading (§2 H).
 
-    This is the derivation, not an assumption: the fixture already expressed
-    lineage identity through ``hypothesis_id``, and ``(subject, attribution)`` is
-    the immutable lineage key (§2 H). Reproducing the authored distinctness here
-    is what keeps Case 001's lineage structure unchanged.
+    **B-1 corrected.** This previously returned
+    ``f"{MIGRATION_ATTRIBUTION_PREFIX}:{authored_hypothesis_id}"``, putting a
+    fixture-authored label into the immutable half of the lineage key. That let
+    a response-local reference decide durable identity: the same statement
+    proposed under two authored ids founded two lineages.
+
+    ``attribution`` is a **voice** -- "participant account | Sanuvia working
+    reading" (§2 H) -- not a per-proposal identifier. A proposal returned by an
+    appraiser is the appraiser's working interpretation by construction, so it
+    is always the working reading. ``participant account`` is reserved for a
+    commitment separately attributed to the participant and is never chosen
+    here.
+
+    The argument is retained so call sites stay explicit about which proposal
+    is being signed, and so the removal is visible in the diff rather than
+    silent; it no longer affects the result.
     """
-    return f"{MIGRATION_ATTRIBUTION_PREFIX}:{authored_hypothesis_id}"
+    return VOICE_SANUVIA_WORKING_READING
 
 
 class ScriptedAppraiser:

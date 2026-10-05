@@ -3,6 +3,8 @@ prediction, uncertainty, provenance, and the OBSERVED inquiry selection."""
 
 from __future__ import annotations
 
+from _identity_support import durable_ids
+
 from fixtures.longitudinal.case_001 import CASE_001
 from fixtures.longitudinal.case_001 import H1, H2, H3, H4
 
@@ -34,12 +36,7 @@ def _run_with_ids() -> tuple[list[TrajectoryRecord], dict[str, str]]:
     condition.start()
     records = [condition.step(i) for i in CASE_001.interactions]
     condition.finish()
-    mapping = {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in condition._store.lineages.list_for_subject(
-            CASE_001.subject_id, space_id=CASE_001.space_id
-        )
-    }
+    mapping = durable_ids(condition._store, CASE_001)
     assert len(mapping) == 4, f"expected four lineages, got {mapping}"
     return records, mapping
 

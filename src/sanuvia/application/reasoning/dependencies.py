@@ -62,6 +62,12 @@ class ReasoningDependencies:
     lineages: object | None = None
     statement_versions: object | None = None
     identity_adjudications: object | None = None
+    #: Optional IdentityResolver (§2 G resolution-order case 4). ``None`` on
+    #: every real path: R1 is Slice 2. The Scripted harness, the review dataset
+    #: runner and the exit-test fixture inject the fixture-authored test double
+    #: so authored scenarios with several distinct commitments per subject can
+    #: be expressed; it is guarded out of every Run 003 configuration.
+    identity_resolver: object | None = None
     #: The whole bundle, so the service can open a UnitOfWork over every store
     #: by enumeration rather than a fixed list (§5.1, N-1).
     store_bundle: object | None = None

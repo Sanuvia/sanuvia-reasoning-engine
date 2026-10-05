@@ -24,6 +24,9 @@ from dataclasses import dataclass
 
 from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
 from sanuvia.adapters.reasoning import ScriptedAppraiser
+from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    resolver_for_script,
+)
 from sanuvia.adapters.support import ManualClock, SequentialIdGenerator
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api import EvidenceInput, ReasoningService
@@ -43,6 +46,10 @@ class Harness:
     service: ReasoningService
     store: InMemoryReasoningStore
     inputs: tuple[EvidenceInput, ...]
+    #: The fixture-authored identity resolver this harness injected. Its
+    #: recorded decisions are the authoritative authored-id -> durable-id
+    #: source for the exit runner; ``attribution`` no longer carries identity.
+    identity_resolver: object | None = None
 
 
 def _input(cls: EvidenceClass, content: str, reliability: float) -> EvidenceInput:
@@ -94,12 +101,22 @@ def evidence_inputs() -> tuple[EvidenceInput, ...]:
 def build() -> Harness:
     """Assemble a fresh, deterministic harness (fresh in-memory stores)."""
     store = InMemoryReasoningStore()
+    script = appraisal_script()
+    # IDENTITY DECISIONS ARE AUTHORED BY THE FIXTURE. The scenario holds several
+    # distinct commitments for one subject, which it states by giving each its
+    # own authored hypothesis id. Under a governed voice-label attribution those
+    # share one retrieval bound, so expressing them needs the fixture-authored
+    # resolver double (§2 G case 4). It performs no matching and is guarded out
+    # of every Run 003 configuration.
+    resolver = resolver_for_script(script)
     deps = build_in_memory_dependencies(
         store=store,
-        appraiser=ScriptedAppraiser(appraisal_script()),
+        appraiser=ScriptedAppraiser(script),
         clock=ManualClock(),
         ids=SequentialIdGenerator(),
+        identity_resolver=resolver,
     )
     return Harness(
-        service=ReasoningService(deps), store=store, inputs=evidence_inputs()
+        service=ReasoningService(deps), store=store, inputs=evidence_inputs(),
+        identity_resolver=resolver,
     )

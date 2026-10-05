@@ -13,7 +13,7 @@ from sanuvia.domain import (
     WorldModel,
 )
 
-from .scenario import H_A, H_B, SUBJECT, Harness, build
+from .scenario import H_A, H_B, SUBJECT, Harness, appraisal_script, build
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,18 +90,31 @@ def _durable_ids(store: InMemoryReasoningStore) -> dict[str, HypothesisId]:
 
     Technical Design v1.5.4 / locked §3.3: the engine issues every durable
     hypothesis id after adjudication, so the scenario's authored H_A / H_B are
-    no longer what the engine reports. The Scripted fixture migration carries
-    the authored id in the lineage attribution, which lets these pass conditions
-    keep their original meaning -- "competing hypotheses are retained",
-    "predictions are revised as evidence changes" -- at full strength.
+    no longer what the engine reports. Mapping them back lets these pass
+    conditions keep their original meaning -- "competing hypotheses are
+    retained", "predictions are revised as evidence changes" -- at full
+    strength.
+
+    **Derived independently of ``attribution`` (B-1).** This previously split
+    the lineage attribution to recover the authored id, which only worked while
+    attribution wrongly carried identity. Attribution is now the governed voice
+    label and is identical for every lineage, so it carries no identity to
+    recover. The mapping is instead taken from the **statement** each
+    hypothesis was authored with, which is the scenario's own text and is
+    matched exactly -- no similarity, no heuristic.
     """
-    lineages = getattr(store, "lineages", None)
-    if lineages is None:
-        return {}
-    return {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in lineages.list_for_subject(SUBJECT)
-    }
+    hypotheses = store.hypotheses.list_for_subject(SUBJECT)
+    by_statement: dict[str, HypothesisId] = {}
+    for hypothesis in hypotheses:
+        by_statement.setdefault(hypothesis.statement, hypothesis.hypothesis_id)
+
+    mapping: dict[str, HypothesisId] = {}
+    for appraisal in appraisal_script().values():
+        for proposal in appraisal.proposals:
+            durable = by_statement.get(proposal.statement)
+            if durable is not None:
+                mapping[str(proposal.hypothesis_id)] = durable
+    return mapping
 
 
 # --- individual pass conditions ----------------------------------------------

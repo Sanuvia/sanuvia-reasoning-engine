@@ -29,16 +29,29 @@ def _durable_ids(condition) -> dict[str, str]:
 
     Locked §3.3 / Technical Design v1.5.4: the engine issues every durable
     hypothesis id after adjudication, so the fixture's authored ids are no
-    longer what the engine reports. The Scripted fixture migration carries the
-    authored id in the lineage attribution, so these tests keep asserting the
-    exact lineage rather than weakening to a count or a shape.
+    longer what the engine reports.
+
+    **Derived independently of ``attribution`` (B-1).** This previously split
+    the lineage attribution, which only worked while attribution wrongly
+    carried identity. Attribution is now the governed voice label and is
+    identical across lineages. The mapping comes from the authored STATEMENT,
+    matched exactly against what the engine stored -- no heuristic -- so these
+    tests keep asserting the exact lineage rather than weakening to a count.
     """
-    return {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in condition._store.lineages.list_for_subject(
-            CASE_001.subject_id, space_id=CASE_001.space_id
-        )
-    }
+    hypotheses = condition._store.hypotheses.list_for_subject(
+        CASE_001.subject_id, space_id=CASE_001.space_id
+    )
+    by_statement: dict[str, str] = {}
+    for hypothesis in hypotheses:
+        by_statement.setdefault(hypothesis.statement, hypothesis.hypothesis_id)
+
+    mapping: dict[str, str] = {}
+    for appraisal in CASE_001.appraisal_script.values():
+        for proposal in appraisal.proposals:
+            durable = by_statement.get(proposal.statement)
+            if durable is not None:
+                mapping[str(proposal.hypothesis_id)] = durable
+    return mapping
 
 
 

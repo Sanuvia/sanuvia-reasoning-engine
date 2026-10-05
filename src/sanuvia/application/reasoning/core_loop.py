@@ -231,7 +231,12 @@ class CoreLoop:
             from sanuvia.domain import Stance
 
             for lineage in store.list_for_subject(subject_id, space_id=space_id):
-                lineage_keys[lineage.lineage_key] = lineage.hypothesis_id
+                # Appended, not assigned (M-2): several lineages may share one
+                # bound, and check 10 must test the candidate against all of
+                # them, not merely whichever was indexed last.
+                lineage_keys.setdefault(lineage.lineage_key, []).append(
+                    lineage.hypothesis_id
+                )
                 history = (
                     tuple(versions.history(lineage.hypothesis_id)) if versions else ()
                 )

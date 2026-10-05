@@ -49,6 +49,8 @@ from sanuvia.application.reasoning.plan_validation import (
 )
 from sanuvia.application.reasoning.unit_of_work import UnitOfWork, bundle_stores
 from sanuvia.domain import (
+    VOICE_PARTICIPANT_ACCOUNT,
+    VOICE_SANUVIA_WORKING_READING,
     ClaimClass,
     CommitmentSignature,
     DependencyEdge,
@@ -666,7 +668,7 @@ def test_inverted_stance_without_contradicts_bearing_fails_check_10():
     with pytest.raises(GovernedRejection) as e:
         validate_plan(plan, committed_evidence={}, active_hypotheses={"hyp-1": object()},
                       lineage_stance={"hyp-1": Stance.AFFIRMS},
-                      lineage_key_index={(str(t.participants[label]), "sanuvia working reading"): "hyp-1"})
+                      lineage_key_index={(str(t.participants[label]), "sanuvia working reading"): ["hyp-1"]})
     assert e.value.outcome is GovernedOutcome.INVALID_CONTRADICTION_PLAN
 
 
@@ -680,7 +682,7 @@ def test_inverted_stance_with_contradicts_bearing_passes_check_10():
                  decisions={"c1": ("DISTINCT_NEW", None)})
     validate_plan(plan, committed_evidence={}, active_hypotheses={"hyp-1": object()},
                   lineage_stance={"hyp-1": Stance.AFFIRMS},
-                  lineage_key_index={(str(t.participants[label]), "sanuvia working reading"): "hyp-1"})
+                  lineage_key_index={(str(t.participants[label]), "sanuvia working reading"): ["hyp-1"]})
 
 
 def test_resonance_record_may_trigger_no_operation():
@@ -1086,3 +1088,91 @@ def test_no_module_outside_commit_plan_writes_to_a_reasoning_store():
                 offenders.append(f"{path.name}:{i}: {line.strip()}")
 
     assert offenders == [], "store writes outside commit_plan:\n" + "\n".join(offenders)
+
+
+# --- M-2 completion: the store index and check 10 ---------------------------
+
+
+def _lineage_record(hid: str, subject: str = "pA",
+                    attribution: str = VOICE_SANUVIA_WORKING_READING):
+    from sanuvia.domain import HypothesisLineage
+
+    return HypothesisLineage(
+        hypothesis_id=hid, subject_id="subject-1", space_id=DEFAULT_SPACE_ID,
+        signature_subject=subject, attribution=attribution,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def test_lineage_store_keeps_every_lineage_under_one_bound():
+    """M-2: add() must not overwrite an earlier lineage sharing the bound.
+
+    ``attribution`` is a voice label, so every commitment one voice holds about
+    one subject lands on the same key. A one-id-per-key index dropped all but
+    the last, and ``find_by_key`` then reported a single lineage where several
+    existed.
+    """
+    store = InMemoryReasoningStore().lineages
+    store.add(_lineage_record("hyp-1"))
+    store.add(_lineage_record("hyp-2"))
+    store.add(_lineage_record("hyp-3"))
+
+    found = store.find_by_key("subject-1", "pA", VOICE_SANUVIA_WORKING_READING)
+    assert found == ("hyp-1", "hyp-2", "hyp-3"), "insertion order, none dropped"
+
+
+def test_lineage_store_separates_distinct_bounds():
+    """M-2 must not over-merge: a different voice is a different bound."""
+    store = InMemoryReasoningStore().lineages
+    store.add(_lineage_record("hyp-1", attribution=VOICE_SANUVIA_WORKING_READING))
+    store.add(_lineage_record("hyp-2", attribution=VOICE_PARTICIPANT_ACCOUNT))
+
+    assert store.find_by_key(
+        "subject-1", "pA", VOICE_SANUVIA_WORKING_READING) == ("hyp-1",)
+    assert store.find_by_key(
+        "subject-1", "pA", VOICE_PARTICIPANT_ACCOUNT) == ("hyp-2",)
+
+
+def test_lineage_key_index_rolls_back_without_leaking_an_appended_id():
+    """F-9: the key index holds lists, so the inner lists must be copied."""
+    store = InMemoryReasoningStore().lineages
+    store.add(_lineage_record("hyp-1"))
+    token = store.snapshot()
+    store.add(_lineage_record("hyp-2"))
+    assert len(store.find_by_key("subject-1", "pA", VOICE_SANUVIA_WORKING_READING)) == 2
+
+    store.restore(token)
+    assert store.find_by_key(
+        "subject-1", "pA", VOICE_SANUVIA_WORKING_READING) == ("hyp-1",)
+
+
+def test_check_10_inspects_every_lineage_under_the_bound():
+    """M-2: an inversion of an EARLIER lineage must still be caught.
+
+    The index previously held one id per key, so a bound with several lineages
+    was tested against whichever was indexed last. A candidate inverting an
+    earlier lineage's stance passed validation, which is exactly the merge of
+    two opposed commitments R1a exists to prevent.
+    """
+    rec = _record(1)
+    t = _table(hyps={HypothesisHandle("r1::H1"): "hyp-1"})
+    label = next(iter(t.participants))
+    prop = CandidateProposal(
+        "c1", "an opposed reading", _view(stance=Stance.NEGATES, label=label)
+    )
+    plan = _plan(rec, table=t, proposals=(prop,),
+                 decisions={"c1": ("DISTINCT_NEW", None)})
+    key = (str(t.participants[label]), "sanuvia working reading")
+
+    with pytest.raises(GovernedRejection) as exc:
+        validate_plan(
+            plan, committed_evidence={},
+            active_hypotheses={"hyp-1": object(), "hyp-2": object()},
+            # hyp-1 is the EARLIER lineage and the one that is inverted;
+            # hyp-2 is indexed after it and is not. Only a check that scans
+            # every admitted lineage catches this.
+            lineage_stance={"hyp-1": Stance.AFFIRMS, "hyp-2": Stance.OPEN},
+            lineage_key_index={key: ["hyp-1", "hyp-2"]},
+        )
+    assert exc.value.outcome is GovernedOutcome.INVALID_CONTRADICTION_PLAN
+    assert "hyp-1" in str(exc.value)

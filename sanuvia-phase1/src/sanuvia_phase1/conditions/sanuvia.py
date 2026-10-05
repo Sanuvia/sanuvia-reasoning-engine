@@ -11,6 +11,9 @@ from __future__ import annotations
 
 from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
 from sanuvia.adapters.reasoning import ScriptedAppraiser
+from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    resolver_for_script,
+)
 from sanuvia.adapters.support import ManualClock, SequentialIdGenerator
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api import ReasoningService
@@ -46,16 +49,31 @@ class SanuviaPersistentCondition:
         # Deterministic wiring (ManualClock + SequentialIdGenerator), mirroring the
         # Phase 0 exit-test harness, so replay is byte-identical.
         store = InMemoryReasoningStore()
+        scripted = self._appraiser is None
+        script = dict(self._case.appraisal_script)
         appraiser: EvidenceAppraiser = (
-            self._appraiser
-            if self._appraiser is not None
-            else ScriptedAppraiser(dict(self._case.appraisal_script))
+            ScriptedAppraiser(script) if scripted else self._appraiser  # type: ignore[assignment]
         )
+        # IDENTITY DECISIONS ARE AUTHORED BY THE CASE, on the scripted path only.
+        #
+        # A golden case can hold several distinct commitments for one subject,
+        # stated by authoring a separate hypothesis id for each. attribution is
+        # the governed voice label (§2 H), so those share one retrieval bound
+        # and reach §2 G resolution-order case 4; the fixture-authored double
+        # returns the case's own authored decision. It compares nothing.
+        #
+        # The guard is STRUCTURAL: the resolver is bound to the same condition
+        # that selects the scripted appraiser, so a real injected appraiser --
+        # the only thing a REAL/Run 003 configuration may use -- never gets one.
+        # A real run therefore parks non-exact candidates, which is the honest
+        # deterministic-arm behaviour until R1 lands.
+        resolver = resolver_for_script(script) if scripted else None
         deps = build_in_memory_dependencies(
             store=store,
             appraiser=appraiser,
             clock=ManualClock(),
             ids=SequentialIdGenerator(),
+            identity_resolver=resolver,
         )
         self._service = ReasoningService(deps)
         self._store = store

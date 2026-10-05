@@ -31,6 +31,7 @@ from sanuvia.application.ports.reasoning import (
 from sanuvia.application.reasoning import model_revision
 from sanuvia.application.reasoning.unit_of_work import bundle_stores
 from sanuvia.domain import (
+    VOICE_SANUVIA_WORKING_READING,
     BreachKind,
     ClaimClass,
     EvidenceClass,
@@ -44,13 +45,17 @@ from sanuvia.domain import (
 SUBJECT = "subject-1"
 
 
-def _service(script=None, *, store=None, appraiser=None, ids=None, clock=None):
+def _service(script=None, *, store=None, appraiser=None, ids=None, clock=None,
+             resolver=None):
+    """Build a service. ``resolver`` defaults to None -- the real deterministic
+    arm, with no R1 -- so a test must opt in to the fixture-authored double."""
     store = store or InMemoryReasoningStore()
     deps = build_in_memory_dependencies(
         store=store,
         appraiser=appraiser if appraiser is not None else ScriptedAppraiser(script or {}),
         ids=ids or SequentialIdGenerator(),
         clock=clock or ManualClock(),
+        identity_resolver=resolver,
     )
     return ReasoningService(deps), store, deps
 
@@ -197,14 +202,17 @@ def test_successful_interaction_advances_ids_normally():
 # --- deterministic identity through the running engine -----------------------
 
 
-def _two_interactions(statement_a: str, statement_b: str, authored_b: str = "H1"):
+def _two_interactions(statement_a: str, statement_b: str, authored_b: str = "H1",
+                      *, resolver=None):
+    """Two interactions over one store. ``resolver`` is None unless a test is
+    exercising the fixture-authored double."""
     store = InMemoryReasoningStore()
     ids, clock = SequentialIdGenerator(), ManualClock()
     script = _proposes("evidence-1", statement_a, "H1")
-    svc, _, _ = _service(script, store=store, ids=ids, clock=clock)
+    svc, _, _ = _service(script, store=store, ids=ids, clock=clock, resolver=resolver)
     svc.record_interaction(SUBJECT, [_ev("first")])
     script2 = _proposes("evidence-2", statement_b, authored_b)
-    svc2, _, _ = _service(script2, store=store, ids=ids, clock=clock)
+    svc2, _, _ = _service(script2, store=store, ids=ids, clock=clock, resolver=resolver)
     svc2.record_interaction(SUBJECT, [_ev("second")])
     return store
 
@@ -217,10 +225,59 @@ def test_exact_duplicate_across_interactions_creates_no_second_lineage():
     assert h.supporting_evidence_ids == ("evidence-1", "evidence-2")
 
 
-def test_distinct_statement_under_a_new_lineage_key_creates_a_second_lineage():
-    """Locked §3.4 plurality: genuinely distinct readings stay distinct."""
+def test_distinct_statement_parks_when_no_resolver_is_configured():
+    """§2 G Reading A: a non-exact candidate under a populated bound parks.
+
+    ``attribution`` is a voice label (§2 H), so a second distinct reading for
+    the same subject shares the retrieval bound rather than founding its own.
+    It is therefore a *plausible* candidate at resolution-order case 4, and
+    with no resolver configured the stated unconfigured behaviour is to park
+    rather than commit on an unmade judgement.
+
+    This is the real deterministic-arm behaviour and the real External-path
+    behaviour until R1 lands. It must NOT default to DISTINCT_NEW: doing so
+    would discharge the §3.4 burden-of-distinctness by assumption, declaring
+    every non-exact statement distinct without any comparison -- the Run 002
+    duplication mechanism.
+    """
     store = _two_interactions("the first reading", "a different reading", "H2")
-    assert len(store.lineages.list_for_subject(SUBJECT)) == 2
+    assert len(store.lineages.list_for_subject(SUBJECT)) == 1, "no second lineage"
+
+    (parked,) = store.identity_adjudications.list_for_subject(SUBJECT)
+    assert parked.decision.outcome is IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED
+    assert parked.candidate_statement == "a different reading"
+    # Parked, not discarded: the candidate and its plausible matches survive.
+    assert parked.plausible_matches
+
+
+def test_distinct_lineages_coexist_when_the_resolver_authors_distinct_new():
+    """§3.4 plurality, via an explicitly authored identity decision.
+
+    Several lineages CAN share one retrieval bound -- which is what M-2's
+    plural structures exist for -- but only once something with the authority
+    to decide says so. Here that is the fixture-authored test double returning
+    the decision the fixture stated. It compares nothing.
+    """
+    from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+        ScriptedIdentityResolver,
+    )
+
+    resolver = ScriptedIdentityResolver(["H1", "H2"])
+    store = _two_interactions("the first reading", "a different reading", "H2",
+                              resolver=resolver)
+
+    lineages = store.lineages.list_for_subject(SUBJECT)
+    assert len(lineages) == 2, "two distinct commitments coexist"
+    # Both under the SAME governed retrieval bound -- that is the point.
+    assert len({l.lineage_key for l in lineages}) == 1
+    assert {l.attribution for l in lineages} == {VOICE_SANUVIA_WORKING_READING}
+    assert len(store.hypotheses.list_for_subject(SUBJECT)) == 2
+    # Nothing parked: the decision was authored, not deferred.
+    assert store.identity_adjudications.list_for_subject(SUBJECT) == []
+    # And it was recorded as fixture-authored.
+    assert [d.outcome for d in resolver.decisions_made] == [
+        IdentityOutcome.DISTINCT_NEW
+    ]
 
 
 def test_statement_history_is_recorded_and_matched():
@@ -823,11 +880,20 @@ def test_hypothesis_view_signature_uses_the_stored_lineage_values():
 
     (lineage,) = store.lineages.list_for_subject(SUBJECT)
     # The second request offers the committed hypothesis back to the appraiser.
-    offered = appraiser.seen[1].existing
+    request = appraiser.seen[1]
+    offered = request.existing
     assert len(offered) == 1
     signature = offered[0].signature
+
+    # Attribution is the stored, immutable value.
     assert signature.attribution == lineage.attribution
-    assert signature.subject == lineage.signature_subject
+
+    # The SUBJECT is a request-scoped participant LABEL, not the stored
+    # ParticipantId. The stored value identifies whose commitment the lineage
+    # records; the label is how that participant is named inside this request.
+    # Asserting equality with the stored id would assert the leak.
+    assert signature.subject in request.participants
+    assert signature.subject != lineage.signature_subject
 
 
 def test_hypothesis_view_signature_uses_current_statement_version_fields():
@@ -862,9 +928,58 @@ def test_hypothesis_view_signature_never_carries_a_durable_identifier():
     svc.record_interaction(SUBJECT, [_ev("second")])
 
     (lineage,) = store.lineages.list_for_subject(SUBJECT)
-    signature = appraiser.seen[1].existing[0].signature
+    request = appraiser.seen[1]
+    signature = request.existing[0].signature
+
+    # No durable hypothesis id.
     assert str(lineage.hypothesis_id) not in signature.attribution
     assert str(lineage.hypothesis_id) not in signature.subject
+
+    # And no durable ParticipantId. TD-V1: nothing in a model-facing view may
+    # carry a canonical EvidenceRecordId, a durable HypothesisId or a
+    # ParticipantId. The subject previously leaked exactly this, because the
+    # label lookup was performed in the wrong direction and always missed.
+    assert signature.subject != str(lineage.signature_subject)
+    assert signature.subject in request.participants, (
+        "subject must be a request-scoped participant label"
+    )
+
+
+def test_hypothesis_view_subject_is_a_label_even_when_absent_from_the_observation():
+    """TD-V1: a lineage subject outside this observation is still projected.
+
+    A lineage founded under one participant can be offered back during a
+    request whose observation concerns someone else. The subject must still
+    render as a request-scoped label, which means it has to be added to the
+    request's participant set rather than falling through to the durable id.
+    """
+    from sanuvia.domain import EvidenceStanding, EvidenceRole, EvidenceSourceKind
+    from sanuvia.domain import EvidenceSubjectKind
+
+    def ev(text: str, source: str, subject: str) -> EvidenceInput:
+        return EvidenceInput(
+            subject_id=SUBJECT, evidence_class=EvidenceClass.NARRATIVE,
+            content=text, source="extractor:test", reliability=0.8,
+            classification_confidence=0.9,
+            standing=EvidenceStanding(
+                source_kind=EvidenceSourceKind.PARTICIPANT,
+                subject_kind=EvidenceSubjectKind.PARTICIPANT,
+                role=EvidenceRole.ACCOUNT, source_id=source, subject_id=subject,
+            ),
+        )
+
+    appraiser = _CapturesRequests()
+    svc, store, _ = _service(appraiser=appraiser)
+    svc.record_interaction(SUBJECT, [ev("first", source="pA", subject="pB")])
+    # A later interaction about entirely different participants.
+    svc.record_interaction(SUBJECT, [ev("second", source="pC", subject="pD")])
+
+    (lineage,) = store.lineages.list_for_subject(SUBJECT)
+    request = appraiser.seen[1]
+    signature = request.existing[0].signature
+
+    assert signature.subject in request.participants
+    assert signature.subject != str(lineage.signature_subject)
 
 
 def test_lineage_less_bundle_presents_a_constant_attribution():

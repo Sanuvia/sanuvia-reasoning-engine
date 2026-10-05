@@ -114,7 +114,7 @@ def validate_plan(
     committed_evidence: Mapping[EvidenceRecordId, EvidenceRecord],
     active_hypotheses: Mapping[HypothesisId, object],
     lineage_stance: Mapping[HypothesisId, Stance] | None = None,
-    lineage_key_index: Mapping[tuple[str, str], HypothesisId] | None = None,
+    lineage_key_index: Mapping[tuple[str, str], Sequence[HypothesisId]] | None = None,
     source_ref_index: Mapping[SourceObservationRef, EvidenceRecordId] | None = None,
     space_kind: SpaceKind | None = None,
 ) -> None:
@@ -559,7 +559,7 @@ def _check_9_standing_rules(obs: AppraisedObservation, plan: RevisionPlan) -> No
 def _check_10_structural_contradiction(
     obs: AppraisedObservation,
     lineage_stance: Mapping[HypothesisId, Stance],
-    lineage_key_index: Mapping[tuple[str, str], HypothesisId],
+    lineage_key_index: Mapping[tuple[str, str], Sequence[HypothesisId]],
 ) -> None:
     """Structured contradiction consistency (ruling Q5).
 
@@ -571,6 +571,13 @@ def _check_10_structural_contradiction(
 
     Stance inversion is ``affirms`` <-> ``negates`` only; ``open`` never inverts
     and is never inverted (N-8).
+
+    **Every lineage the bound admits is checked (M-2).** The index previously
+    held one id per key, so a bound holding several lineages was tested against
+    whichever was indexed last: a candidate inverting an earlier lineage's
+    stance passed validation and could merge an opposed commitment. Each
+    admitted lineage is now inspected, in insertion order, and the first
+    unmatched inversion rejects.
     """
     contradicted: set[HypothesisId] = set()
     for b in obs.bearings:
@@ -582,21 +589,19 @@ def _check_10_structural_contradiction(
     for p in obs.proposals:
         subject = obs.table.resolve_participant(str(p.signature.subject))
         key = (str(subject), p.signature.attribution)
-        hid = lineage_key_index.get(key)
-        if hid is None:
-            continue
-        current = lineage_stance.get(hid)
-        if current is None or not inverts(current, p.signature.stance):
-            continue
-        if hid not in contradicted:
-            raise GovernedRejection(
-                GovernedOutcome.INVALID_CONTRADICTION_PLAN,
-                f"proposal {p.local_ref!r} inverts the stance of active lineage "
-                f"{hid} ({current.value} -> {p.signature.stance.value}) without a "
-                f"structured CONTRADICTS bearing",
-                references=(p.local_ref, str(hid)),
-                raw_response=obs.raw_response,
-            )
+        for hid in lineage_key_index.get(key, ()):
+            current = lineage_stance.get(hid)
+            if current is None or not inverts(current, p.signature.stance):
+                continue
+            if hid not in contradicted:
+                raise GovernedRejection(
+                    GovernedOutcome.INVALID_CONTRADICTION_PLAN,
+                    f"proposal {p.local_ref!r} inverts the stance of active lineage "
+                    f"{hid} ({current.value} -> {p.signature.stance.value}) without a "
+                    f"structured CONTRADICTS bearing",
+                    references=(p.local_ref, str(hid)),
+                    raw_response=obs.raw_response,
+                )
 
 
 # --- check 11 ----------------------------------------------------------------

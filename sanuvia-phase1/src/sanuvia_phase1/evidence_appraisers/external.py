@@ -37,6 +37,7 @@ from sanuvia.application.ports.reasoning import (
     ProposedHypothesis,
 )
 from sanuvia.domain import (
+    VOICE_SANUVIA_WORKING_READING,
     ClaimClass,
     Stance,
     EvidenceRecord,
@@ -138,18 +139,17 @@ class ExternalEvidenceAppraiser:
                 statement=p.statement,
                 signature=CommitmentSignatureView(
                     subject=label if label is not None else str(request.subject_id),
-                    # B-1 OPEN: this still derives the immutable attribution from
-                    # a response-local reference, which lets a model-authored
-                    # label decide durable lineage identity. §2 H defines
-                    # attribution as a voice label ("participant account |
-                    # Sanuvia working reading"), not a per-proposal id.
-                    # Correcting it is blocked pending a governance decision --
-                    # see the repair report -- because a shared bound routes
-                    # every non-exact candidate to resolution-order case 4,
-                    # which has no resolver on the deterministic arm. Left as
-                    # the known-defective derivation rather than silently given
-                    # new semantics.
-                    attribution=f"external-appraisal:{p.local_ref}",
+                    # B-1 corrected. attribution is the governed VOICE label
+                    # (§2 H), not a per-proposal identifier. A proposal
+                    # returned by an appraiser is the appraiser's working
+                    # interpretation by construction, so it is always the
+                    # working reading; "participant account" is reserved for a
+                    # commitment separately attributed to the participant and
+                    # is never chosen here. The model does not supply this
+                    # field: letting it choose the voice would let it decide
+                    # whether its own interpretation is the participant's
+                    # commitment.
+                    attribution=VOICE_SANUVIA_WORKING_READING,
                     claim_class=ClaimClass.INTERPRETATION,
                     stance=Stance.OPEN,
                 ),

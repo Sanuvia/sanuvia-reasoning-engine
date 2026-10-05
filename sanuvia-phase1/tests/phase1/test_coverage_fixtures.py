@@ -3,6 +3,8 @@ prediction invalidation and failed evidence acquisition."""
 
 from __future__ import annotations
 
+from _identity_support import durable_ids
+
 from fixtures.longitudinal.failed_acquisition import (
     CASE_FAILED_ACQUISITION,
     FAILED_ACQUISITION_ENGINE_ID,
@@ -28,20 +30,9 @@ def _conditions(case: object) -> list:  # type: ignore[type-arg]
     )
 
 def _durable(conds, case) -> dict[str, str]:
-    """Authored fixture id -> engine-issued durable id.
-
-    Locked §3.3: the engine issues every durable hypothesis id after
-    adjudication. The Scripted fixture migration carries the authored id in the
-    lineage attribution, so these assertions stay exactly as strong as before
-    instead of weakening to a count.
-    """
+    """Authored fixture id -> engine-issued durable id (see _identity_support)."""
     sanuvia = next(c for c in conds if isinstance(c, SanuviaPersistentCondition))
-    return {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in sanuvia._store.lineages.list_for_subject(
-            case.subject_id, space_id=case.space_id
-        )
-    }
+    return durable_ids(sanuvia._store, case)
 
 
 

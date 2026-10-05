@@ -21,6 +21,10 @@ from datetime import datetime, timezone
 
 from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
 from sanuvia.adapters.reasoning import ScriptedAppraiser
+from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    resolver_for_script,
+)
+
 from sanuvia.adapters.support import ManualClock, SequentialIdGenerator
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.ports.reasoning import Appraisal, ProposedHypothesis
@@ -107,6 +111,12 @@ def _build() -> tuple[CoreLoop, ManualClock, InMemoryReasoningStore]:
         appraiser=ScriptedAppraiser(script),
         clock=clock,
         ids=SequentialIdGenerator(),
+        # Identity decisions are AUTHORED BY THE SCRIPT: this scenario holds
+        # several distinct commitments for one subject, stated by authoring a
+        # separate hypothesis id for each. Attribution is the governed voice
+        # label, so they share one retrieval bound and the fixture-authored
+        # resolver double supplies the authored decision (§2 G case 4).
+        identity_resolver=resolver_for_script(script),
     )
     return CoreLoop(deps), clock, store
 
@@ -132,13 +142,15 @@ def test_scenario_produces_persistent_reasoning() -> None:
 
     # --- competing hypotheses retained -----------------------------------
     # Locked §3.3: the engine issues durable ids, so the authored H_A/H_B are
-    # not what the engine reports. The Scripted fixture migration carries the
-    # authored id in the lineage attribution, so this stays an exact identity
-    # assertion rather than a count.
-    durable = {
-        lineage.attribution.split(":", 1)[1]: lineage.hypothesis_id
-        for lineage in store.lineages.list_for_subject(SUBJECT)
+    # not what the engine reports. Derived from the authored STATEMENT, not
+    # from attribution, which is now the governed voice label and identical
+    # across lineages (B-1). This stays an exact identity assertion.
+    by_statement = {
+        h.statement: h.hypothesis_id
+        for h in store.hypotheses.list_for_subject(SUBJECT)
     }
+    durable = {H_A: by_statement["external routine change"],
+               H_B: by_statement["increasing emotional distance"]}
     assert {h.hypothesis_id for h in r1.active_hypotheses} == {
         durable[H_A], durable[H_B]
     }
