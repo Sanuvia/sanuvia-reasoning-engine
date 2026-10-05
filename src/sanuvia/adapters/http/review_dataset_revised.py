@@ -144,7 +144,14 @@ REVISIONS: tuple[dict[str, Any], ...] = (
         "field": "uncertainty",
         "before": "down",
         "after": "up",
-        "classification": "A2",
+        # A1, not A2. No threshold is crossed anywhere in this change: the
+        # uncertainty value moves continuously (0.400 -> 0.4725) and the trend
+        # label follows from comparing two computed values. A2 is reserved for
+        # a value crossing, or ceasing to cross, an unchanged threshold -- which
+        # is what the five prediction revisions above do against the 0.600
+        # prediction threshold. Reporting classification only; the revised
+        # values and the scoring behaviour are unchanged.
+        "classification": "A1",
         "authority": "approved R6 support derivation; uncertainty trend decided",
         "derivation": (
             "A leader change, not a drift. UNCHANGED INPUTS: the evidence specs, "

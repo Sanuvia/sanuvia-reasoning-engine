@@ -234,7 +234,9 @@ step 3  H_avoidance = 0.15 + 0.5×0.6×(1−0.15) = 0.405   ← overtakes H_topi
 A leader change, not a drift. The rise is what the unchanged scoring function
 specifies: "two strongly-supported rivals (genuine competition) → HIGHER
 uncertainty". Pre-R6, the authored 0.4 starting points let H_avoidance reach
-0.58 and win outright (0.41, a fall). Classification **A2**. Narrative revised
+0.58 and win outright (0.41, a fall). Classification **A1** — the value
+moves continuously and no threshold is crossed; A2 is reserved for the five
+prediction revisions, which cross the unchanged 0.600 threshold. Narrative revised
 to describe the near-tie. The case's purpose is unaffected.
 
 ### 6.2 Prediction trajectory — `predictions == ()`
