@@ -543,7 +543,21 @@ class _RevisionRun:
         """
         trajectory = getattr(proposal, "predicted_trajectory", None)
         if trajectory is not None:
-            self.traj_hints.setdefault(hid, trajectory)
+            # LAST-WINS within one interaction (Addendum E-1 Amendment A-1).
+            #
+            # Assignment, not setdefault. At base the hint was keyed by the
+            # proposal's own id and assigned, so when two proposals in one
+            # batch resolved to the same key the last hint won. "Deferred means
+            # preserved unchanged" (§8) makes that the governing behaviour, and
+            # no other criterion exists to choose between two authored hints.
+            #
+            # The collision is newly reachable rather than new in kind: several
+            # response-local proposals can now resolve onto one durable lineage
+            # via MATCH_EXISTING. The outcome stays deterministic because the
+            # order is fixed -- ascending evidence batch index, then response
+            # order, the same rule adjudication uses -- and both hints remain
+            # in the raw responses the audit preserves.
+            self.traj_hints[hid] = trajectory
 
     def _strengthen(self, evidence: EvidenceRecord, hid: HypothesisId) -> None:
         """Attach supporting evidence to an existing lineage.
@@ -960,9 +974,15 @@ class ModelRevisionEngine:
         self, active: list[Hypothesis], run: _RevisionRun
     ) -> tuple[Prediction, ...]:
         cfg = self._d.config
-        # A trajectory kind, once established for a hypothesis, carries forward
-        # across versions. (Full prediction lifecycle governance — creation,
-        # expiry, confirmation — is spec-unresolved and kept minimal here.)
+        # Trajectory precedence across interactions (Addendum E-1 Amendment
+        # A-1.2): a newly authored hint REPLACES the description a prior
+        # prediction established; absent a new hint the prior carries forward.
+        # Both halves are visible in the `or` chain below. The previous comment
+        # here described only the second half and read as the opposite
+        # precedence for the first.
+        #
+        # (Full prediction lifecycle governance — creation, expiry,
+        # confirmation — is spec-unresolved and kept minimal here, §8.)
         prior_trajectory: dict[HypothesisId, FutureTrajectory] = {}
         for prior in self._d.predictions.list_for_subject(
             run.subject_id, space_id=run.space_id

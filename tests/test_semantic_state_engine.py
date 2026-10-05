@@ -1080,3 +1080,140 @@ def test_mid_commit_failure_restores_identifier_counters():
 
     assert ids.new_id("evidence") == "evidence-1"
     assert ids.new_id("req") == "req-1"
+
+
+# --- Addendum E-1 Amendment: trajectory precedence --------------------------
+
+
+def _traj(kind_desc: str):
+    from sanuvia.domain import FutureTrajectory, TrajectoryKind
+
+    return FutureTrajectory(TrajectoryKind.RECURRING_CYCLE, kind_desc)
+
+
+class _OneProposalPerRecord:
+    """One proposal per observation, same statement, a different hint each time.
+
+    Two observations in ONE interaction therefore resolve onto ONE lineage --
+    the first founds it, the second matches it exactly -- and both carry a
+    trajectory, which is what makes the within-interaction tie-break reachable.
+
+    Two such proposals cannot be put in a single response: complete-plan
+    check 3 rejects two proposals that normalise to the same statement and
+    signature as DUPLICATE_HYPOTHESIS_PROPOSAL.
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def appraise(self, request):
+        self.calls += 1
+        sig = CommitmentSignatureView(
+            subject=request.participants[0] if request.participants else "p1",
+            attribution="voice", claim_class=ClaimClass.INTERPRETATION,
+            stance=Stance.OPEN,
+        )
+        return AppraisalResponse(
+            proposals=(
+                CandidateProposal(
+                    f"c{self.calls}", "a recurring pattern", sig,
+                    predicted_trajectory=_traj(f"hint {self.calls}"),
+                ),
+            )
+        )
+
+
+def test_within_one_interaction_the_last_hint_wins():
+    """Amendment A-1: deterministic LAST-WINS, preserving base behaviour.
+
+    At base the hint was assigned, so the last hint in a batch won. "Deferred
+    means preserved unchanged" makes that the governing behaviour; no other
+    criterion exists to choose between two authored hints. The order is fixed
+    (evidence batch index, then response order), so the outcome is
+    reproducible rather than incidental.
+    """
+    appraiser = _OneProposalPerRecord()
+    svc, store, deps = _service(appraiser=appraiser)
+    # Two interactions first, so support crosses the 0.600 gate (0.4 -> 0.64)
+    # and a prediction exists to carry a description at all.
+    svc.record_interaction(SUBJECT, [_ev("first")])
+    svc.record_interaction(SUBJECT, [_ev("second")])
+    # Now ONE interaction carrying TWO observations: two proposals, two hints,
+    # one lineage.
+    before = appraiser.calls
+    svc.record_interaction(SUBJECT, [_ev("third"), _ev("fourth")])
+    assert appraiser.calls == before + 2, "both observations were appraised"
+
+    predictions = list(deps.predictions.list_for_subject(SUBJECT))
+    assert predictions, "support must have crossed the gate"
+    # The LAST hint of the batch wins, not the first.
+    assert predictions[-1].trajectory.description == f"hint {appraiser.calls}"
+
+
+def test_across_interactions_a_new_hint_replaces_the_prior_trajectory():
+    """Amendment A-2: existing behaviour, preserved.
+
+    Verified against base 9883e6c, where _regenerate_predictions already read
+    ``traj_hints.get(hid) or prior_trajectory.get(hid)``. A newly authored hint
+    therefore replaces the description a prior prediction established.
+    """
+    class _HintPerInteraction:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def appraise(self, request):
+            self.calls += 1
+            sig = CommitmentSignatureView(
+                subject=request.participants[0] if request.participants else "p1",
+                attribution="voice", claim_class=ClaimClass.INTERPRETATION,
+                stance=Stance.OPEN,
+            )
+            return AppraisalResponse(
+                proposals=(
+                    CandidateProposal("c1", "a recurring pattern", sig,
+                                      predicted_trajectory=_traj(f"hint {self.calls}")),
+                )
+            )
+
+    appraiser = _HintPerInteraction()
+    svc, _, deps = _service(appraiser=appraiser)
+    for text in ("first", "second", "third"):
+        svc.record_interaction(SUBJECT, [_ev(text)])
+
+    predictions = list(deps.predictions.list_for_subject(SUBJECT))
+    assert predictions
+    assert predictions[-1].trajectory.description == f"hint {appraiser.calls}"
+
+
+def test_absent_a_new_hint_the_prior_trajectory_carries_forward():
+    """Amendment A-2, second half: carry-forward when no new hint is authored."""
+    class _HintThenSilence:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def appraise(self, request):
+            self.calls += 1
+            sig = CommitmentSignatureView(
+                subject=request.participants[0] if request.participants else "p1",
+                attribution="voice", claim_class=ClaimClass.INTERPRETATION,
+                stance=Stance.OPEN,
+            )
+            # Authored through the interaction where the prediction first
+            # forms (support 0.4 -> 0.64 crosses 0.600 at interaction 2), then
+            # silent. Authoring only at interaction 1 would prove nothing:
+            # no prediction exists then, so there is no prior to carry.
+            hint = _traj("authored once") if self.calls <= 2 else None
+            return AppraisalResponse(
+                proposals=(
+                    CandidateProposal("c1", "a recurring pattern", sig,
+                                      predicted_trajectory=hint),
+                )
+            )
+
+    svc, _, deps = _service(appraiser=_HintThenSilence())
+    for text in ("first", "second", "third"):
+        svc.record_interaction(SUBJECT, [_ev(text)])
+
+    predictions = list(deps.predictions.list_for_subject(SUBJECT))
+    assert predictions
+    assert predictions[-1].trajectory.description == "authored once"
