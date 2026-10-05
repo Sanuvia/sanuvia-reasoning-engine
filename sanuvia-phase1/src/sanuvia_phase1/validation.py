@@ -22,7 +22,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from sanuvia.domain import EvidenceClass
+from sanuvia.domain import ClaimClass, EvidenceClass, Stance
 
 from .failures import BoundaryKind, MalformedOutputError
 
@@ -57,6 +57,29 @@ class ValidatedProposal:
 
     local_ref: str
     statement: str
+    #: The governed commitment signature the model stated (§2 C / §2 H),
+    #: minus ``attribution``: the voice is not the model's to choose.
+    signature: "ValidatedSignature"
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedSignature:
+    """A proposal's stated signature, validated against the governed enums.
+
+    ``subject`` is a request-scoped participant label. It is checked for shape
+    only: whether it resolves is complete-plan check 1's decision, in
+    ``src/sanuvia``, not the adapter's.
+
+    ``attribution`` is absent by design. It is the voice (§2 H), and an
+    appraiser's proposal is the working reading by construction, so accepting
+    a model-supplied value would let the model decide whether its own
+    interpretation is the participant's own commitment.
+    """
+
+    subject: str
+    claim_class: ClaimClass
+    stance: Stance
+    temporal_scope: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +237,52 @@ def validate_extraction(raw_text: str) -> tuple[ValidatedObservation, ...]:
     return tuple(out)
 
 
+def _require_enum(value: object, enum_cls, field: str, boundary, raw_text: str):
+    """One of the governed enum values, by value. No coercion, no default."""
+    allowed = {member.value: member for member in enum_cls}
+    if not isinstance(value, str) or value not in allowed:
+        raise MalformedOutputError(
+            boundary,
+            f"{field} must be one of {sorted(allowed)}; got {value!r}",
+            raw_text,
+        )
+    return allowed[value]
+
+
+def _require_signature(
+    value: object, field: str, boundary, raw_text: str
+) -> ValidatedSignature:
+    """A proposal's stated signature. Rejected, never defaulted."""
+    if not isinstance(value, dict):
+        raise MalformedOutputError(boundary, f"{field} must be an object", raw_text)
+    if "attribution" in value:
+        raise MalformedOutputError(
+            boundary,
+            f"{field}.attribution is not the model's to supply: attribution is "
+            f"the governed voice label and an appraiser's proposal is the "
+            f"working reading by construction",
+            raw_text,
+        )
+    scope = value.get("temporal_scope")
+    if scope is not None and not isinstance(scope, str):
+        raise MalformedOutputError(
+            boundary, f"{field}.temporal_scope must be a string or null", raw_text
+        )
+    return ValidatedSignature(
+        subject=_require_nonempty_str(
+            value.get("subject"), f"{field}.subject", boundary, raw_text
+        ),
+        claim_class=_require_enum(
+            value.get("claim_class"), ClaimClass, f"{field}.claim_class",
+            boundary, raw_text,
+        ),
+        stance=_require_enum(
+            value.get("stance"), Stance, f"{field}.stance", boundary, raw_text
+        ),
+        temporal_scope=scope,
+    )
+
+
 def validate_appraisal(raw_text: str) -> ValidatedAppraisal:
     """Validate an evidence-appraisal reply.
 
@@ -256,6 +325,10 @@ def validate_appraisal(raw_text: str) -> ValidatedAppraisal:
                 ),
                 statement=_require_nonempty_str(
                     item.get("statement"), f"proposals[{k}].statement", boundary, raw_text
+                ),
+                signature=_require_signature(
+                    item.get("signature"), f"proposals[{k}].signature",
+                    boundary, raw_text,
                 ),
             )
         )

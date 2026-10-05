@@ -78,6 +78,14 @@ def _appraise_client(request: AppraisalPrompt) -> str:
                     {
                         "local_ref": "p1",
                         "statement": "H_x: a candidate reading.",
+                        "signature": {
+                            # A request-scoped participant label, as the prompt
+                            # supplies it; check 1 resolves it in src/sanuvia.
+                            "subject": request.participants[0],
+                            "claim_class": "interpretation",
+                            "stance": "open",
+                            "temporal_scope": None,
+                        },
                     }
                 ]
             }

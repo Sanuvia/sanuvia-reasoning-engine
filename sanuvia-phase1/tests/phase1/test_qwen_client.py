@@ -149,7 +149,8 @@ def test_unexpected_error_is_wrapped_as_model_error() -> None:
     client.begin_interaction(1, "seq-1")
     with pytest.raises(ModelError):
         client.appraisal_client()(
-            AppraisalPrompt(system="S", evidence_observation="o", active_hypotheses=(), instruction="I")
+            AppraisalPrompt(system="S", evidence_observation="o", active_hypotheses=(),
+                            participants=(), instruction="I")
         )
     rec = builder.finalize().call_records[0]
     assert rec.status == CallStatus.MODEL_ERROR.value

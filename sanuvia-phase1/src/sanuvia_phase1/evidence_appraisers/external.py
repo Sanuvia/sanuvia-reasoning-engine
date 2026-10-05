@@ -51,6 +51,24 @@ from ..validation import validate_appraisal
 
 
 @dataclass(frozen=True, slots=True)
+class HypothesisPromptView:
+    """One active hypothesis as the model sees it, signature included.
+
+    ``handle`` is request-scoped and ``subject`` is a request-scoped
+    participant label: no durable ``HypothesisId`` or ``ParticipantId`` crosses
+    this boundary (TD-V1).
+    """
+
+    handle: str
+    statement: str
+    subject: str
+    attribution: str
+    claim_class: str
+    stance: str
+    temporal_scope: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AppraisalPrompt:
     """A prompt for a real appraisal model — one observation vs the current
     hypotheses.
@@ -62,7 +80,17 @@ class AppraisalPrompt:
 
     system: str
     evidence_observation: str
-    active_hypotheses: tuple[tuple[str, str], ...]  # (hypothesis_id, statement)
+    #: Each active hypothesis as the model sees it. Carries the full governed
+    #: signature (§2 C / §2 H) alongside the handle and statement, so the model
+    #: can see what each existing commitment commits to -- whose it is, in
+    #: which voice, at which claim class, stance and temporal scope -- rather
+    #: than a bare statement. Nothing here is a durable identifier: ``handle``
+    #: is request-scoped and ``subject`` is a request-scoped participant label.
+    active_hypotheses: tuple["HypothesisPromptView", ...]
+    #: The request-scoped participant labels a proposal's signature subject may
+    #: name. Without these the model has no way to know which labels are legal,
+    #: and complete-plan check 1 would reject every proposal it made.
+    participants: tuple[str, ...]
     instruction: str
 
 
@@ -75,12 +103,19 @@ SYSTEM = (
     "EXISTING hypotheses the observation supports or contradicts. Respond with ONLY "
     "a JSON object of the form:\n"
     '{"supports": [handle], "contradicts": [handle], '
-    '"proposals": [{"local_ref": string, "statement": string}]}\n'
+    '"proposals": [{"local_ref": string, "statement": string, '
+    '"signature": {"subject": participant_label, "claim_class": string, '
+    '"stance": string, "temporal_scope": string|null}}]}\n'
     "Reference existing hypotheses by the handle given for this request, exactly "
     "as given. For a new proposal supply a local_ref that is unique within this "
     "response; it labels the proposal in this reply only and is not an identifier. "
-    "Do not assign hypothesis ids, support values, or evidence references — those "
-    "are not yours to decide. Do not output any prose outside the JSON object."
+    "Every proposal must carry a signature saying what it commits to: subject is "
+    "one of the participant labels given for this request; claim_class is one of "
+    "intention, behaviour_pattern, interpretation, relational_dynamic; stance is "
+    "one of affirms, negates, open; temporal_scope is a short phrase or null. "
+    "Do not assign hypothesis ids, support values, evidence references, or the "
+    "attribution — those are not yours to decide. Do not output any prose outside "
+    "the JSON object."
 )
 
 INSTRUCTION = "Return the appraisal JSON now."
@@ -118,8 +153,18 @@ class ExternalEvidenceAppraiser:
             # Handles, never durable ids: this is what closes locked §3.1's
             # prohibition on exposing canonical identity to the model.
             active_hypotheses=tuple(
-                (str(view.handle), view.statement) for view in request.existing
+                HypothesisPromptView(
+                    handle=str(view.handle),
+                    statement=view.statement,
+                    subject=str(view.signature.subject),
+                    attribution=view.signature.attribution,
+                    claim_class=view.signature.claim_class.value,
+                    stance=view.signature.stance.value,
+                    temporal_scope=view.signature.temporal_scope,
+                )
+                for view in request.existing
             ),
+            participants=tuple(str(p) for p in request.participants),
             instruction=INSTRUCTION,
         )
         raw = self._client(prompt)
@@ -132,13 +177,16 @@ class ExternalEvidenceAppraiser:
             Bearing(HypothesisHandle(x), BearingKind.CONTRADICTS)
             for x in validated.contradicts
         )
-        label = request.participants[0] if request.participants else None
         proposals = tuple(
             CandidateProposal(
                 local_ref=p.local_ref,
                 statement=p.statement,
                 signature=CommitmentSignatureView(
-                    subject=label if label is not None else str(request.subject_id),
+                    # The model's stated subject, as a request-scoped label.
+                    # It is NOT trusted blindly: complete-plan check 1 resolves
+                    # it through this request's participant table, so a label
+                    # the model invented fails there rather than here.
+                    subject=p.signature.subject,
                     # B-1 corrected. attribution is the governed VOICE label
                     # (§2 H), not a per-proposal identifier. A proposal
                     # returned by an appraiser is the appraiser's working
@@ -150,8 +198,9 @@ class ExternalEvidenceAppraiser:
                     # whether its own interpretation is the participant's
                     # commitment.
                     attribution=VOICE_SANUVIA_WORKING_READING,
-                    claim_class=ClaimClass.INTERPRETATION,
-                    stance=Stance.OPEN,
+                    claim_class=p.signature.claim_class,
+                    stance=p.signature.stance,
+                    temporal_scope=p.signature.temporal_scope,
                 ),
             )
             for p in validated.proposals

@@ -126,11 +126,19 @@ def compose_extraction_prompt(request: ExtractionRequest) -> str:
 
 def compose_appraisal_prompt(request: AppraisalPrompt) -> str:
     hypotheses = (
-        "\n".join(f"- {hid}: {statement}" for hid, statement in request.active_hypotheses)
+        "\n".join(
+            f"- {h.handle}: {h.statement} "
+            f"[subject={h.subject}; attribution={h.attribution}; "
+            f"claim_class={h.claim_class}; stance={h.stance}; "
+            f"temporal_scope={h.temporal_scope}]"
+            for h in request.active_hypotheses
+        )
         or "(no current hypotheses)"
     )
+    participants = ", ".join(request.participants) or "(none)"
     return (
         f"{request.system}\n\nOBSERVATION:\n{request.evidence_observation}\n\n"
+        f"PARTICIPANT LABELS:\n{participants}\n\n"
         f"CURRENT HYPOTHESES:\n{hypotheses}\n\n{request.instruction}"
     )
 

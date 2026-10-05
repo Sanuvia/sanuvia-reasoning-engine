@@ -11,6 +11,8 @@ import json
 
 import pytest
 
+from sanuvia.domain import ClaimClass, Stance
+
 from sanuvia_phase1 import validation
 from sanuvia_phase1.evidence_extractors import ExternalEvidenceExtractor
 from sanuvia_phase1.failures import (
@@ -146,7 +148,12 @@ def test_appraisal_retired_v1_fields_are_rejected(retired, value) -> None:
         validation.validate_appraisal(
             json.dumps({
                 "supports": [], "contradicts": [],
-                "proposals": [{"local_ref": "p1", "statement": "s", retired: value}],
+                "proposals": [{
+                    "local_ref": "p1", "statement": "s", retired: value,
+                    "signature": {"subject": "req-1::P1",
+                                  "claim_class": "interpretation",
+                                  "stance": "open", "temporal_scope": None},
+                }],
             })
         )
     assert retired in str(exc.value)
@@ -159,13 +166,23 @@ def test_appraisal_valid_output_passes() -> None:
             {
                 "supports": ["req-1::H1"],
                 "contradicts": [],
-                "proposals": [{"local_ref": "p1", "statement": "s"}],
+                "proposals": [{
+                    "local_ref": "p1", "statement": "s",
+                    "signature": {"subject": "req-1::P1",
+                                  "claim_class": "interpretation",
+                                  "stance": "open", "temporal_scope": None},
+                }],
             }
         )
     )
     assert result.supports == ("req-1::H1",)
     assert result.proposals[0].local_ref == "p1"
     assert result.proposals[0].statement == "s"
+    signature = result.proposals[0].signature
+    assert signature.subject == "req-1::P1"
+    assert signature.claim_class is ClaimClass.INTERPRETATION
+    assert signature.stance is Stance.OPEN
+    assert signature.temporal_scope is None
 
 
 # --- C/D. baseline conditions -------------------------------------------------

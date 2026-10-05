@@ -83,7 +83,7 @@ Model **Qwen3-4B**, local only, served via **llama.cpp (GGUF)** at **Q4_K_M** â€
 approved and verified for Run 001. The installed artifact identity and SHA-256,
 and the installed llama.cpp build/commit, were verified locally and frozen in
 governance record `3.0-run001-verified`, carried forward unchanged into
-`4.0-appraisal-schema-v2`, which pins the v1.5.4 evidence-appraisal response
+`5.0-appraisal-schema-v3-signature`, which pins the v1.5.4 evidence-appraisal response
 schema. The model artifact, runtime build and generation parameters are
 unchanged by that revision. **No model inference has been run.**
 
@@ -117,7 +117,7 @@ a fairness requirement), so they carry the same IDs.
 | Role | Prompt ID | Prompt SHA-256 | Schema ID | Schema SHA-256 |
 |---|---|---|---|---|
 | Evidence extraction | `extraction.observations.v1` | `a45066719aa656a3ef544d6184988fd7e42461609ef9ffbb870cf14d218697d1` | `schema.extraction.v1` | `a9cabea9ce522314e9157b39862eb8a9103b3243e507865be4716eedc161c094` |
-| Evidence appraisal | `appraisal.support-contradict-propose.v2` | `c80603cf77c8f58d98c51730f4011d1deaf270544871987cd819859c6a70fac4` | `schema.appraisal.v2` | `71e5cf7acb0a53d9fa86fb1c7cf666893546034fe9927e5aff9a780b900d499e` |
+| Evidence appraisal | `appraisal.support-contradict-propose.v3` | `d5879923204f93ef8156bded29d7331f3070de389a7795283a72b7e7f50bc93c` | `schema.appraisal.v3` | `f8567cd05b764d0b4cc139e14216736db252b6874fd1c4f3020b878099d12459` |
 | Baseline (stateless) | `baseline.reasoning.v1` | `3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc` | `schema.baseline.v1` | `efa45b71e5043f3921048215677c04f140db7f3597b903b9b27a046582fbc11e` |
 | Baseline (transcript) | `baseline.reasoning.v1` (shared) | (as above) | `schema.baseline.v1` (shared) | (as above) |
 
