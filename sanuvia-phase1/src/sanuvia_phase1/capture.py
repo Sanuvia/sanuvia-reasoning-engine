@@ -22,7 +22,10 @@ from sanuvia.application.reasoning.core_loop import InteractionResult
 from .case import CaseInteraction
 from .failures import BoundaryKind
 from .validation import validate_baseline
+from sanuvia.domain import GovernedRejection
+
 from .trajectory import (
+    InteractionOutcome,
     BaselineTurn,
     ContinuityClaim,
     DependencyEdgeView,
@@ -170,6 +173,69 @@ def from_interaction_result(
         revision_events=revision_events,
         recognition_records=recognition_records,
         dependency_edges=dependency_edges,
+        # §5.7: a committed interaction and a hold are both "nothing was
+        # refused"; they differ by whether a new version committed.
+        outcome=(
+            InteractionOutcome.COMMITTED
+            if result.committed
+            else (
+                InteractionOutcome.NO_EVIDENCE_HOLD
+                if not evidence_refs
+                else InteractionOutcome.HELD
+            )
+        ),
+        governed_failure=None,
+        committed=bool(result.committed),
+    )
+
+
+def from_rejected_plan(
+    condition: str,
+    interaction: CaseInteraction,
+    evidence_refs: tuple[str, ...],
+    rejection: GovernedRejection,
+) -> TrajectoryRecord:
+    """The audit record for an interaction whose plan was REFUSED (§5.7, §5.8).
+
+    TD-18 is a distinction between two boundaries, and this is the one it is
+    specified at. Rejected reasoning *state* does not survive -- the UnitOfWork
+    restored every store and every identifier counter. The *interaction* does:
+    the observations that were admitted, the raw appraiser response where an
+    appraisal call occurred (F-15), the governed outcome, and an explicit
+    ``committed: false``.
+
+    Without this, a rejected plan propagated as an exception and NO trajectory
+    record was written at all -- the observations, the raw response and the
+    rejected/hold discriminator were simply absent from the audit.
+
+    Every reasoning-state view is empty, because nothing was committed. That is
+    what distinguishes this record from ``NO_EVIDENCE_HOLD``, which is empty
+    for the opposite reason: it admitted no observations and built no plan. The
+    two can never be confused, because the hold carries no observations and no
+    raw response -- a structural difference, not a flag.
+    """
+    return TrajectoryRecord(
+        condition=condition,
+        interaction_index=interaction.index,
+        seq_label=interaction.seq_label,
+        # Present, with refs -- evidence WAS admitted before the refusal.
+        ingested_evidence_ids=evidence_refs,
+        # All reasoning-state views empty: nothing committed.
+        hypotheses=(),
+        inquiry=None,
+        predictions=(),
+        unsupported_memory_claims=(),
+        raw=rejection.raw_response or "",
+        model_uncertainty=None,
+        revision_count=0,
+        provenance_traceable=None,
+        model_version_id=None,
+        revision_events=(),
+        recognition_records=(),
+        dependency_edges=(),
+        outcome=InteractionOutcome.REJECTED_PLAN,
+        governed_failure=rejection.outcome.value,
+        committed=False,
     )
 
 

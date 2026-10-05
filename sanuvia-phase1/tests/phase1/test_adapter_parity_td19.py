@@ -20,7 +20,7 @@ from sanuvia.adapters.reasoning import ScriptedAppraiser
 from sanuvia.adapters.support.deterministic import ManualClock, SequentialIdGenerator
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api.service import EvidenceInput, ReasoningService
-from sanuvia.application.ports.reasoning import Appraisal
+from sanuvia.application.ports.reasoning import Appraisal, EvidenceHandle
 from sanuvia.domain import (
     EvidenceClass,
     EvidenceRecordId,
@@ -122,3 +122,111 @@ def test_td19_neither_adapter_decides_the_rejection_itself():
     # governed failure.
     assert scripted_response.bearings[0].target
     assert external_response.bearings[0].target
+
+
+# --- TD-19 completion: classification, result shape, state equivalence ------
+
+
+def _reject(appraiser):
+    """Run one interaction and return (rejection, store)."""
+    store = InMemoryReasoningStore()
+    deps = build_in_memory_dependencies(
+        store=store, appraiser=appraiser,
+        ids=SequentialIdGenerator(), clock=ManualClock(),
+    )
+    with pytest.raises(GovernedRejection) as exc:
+        ReasoningService(deps).record_interaction(SUBJECT, [_ev("an observation")])
+    return exc.value, store
+
+
+def test_td19_offending_reference_classification_matches_across_paths():
+    """TD-19 / N-4: the governed CLASSIFICATION of the offending reference.
+
+    Not merely the same outcome: both adapters must classify the offending
+    reference the same way. A handle that was never issued for this request is
+    "never-issued", as distinct from one carrying another request's id, which
+    is "cross-request" -- a different diagnosis of the same outcome.
+    """
+    from sanuvia.application.reasoning.handles import HandleTable
+
+    scripted_exc, _ = _reject(_scripted_unknown())
+    external_exc, _ = _reject(_external_unknown())
+
+    scripted_refs = tuple(scripted_exc.references)
+    external_refs = tuple(external_exc.references)
+    assert scripted_refs and external_refs
+
+    # Classified against the request that issued the handles. Both offending
+    # references name a handle this request never issued, so both must
+    # classify "never-issued" -- not merely "both rejected".
+    table = HandleTable(
+        request_id="req-1",
+        observation=EvidenceHandle("req-1::E0"),
+        observation_id=EvidenceRecordId("evidence-1"),
+    )
+    scripted_class = table.classify_unknown_evidence_handle(scripted_refs[0])
+    external_class = table.classify_unknown_evidence_handle(external_refs[0])
+    assert scripted_class == external_class == "never-issued"
+
+
+def test_td19_result_shape_is_identical_across_paths():
+    """TD-19: committed:false and the governed discriminators agree."""
+    scripted_exc, _ = _reject(_scripted_unknown())
+    external_exc, _ = _reject(_external_unknown())
+
+    assert scripted_exc.outcome is external_exc.outcome
+    assert scripted_exc.breach_kind is external_exc.breach_kind
+    assert scripted_exc.boundary is external_exc.boundary
+    # committed:false -- neither path produced an InteractionResult at all,
+    # which is the strongest form of "not committed".
+    assert scripted_exc.raw_response == external_exc.raw_response is None
+
+
+def test_td19_reasoning_state_is_completely_equivalent_across_paths():
+    """TD-19: every store in the bundle, not only evidence and lineages.
+
+    Checking two stores would let a divergence hide in any of the other
+    thirteen, so the comparison enumerates the bundle.
+    """
+    from sanuvia.application.reasoning.unit_of_work import bundle_stores
+
+    _, scripted_store = _reject(_scripted_unknown())
+    _, external_store = _reject(_external_unknown())
+
+    scripted_bundle = bundle_stores(scripted_store)
+    external_bundle = bundle_stores(external_store)
+    assert set(scripted_bundle) == set(external_bundle)
+
+    for name in sorted(scripted_bundle):
+        lister = getattr(scripted_bundle[name], "list_for_subject", None)
+        if lister is None:
+            continue
+        scripted_rows = list(lister(SUBJECT))
+        external_rows = list(external_bundle[name].list_for_subject(SUBJECT))
+        assert scripted_rows == external_rows == [], (
+            f"{name}: state diverged or survived the rejection"
+        )
+
+
+def test_td19_neither_adapter_persists_evidence_or_lineage_state():
+    """TD-19, stated explicitly for the two stores the defect would touch."""
+    for appraiser in (_scripted_unknown(), _external_unknown()):
+        _, store = _reject(appraiser)
+        assert store.evidence.list_for_subject(SUBJECT) == []
+        assert store.lineages.list_for_subject(SUBJECT) == []
+        assert list(store.statement_versions.history("hyp-1")) == []
+        assert store.ledger.read(SUBJECT) == []
+
+
+def test_td19_identifier_counters_agree_across_paths():
+    """TD-19: a rejection must leave both paths equally reusable."""
+    for appraiser in (_scripted_unknown(), _external_unknown()):
+        store = InMemoryReasoningStore()
+        ids = SequentialIdGenerator()
+        deps = build_in_memory_dependencies(
+            store=store, appraiser=appraiser, ids=ids, clock=ManualClock(),
+        )
+        with pytest.raises(GovernedRejection):
+            ReasoningService(deps).record_interaction(SUBJECT, [_ev("an observation")])
+        assert ids.new_id("evidence") == "evidence-1"
+        assert ids.new_id("req") == "req-1"

@@ -10,6 +10,7 @@ case interactions in and normalizes ``InteractionResult`` out.
 from __future__ import annotations
 
 from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
+from sanuvia.domain import GovernedRejection
 from sanuvia.adapters.reasoning import ScriptedAppraiser
 from sanuvia.adapters.reasoning.scripted_identity_resolver import (
     resolver_for_script,
@@ -22,7 +23,7 @@ from sanuvia.application.reasoning.core_loop import InteractionResult
 from sanuvia.domain import ObjectRef
 from sanuvia.exit_test.session_state import SessionState, from_interactions
 
-from ..capture import from_interaction_result
+from ..capture import from_interaction_result, from_rejected_plan
 from ..case import Case, CaseInteraction
 from ..trajectory import DependencyEdgeView, TrajectoryRecord
 
@@ -83,9 +84,31 @@ class SanuviaPersistentCondition:
         if self._service is None:
             raise RuntimeError("SanuviaPersistentCondition.start() must run before step()")
         inputs = self._case.evidence_inputs(interaction)  # empty for a hold
-        result = self._service.record_interaction(
-            self._case.subject_id, inputs, space_id=self._case.space_id
-        )
+        try:
+            result = self._service.record_interaction(
+                self._case.subject_id, inputs, space_id=self._case.space_id
+            )
+        except GovernedRejection as rejection:
+            # TD-18 at the trajectory boundary (§5.7, §5.8). A refused plan is
+            # a governed OUTCOME of the interaction, not a crash: the audit
+            # must record that it happened, which observations were admitted,
+            # the raw appraiser response and the governed failure.
+            #
+            # Previously this propagated and no trajectory record was written
+            # at all, so the rejected/hold discriminator never reached the
+            # audit. Rejected reasoning STATE is still gone -- the UnitOfWork
+            # restored every store and counter before this point -- which is
+            # exactly the distinction TD-18 asserts.
+            #
+            # It is not appended to ``self._results``: that list feeds
+            # reasoning-state projections, and a rejected interaction
+            # contributed none.
+            return from_rejected_plan(
+                self.name,
+                interaction,
+                self._case.evidence_refs(interaction),
+                rejection,
+            )
         self._results.append(result)
         return from_interaction_result(
             self.name,

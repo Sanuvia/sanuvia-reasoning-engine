@@ -13,6 +13,7 @@ canonical JSON for byte-identical deterministic replay.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,29 @@ class ContinuityClaim:
     cited_evidence_id: str | None
 
 
+class InteractionOutcome(str, Enum):
+    """How one interaction terminated, on the trajectory record (§5.7).
+
+    These are structurally distinguishable, not merely flagged. A
+    ``NO_EVIDENCE_HOLD`` carries no admitted observations and no raw appraiser
+    response because none existed; a ``REJECTED_PLAN`` carries both, because
+    evidence WAS admitted and a plan WAS built before it was refused.
+    """
+
+    #: Evidence was admitted, a plan was built, and the model committed.
+    COMMITTED = "committed"
+    #: Evidence was admitted and a plan built, but the commit policy declined,
+    #: so understanding is unchanged. Not a rejection: nothing was refused.
+    HELD = "held"
+    #: Zero admitted evidence; terminates at step 1 (§3.6). No plan, no
+    #: allocation, no write, no inquiry construction.
+    NO_EVIDENCE_HOLD = "no_evidence_hold"
+    #: Evidence was admitted and a plan was built and REFUSED under a governed
+    #: outcome. No write occurred; the audit keeps the observations and the raw
+    #: appraiser response.
+    REJECTED_PLAN = "rejected_plan"
+
+
 @dataclass(frozen=True, slots=True)
 class TrajectoryRecord:
     """One interaction × one condition, normalized for comparison.
@@ -157,6 +181,16 @@ class TrajectoryRecord:
     # judgment that no condition exists); ``None`` for FM means "not applicable"
     # (a foundation-model baseline has no Recognition Condition concept).
     recognition_records: tuple[RecognitionView, ...] | None = None
+    # -- §5.7 / §5.8 audit shape -------------------------------------------
+    #: How this interaction terminated. ``None`` for FM baselines, which have
+    #: no plan/commit boundary to terminate at.
+    outcome: InteractionOutcome | None = None
+    #: The governed outcome name when ``outcome`` is ``REJECTED_PLAN``;
+    #: ``None`` otherwise. Never a free-text error message.
+    governed_failure: str | None = None
+    #: Explicit non-commit flag (§5.7). ``False`` on a rejected plan, so the
+    #: audit states it rather than leaving it to be inferred from empty views.
+    committed: bool | None = None
 
 
 # --- Foundation-model structured output (Phase 1 response contract, §9) -------
