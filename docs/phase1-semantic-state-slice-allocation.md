@@ -38,7 +38,7 @@ Implemented and tested on **both** adapters, Scripted and External.
 | `DISTINCT_NEW` for a **non-exact** candidate under a populated bound | Requires a comparison the deterministic arm cannot make. Until R1, such a candidate parks. |
 | Resolution of parked candidates | Ruling Q2: parked candidates are created, preserved and reported; no resolution path. |
 | Prediction lifecycle governance | Locked §8. Trajectory content is preserved unchanged; no creation, expiry or confirmation policy is introduced. |
-| Standing rules (check 9), disclosure (check 8b), divergence endpoints (check 8a) | Implemented in the validator, unwired at the call site. Wiring them changes which interactions reject — behaviour, not mapping. |
+| Standing rules (check 9), disclosure (check 8b), divergence endpoints (check 8a) | Implemented in the validator, unwired at the call site. Wiring them changes which interactions reject — behaviour, not mapping. See the entry conditions below. |
 
 ---
 
@@ -78,3 +78,45 @@ In the Phase 1 condition the guard is **structural**: the resolver is bound to
 the same branch that selects the scripted appraiser, so an injected real
 appraiser — the only thing a REAL/Run 003 configuration may use — never
 receives one.
+
+
+---
+
+## Slice 2 entry conditions
+
+Two boundaries must not be crossed piecemeal. Recorded here so a later change
+cannot satisfy half of either and look complete.
+
+### Divergence candidate construction and `space_kind` land together
+
+`core_loop` supplies `space_kind=None`, so check 8b's disclosure test is
+currently inert. That is safe **only** because the engine offers
+`candidates=[]` on every request: any `DivergenceProposal` fails check 1 as
+`UNKNOWN_EVIDENCE_REFERENCE`, so no `DIVERGES_WITH` edge can exist and
+disclosure never happens. The boundary is closed because the behaviour is
+unreachable, not because the check is running.
+
+**Entry condition.** The moment Slice 2 begins offering divergence candidates
+(§2 J.1), check 8b's "divergence requires a shared space" test becomes a no-op
+unless `space_kind` is wired in the **same** change. Candidate construction and
+`space_kind` land together, or neither lands.
+
+Divergence is **not** implemented or wired here.
+
+### Extractor-supplied `EvidenceStanding` is a Run 003 prerequisite
+
+Phase 1 extraction does not populate `EvidenceStanding`. On a Phase 1 real run
+every record therefore carries `standing=None`, with these consequences:
+
+* the Q1 role gate (`is_appraisable`) never fires;
+* check 9(b)'s backstop is vacuous;
+* a `RESPONSE_OR_RESONANCE` turn **is appraised like any other record**.
+
+So F-1 / TD-13e — "resonance cannot raise support" — is **not enforced on the
+real extraction path** until the bounded extractor-standing extension (R2,
+Slice 2) populates the field.
+
+**`RESPONSE_OR_RESONANCE` must not be treated as safely appraisable as
+ordinary support until that extension is implemented.** This is a documented
+Run 003 **precondition**, not only a slice-table row. The extension is not
+implemented here and no Run 003 readiness is implied.

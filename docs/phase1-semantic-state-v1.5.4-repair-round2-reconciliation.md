@@ -196,3 +196,53 @@ non-exact candidates and will until R1. No Run 003 readiness is implied.
 
 This is a bounded repair prepared for another focused independent review, not
 a claim of final acceptance.
+
+
+---
+
+## 11. Items carried forward from the closure review of `0c5c60b`
+
+### 11.1 `Sanuvia working reading` — ratified, not inferred
+
+`VOICE_SANUVIA_WORKING_READING` is the product decision **ratified by
+Lillian's bounded reconciliation**. It is not an implementation inference.
+
+An appraiser proposes Sanuvia's working interpretation, so a model-proposed
+reading carries that voice. `participant account` is reserved for a commitment
+separately attributed to the participant. The adapter sets the value and
+**rejects** a model-supplied `attribution`, because letting the model choose
+would let it decide whether its own interpretation is the participant's own
+commitment — the distinction the immutable half of the lineage key exists to
+keep.
+
+Code behaviour is unchanged by this entry; it records the authority.
+
+### 11.2 Check 7 / check 9(a) overlap — intentional, not a gap
+
+Role reuse of one `SourceObservationRef` is caught on both routes:
+
+| Where | Check | Governed outcome |
+|---|---|---|
+| Across interactions | check 7 | `SOURCE_REFERENCE_MAPPING_FAILURE` |
+| Within one batch | check 9(a) | `ACCOUNT_ROLE_UPGRADE_VIOLATION` |
+
+The boundary is **closed on both routes**; only the outcome *name* differs
+between them. This is an intentional overlap and a boundary consequence, not
+an unprotected gap. Recorded so a Slice 2 reviewer does not read the
+cross-interaction case as unprotected merely because check 9(a) is inert on
+the real path.
+
+### 11.3 Slice 2 entry conditions
+
+Two conditions are recorded in
+[the slice allocation](phase1-semantic-state-slice-allocation.md):
+
+* **divergence candidate construction and `space_kind` land together** — check
+  8b's disclosure test is inert today only because the engine offers no
+  candidates, so disclosure is unreachable;
+* **extractor-supplied `EvidenceStanding` is a Run 003 prerequisite** — Phase 1
+  extraction does not populate it, so the role gate is not live on the real
+  extraction path and `RESPONSE_OR_RESONANCE` must not be treated as safely
+  appraisable as ordinary support until the bounded extension lands.
+
+Neither is implemented here.

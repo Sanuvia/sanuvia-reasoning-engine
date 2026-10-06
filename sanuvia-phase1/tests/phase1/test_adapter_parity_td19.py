@@ -57,14 +57,16 @@ def _scripted_unknown() -> ScriptedAppraiser:
     )
 
 
+#: The exact reply the External fake returns, so tests can assert it verbatim
+#: rather than merely asserting something non-empty came back.
+_EXTERNAL_REPLY = json.dumps(
+    {"supports": ["req-1::H99"], "contradicts": [], "proposals": []}
+)
+
+
 def _external_unknown() -> ExternalEvidenceAppraiser:
     """Fake client naming a handle that was never issued for this request."""
-    def client(_prompt) -> str:
-        return json.dumps(
-            {"supports": ["req-1::H99"], "contradicts": [], "proposals": []}
-        )
-
-    return ExternalEvidenceAppraiser(client=client)
+    return ExternalEvidenceAppraiser(client=lambda _prompt: _EXTERNAL_REPLY)
 
 
 def test_td19_unknown_reference_produces_the_same_governed_outcome():
@@ -179,7 +181,30 @@ def test_td19_result_shape_is_identical_across_paths():
     assert scripted_exc.boundary is external_exc.boundary
     # committed:false -- neither path produced an InteractionResult at all,
     # which is the strongest form of "not committed".
-    assert scripted_exc.raw_response == external_exc.raw_response is None
+
+
+def test_td19_raw_response_is_excluded_from_parity_and_preserved_per_path():
+    """TD-19 excludes raw_response from the cross-path equality, by design.
+
+    ScriptedAppraiser produces no raw response by construction, so comparing
+    the two for EQUALITY asserted the absence as a shared property -- which is
+    how a missing External raw response could look like parity. The design's
+    own note says raw_response is excluded from TD-19 for exactly this reason,
+    so each path is asserted against what it is supposed to produce.
+    """
+    scripted_exc, _ = _reject(_scripted_unknown())
+    external_exc, _ = _reject(_external_unknown())
+
+    # Scripted: None by construction.
+    assert scripted_exc.raw_response is None
+
+    # External: the fake client's exact reply, not merely non-empty.
+    assert external_exc.raw_response == _EXTERNAL_REPLY
+
+    # And the interaction-level audit carries it, attributed to its
+    # observation (§5.8, F-15).
+    assert external_exc.appraisal_responses == (("evidence-1", _EXTERNAL_REPLY),)
+    assert scripted_exc.appraisal_responses == (("evidence-1", None),)
 
 
 def test_td19_reasoning_state_is_completely_equivalent_across_paths():

@@ -105,6 +105,9 @@ class GovernedRejection(DomainError):
     Carries the outcome, the discriminators where the outcome requires them, and
     a diagnostic payload. It is never repaired and never retried: the caller
     restores the UnitOfWork and emits the rejected-plan audit record.
+
+    The diagnostic payload is audit only. Nothing here affects whether or how
+    the plan is rejected, and nothing here is read by the reasoning path.
     """
 
     def __init__(
@@ -116,6 +119,7 @@ class GovernedRejection(DomainError):
         breach_kind: "BreachKind | None" = None,
         references: tuple[str, ...] = (),
         raw_response: str | None = None,
+        appraisal_responses: tuple[tuple[str, str | None], ...] = (),
     ) -> None:
         if outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE and boundary is None:
             raise InvariantViolation(
@@ -130,5 +134,20 @@ class GovernedRejection(DomainError):
         self.boundary = boundary
         self.breach_kind = breach_kind
         self.references = references
+        #: The failing call's raw appraiser response, where an appraisal call
+        #: occurred (F-15). ``None`` where none did, or on the Scripted path,
+        #: which produces no raw response by construction.
         self.raw_response = raw_response
+        #: Every appraisal response collected for this interaction, in call
+        #: order, each attributed to the observation it answered:
+        #: ``((evidence_id, raw_response), ...)``.
+        #:
+        #: §5.8 requires the rejected-plan audit to carry "the raw appraiser
+        #: response" for the interaction. An interaction may admit several
+        #: observations and make an appraisal call for each, so a single field
+        #: cannot represent it: a later record's rejection would discard the
+        #: responses already collected for the earlier ones. This keeps them,
+        #: ordered and attributable, so a reviewer can see what the appraiser
+        #: returned across the whole interaction, including the failing call.
+        self.appraisal_responses = appraisal_responses
         super().__init__(f"{outcome.value}: {detail}" if detail else outcome.value)

@@ -142,6 +142,11 @@ class _RevisionRun:
     adjudications: list = field(default_factory=list)
     appraised: list = field(default_factory=list)
     decisions: list = field(default_factory=list)
+    #: ``(evidence_id, raw_response)`` per appraisal call, in call order. Audit
+    #: only: nothing in the reasoning path reads it. It exists so a rejection
+    #: at step 6 or 8 can carry the responses already collected for earlier
+    #: observations in the same interaction (§5.8).
+    raw_responses: list = field(default_factory=list)
 
     # -- id helpers ---------------------------------------------------------
 
@@ -267,32 +272,46 @@ class _RevisionRun:
             observation_id=evidence.id,
         )
         response = self.deps.appraiser.appraise(request)
+        # The appraisal call HAS occurred, so from here any governed rejection
+        # must carry what the model returned (§5.7, §5.8, F-15). Steps 6 and 8
+        # reject through HandleTable, which has no access to the response, and
+        # the AppraisedObservation that would hold it is only appended once
+        # both steps succeed -- so a rejection there lost the model's words
+        # entirely. Recording the response first, and re-raising with it
+        # attached, closes that without moving any step or changing when
+        # anything is written.
+        self.raw_responses.append((str(evidence.id), response.raw_response))
 
-        # -- step 6: authoritative handle resolution -------------------------
-        bearings: list[tuple[HypothesisId, object]] = []
-        for bearing in response.bearings:
-            bearings.append((table.resolve_hypothesis(str(bearing.target)), bearing.kind))
-
-        # -- step 8: identity adjudication, before any durable id ------------
-        decisions: dict[str, tuple[str, HypothesisId | None]] = {}
-        for proposal in response.proposals:
-            if not proposal.statement or not proposal.statement.strip():
-                raise GovernedRejection(
-                    GovernedOutcome.STATEMENT_CAPTURE_FAILURE,
-                    f"proposal {proposal.local_ref!r} carries no statement",
-                    references=(proposal.local_ref,),
-                    raw_response=response.raw_response,
+        try:
+            # -- step 6: authoritative handle resolution ---------------------
+            bearings: list[tuple[HypothesisId, object]] = []
+            for bearing in response.bearings:
+                bearings.append(
+                    (table.resolve_hypothesis(str(bearing.target)), bearing.kind)
                 )
-            signature = self._resolve_signature(proposal, table)
-            decision = self.adjudicator.adjudicate(
-                proposal, signature,
-                committed=self.committed_views, in_flight=self.in_flight,
-            )
-            self.decisions.append((decision, signature, proposal, evidence))
-            decisions[proposal.local_ref] = (
-                decision.outcome.value, decision.matched_hypothesis_id
-            )
-            self._apply_decision(decision, signature, proposal, evidence)
+
+            # -- step 8: identity adjudication, before any durable id --------
+            decisions: dict[str, tuple[str, HypothesisId | None]] = {}
+            for proposal in response.proposals:
+                if not proposal.statement or not proposal.statement.strip():
+                    raise GovernedRejection(
+                        GovernedOutcome.STATEMENT_CAPTURE_FAILURE,
+                        f"proposal {proposal.local_ref!r} carries no statement",
+                        references=(proposal.local_ref,),
+                        raw_response=response.raw_response,
+                    )
+                signature = self._resolve_signature(proposal, table)
+                decision = self.adjudicator.adjudicate(
+                    proposal, signature,
+                    committed=self.committed_views, in_flight=self.in_flight,
+                )
+                self.decisions.append((decision, signature, proposal, evidence))
+                decisions[proposal.local_ref] = (
+                    decision.outcome.value, decision.matched_hypothesis_id
+                )
+                self._apply_decision(decision, signature, proposal, evidence)
+        except GovernedRejection as rejection:
+            raise self._with_appraisal_audit(rejection, response) from None
 
         self.appraised.append(
             AppraisedObservation(
@@ -526,6 +545,36 @@ class _RevisionRun:
         )
         self.edges.append(
             self._edge(evidence.id, hid, DependencyRelation.SUPPORTS)
+        )
+
+    def _with_appraisal_audit(
+        self, rejection: GovernedRejection, response
+    ) -> GovernedRejection:
+        """Re-raise a rejection carrying the interaction's appraisal responses.
+
+        Audit only. The outcome, discriminators and references are reproduced
+        exactly, so what is rejected and why does not change -- only what the
+        rejected-plan record can show (§5.8).
+
+        ``raw_response`` is the failing call's own response, which is what the
+        Scripted/External parity comparison looks at.
+        ``appraisal_responses`` is every response collected for this
+        interaction so far, in call order and attributed to the observation it
+        answered, so an earlier record's response is not discarded because a
+        later record rejected.
+        """
+        return GovernedRejection(
+            rejection.outcome,
+            rejection.detail,
+            boundary=rejection.boundary,
+            breach_kind=rejection.breach_kind,
+            references=rejection.references,
+            raw_response=(
+                rejection.raw_response
+                if rejection.raw_response is not None
+                else response.raw_response
+            ),
+            appraisal_responses=tuple(self.raw_responses),
         )
 
     def _note_trajectory(self, hid: HypothesisId, proposal) -> None:

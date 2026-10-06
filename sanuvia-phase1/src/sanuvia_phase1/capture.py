@@ -213,6 +213,12 @@ def from_rejected_plan(
     for the opposite reason: it admitted no observations and built no plan. The
     two can never be confused, because the hold carries no observations and no
     raw response -- a structural difference, not a flag.
+
+    ``raw`` carries every appraisal response collected for the interaction, in
+    call order and attributed to the observation each answered. A single field
+    cannot represent a multi-record interaction: a rejection on the third
+    observation would otherwise discard what the appraiser returned for the
+    first two.
     """
     return TrajectoryRecord(
         condition=condition,
@@ -225,7 +231,23 @@ def from_rejected_plan(
         inquiry=None,
         predictions=(),
         unsupported_memory_claims=(),
-        raw=rejection.raw_response or "",
+        # §5.8: the raw appraiser response, canonical-JSON echoed like every
+        # other trajectory record's ``raw``. ``appraisal_responses`` is an
+        # ordered, attributed list so a multi-record interaction shows what the
+        # appraiser returned for EACH observation, including the failing one --
+        # an earlier record's response is not lost because a later record
+        # rejected.
+        raw=_canonical(
+            {
+                "outcome": InteractionOutcome.REJECTED_PLAN.value,
+                "governed_failure": rejection.outcome.value,
+                "committed": False,
+                "appraisal_responses": [
+                    {"evidence_id": evidence_id, "raw_response": raw_response}
+                    for evidence_id, raw_response in rejection.appraisal_responses
+                ],
+            }
+        ),
         model_uncertainty=None,
         revision_count=0,
         provenance_traceable=None,
@@ -236,6 +258,7 @@ def from_rejected_plan(
         outcome=InteractionOutcome.REJECTED_PLAN,
         governed_failure=rejection.outcome.value,
         committed=False,
+        appraisal_responses=tuple(rejection.appraisal_responses),
     )
 
 

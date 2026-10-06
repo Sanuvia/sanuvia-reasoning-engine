@@ -191,6 +191,15 @@ class TrajectoryRecord:
     #: Explicit non-commit flag (§5.7). ``False`` on a rejected plan, so the
     #: audit states it rather than leaving it to be inferred from empty views.
     committed: bool | None = None
+    #: ``((evidence_id, raw_response), ...)`` -- every appraisal response
+    #: collected for this interaction, in call order, attributed to the
+    #: observation each answered (§5.8, F-15).
+    #:
+    #: Populated on ``REJECTED_PLAN``, where the response would otherwise be
+    #: lost. ``()`` where no appraisal call occurred (a ``NO_EVIDENCE_HOLD``
+    #: makes none), and a Scripted-path entry carries ``None`` for its response
+    #: because that adapter produces no raw response by construction.
+    appraisal_responses: tuple[tuple[str, str | None], ...] = ()
 
 
 # --- Foundation-model structured output (Phase 1 response contract, §9) -------
