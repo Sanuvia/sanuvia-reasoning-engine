@@ -22,7 +22,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from sanuvia.domain import ClaimClass, EvidenceClass, Stance
+from sanuvia.domain import ClaimClass, EvidenceClass, IdentityOutcome, Stance
 
 from .failures import BoundaryKind, MalformedOutputError
 
@@ -60,6 +60,24 @@ class ValidatedProposal:
     #: The governed commitment signature the model stated (§2 C / §2 H),
     #: minus ``attribution``: the voice is not the model's to choose.
     signature: "ValidatedSignature"
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedIdentityResolution:
+    """A validated R1 resolver reply (§2 G structured output).
+
+    ``matched_ref`` is a resolution-scoped label, never a durable id: the
+    adapter never sent one, so the model cannot return one.
+
+    ``confidence`` is **provenance only** (F-8). It is carried and reported; no
+    threshold is applied, nothing parks because it is low, and the returned
+    outcome is never rewritten on account of it.
+    """
+
+    outcome: IdentityOutcome
+    matched_ref: str | None
+    rationale: str
+    confidence: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +298,68 @@ def _require_signature(
             value.get("stance"), Stance, f"{field}.stance", boundary, raw_text
         ),
         temporal_scope=scope,
+    )
+
+
+#: The four governed identity outcomes, by their model-facing spelling. The
+#: resolver may return these and nothing else: it cannot invent a fifth.
+_IDENTITY_OUTCOMES: dict[str, IdentityOutcome] = {
+    "match_existing": IdentityOutcome.MATCH_EXISTING,
+    "refine_existing": IdentityOutcome.REFINE_EXISTING,
+    "distinct_new": IdentityOutcome.DISTINCT_NEW,
+    "ambiguous_review_required": IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED,
+}
+
+
+def validate_identity_resolution(raw_text: str) -> ValidatedIdentityResolution:
+    """Validate a bounded R1 resolver reply. Never repaired, never defaulted.
+
+    A malformed or unusable reply raises ``MalformedOutputError``, which the
+    application surfaces as ``INVALID_APPRAISAL_RESPONSE`` with
+    ``boundary=IDENTITY_RESOLVER`` (F-7 case (d)). There is no retry, no
+    rewriting and no fallback outcome: guessing on the model's behalf is
+    exactly what the governed failure exists to prevent.
+    """
+    boundary = BoundaryKind.IDENTITY_RESOLUTION
+    data = parse_json_object(raw_text, boundary)
+
+    outcome_value = data.get("outcome")
+    if not isinstance(outcome_value, str) or outcome_value not in _IDENTITY_OUTCOMES:
+        raise MalformedOutputError(
+            boundary,
+            f"outcome must be one of {sorted(_IDENTITY_OUTCOMES)}; "
+            f"got {outcome_value!r}",
+            raw_text,
+        )
+    outcome = _IDENTITY_OUTCOMES[outcome_value]
+
+    matched_ref = data.get("matched_ref")
+    if matched_ref is not None and not isinstance(matched_ref, str):
+        raise MalformedOutputError(
+            boundary, "matched_ref must be a string or null", raw_text
+        )
+    if isinstance(matched_ref, str) and not matched_ref.strip():
+        raise MalformedOutputError(
+            boundary, "matched_ref must be a non-empty string or null", raw_text
+        )
+
+    confidence = data.get("confidence")
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+        raise MalformedOutputError(
+            boundary, f"confidence must be a number; got {confidence!r}", raw_text
+        )
+    if not 0.0 <= float(confidence) <= 1.0:
+        raise MalformedOutputError(
+            boundary, f"confidence must lie in [0,1]; got {confidence!r}", raw_text
+        )
+
+    return ValidatedIdentityResolution(
+        outcome=outcome,
+        matched_ref=matched_ref,
+        rationale=_require_nonempty_str(
+            data.get("rationale"), "rationale", boundary, raw_text
+        ),
+        confidence=float(confidence),
     )
 
 

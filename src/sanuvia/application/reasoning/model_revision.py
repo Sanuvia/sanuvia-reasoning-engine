@@ -497,6 +497,37 @@ class _RevisionRun:
             self._strengthen(evidence, hid)
             return
 
+        if decision.outcome is IdentityOutcome.REFINE_EXISTING:
+            # R1 (Slice 2). The commitment is the SAME one -- clarified,
+            # qualified or narrowed -- so no lineage is created and no durable
+            # id is issued. A StatementVersion is APPENDED, never overwriting
+            # the prior statement: exact-match adjudication compares against
+            # every version of a lineage, which is what lets a re-presented
+            # earlier statement still identify it after a refinement (F-2).
+            #
+            # `subject` and `attribution` cannot change here: they are
+            # immutable on the lineage, and a candidate differing in either is
+            # bound to a different retrieval key, so a re-attribution cannot
+            # reach this path at all. The versioned fields come from the
+            # candidate's own signature.
+            hid = decision.matched_hypothesis_id
+            if hid is None:
+                return
+            self.statement_versions.append(
+                StatementVersion(
+                    id=StatementVersionId(d.ids.new_id("sv")), hypothesis_id=hid,
+                    statement=proposal.statement, claim_class=signature.claim_class,
+                    stance=signature.stance, temporal_scope=signature.temporal_scope,
+                    created_at_version=self.new_version_id,
+                )
+            )
+            self._note_trajectory(hid, proposal)
+            # The refining observation bears on the commitment, so it attaches
+            # and strengthens exactly as a match would: refinement changes what
+            # the lineage says, not how it is supported.
+            self._strengthen(evidence, hid)
+            return
+
         # DISTINCT_NEW -- the durable id is issued HERE, after adjudication.
         hid = HypothesisId(d.ids.new_id("hyp"))
         self._note_trajectory(hid, proposal)

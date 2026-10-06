@@ -8,11 +8,13 @@ from sanuvia_phase1 import prompts
 _EXPECTED_PROMPT = {
     "extraction.observations.v1": "a45066719aa656a3ef544d6184988fd7e42461609ef9ffbb870cf14d218697d1",
     "appraisal.support-contradict-propose.v3": "d5879923204f93ef8156bded29d7331f3070de389a7795283a72b7e7f50bc93c",
+    "identity.r1.bounded.v1": "45d0675753216e1439230776ffbf2150f82c760f04dd276b87344276415398d6",
     "baseline.reasoning.v1": "3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc",
 }
 _EXPECTED_SCHEMA = {
     "schema.extraction.v1": "a9cabea9ce522314e9157b39862eb8a9103b3243e507865be4716eedc161c094",
     "schema.appraisal.v3": "f8567cd05b764d0b4cc139e14216736db252b6874fd1c4f3020b878099d12459",
+    "schema.identity.v1": "31e731bed3c0917e15b6f669a8f9329f2adef046fe8673a6e3d24e7a178217e8",
     "schema.baseline.v1": "efa45b71e5043f3921048215677c04f140db7f3597b903b9b27a046582fbc11e",
 }
 

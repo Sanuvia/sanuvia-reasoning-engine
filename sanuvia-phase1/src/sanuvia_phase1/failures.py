@@ -49,6 +49,10 @@ class BoundaryKind(str, Enum):
     EVIDENCE_APPRAISAL = "evidence_appraisal"
     STATELESS_BASELINE = "stateless_baseline"
     TRANSCRIPT_BASELINE = "transcript_baseline"
+    #: The bounded R1 identity-resolution boundary (§2 G). Distinct from
+    #: EVIDENCE_APPRAISAL because an interaction can cross both, and the audit
+    #: must say which one produced a malformed reply (F-7 case (d)).
+    IDENTITY_RESOLUTION = "identity_resolution"
 
 
 class Availability(str, Enum):

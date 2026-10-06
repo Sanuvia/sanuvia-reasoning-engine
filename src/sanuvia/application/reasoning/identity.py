@@ -22,16 +22,19 @@ to a store: it returns decisions, and ``model_revision`` mints ids for the
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol, runtime_checkable
 
 from sanuvia.application.ports.reasoning import CandidateProposal
 from sanuvia.application.reasoning.plan_validation import normalise_statement
 from sanuvia.domain import (
     CommitmentSignature,
+    GovernedOutcome,
+    GovernedRejection,
     HypothesisId,
     IdentityDecision,
     IdentityOutcome,
+    ModelBoundary,
     ParticipantId,
     Stance,
     StatementVersion,
@@ -211,11 +214,150 @@ class DeterministicAdjudicator:
                 ),
             )
         # The resolver receives EVERY plausible candidate the bound admits
-        # (§2 G bounded inputs), not merely the first retrieved.
-        return self._resolver.resolve(
-            candidate,
-            [(lv.hypothesis_id, self._statement_of(lv))
-             for lv in plausible if lv.hypothesis_id is not None],
+        # (§2 G bounded inputs), not merely the first retrieved. It receives
+        # the candidate's statement and signature and those candidates --
+        # nothing else. It does not receive the evidence store, the hypothesis
+        # store, or unrelated state.
+        bounded = [
+            (lv.hypothesis_id, self._statement_of(lv))
+            for lv in plausible
+            if lv.hypothesis_id is not None
+        ]
+        decision = self._resolver.resolve(candidate, bounded)
+        return self._govern_resolver_decision(
+            decision, candidate, signature, plausible, bounded
+        )
+
+    # -- R1: application authority over the resolver's answer ----------------
+
+    def _govern_resolver_decision(
+        self,
+        decision: IdentityDecision,
+        candidate: CandidateProposal,
+        signature: CommitmentSignature,
+        plausible: Sequence[LineageView],
+        bounded: Sequence[tuple[HypothesisId, str]],
+    ) -> IdentityDecision:
+        """Validate and bound a resolver answer before it can take effect.
+
+        The resolver is an adjudicator **within** the R1 interface, never the
+        owner of durable identity. Everything below is the application
+        exercising its own authority over the answer; none of it is a
+        heuristic and none of it re-opens the comparison.
+        """
+        admitted = {hid for hid, _ in bounded}
+
+        # (1) Structured output only, and only the four governed outcomes.
+        if not isinstance(decision, IdentityDecision):
+            raise self._resolver_failure(
+                candidate, "resolver returned a non-IdentityDecision value", decision
+            )
+        if not isinstance(decision.outcome, IdentityOutcome):
+            raise self._resolver_failure(
+                candidate, f"resolver returned a non-governed outcome "
+                f"{decision.outcome!r}", decision,
+            )
+
+        # (2) The resolver may not assign durable identity. It may only NAME a
+        # lineage the bound already admitted; anything else -- an invented id,
+        # or one from outside the bounded candidate set -- is a malformed and
+        # unusable response, not something to repair.
+        if decision.matched_hypothesis_id is not None:
+            if decision.matched_hypothesis_id not in admitted:
+                raise self._resolver_failure(
+                    candidate,
+                    f"resolver named hypothesis {decision.matched_hypothesis_id!r}, "
+                    f"which the bounded candidate set did not admit",
+                    decision,
+                )
+
+        # (3) DISTINCT_NEW founds a lineage, so it must not name one. The
+        # engine issues the durable id at step 9, after adjudication.
+        if (
+            decision.outcome is IdentityOutcome.DISTINCT_NEW
+            and decision.matched_hypothesis_id is not None
+        ):
+            raise self._resolver_failure(
+                candidate,
+                "resolver returned DISTINCT_NEW while naming an existing "
+                "hypothesis; durable identity is engine-issued",
+                decision,
+            )
+
+        # (4) A merge outcome must say WHAT it merges into.
+        if (
+            decision.outcome
+            in (IdentityOutcome.MATCH_EXISTING, IdentityOutcome.REFINE_EXISTING)
+            and decision.matched_hypothesis_id is None
+        ):
+            raise self._resolver_failure(
+                candidate,
+                f"resolver returned {decision.outcome.value} without naming the "
+                f"lineage it matches",
+                decision,
+            )
+
+        # (5) R1a, pinned outcome C-1. Where the candidate's stance structurally
+        # inverts the matched lineage's current stance, a MERGE outcome is
+        # discarded and the candidate parks instead: each would put two opposed
+        # commitments in one hypothesis_id.
+        #
+        # The override is NARROW (D-2). DISTINCT_NEW is not a merge outcome and
+        # stands -- subject to check 10, which then requires the structured
+        # CONTRADICTS operation. AMBIGUOUS_REVIEW_REQUIRED also stands. There is
+        # no rule that every inverted-stance candidate parks.
+        if decision.outcome in (
+            IdentityOutcome.MATCH_EXISTING,
+            IdentityOutcome.REFINE_EXISTING,
+        ):
+            matched = next(
+                (lv for lv in plausible
+                 if lv.hypothesis_id == decision.matched_hypothesis_id),
+                None,
+            )
+            if matched is not None and inverts(matched.current_stance, signature.stance):
+                parked = self._park(
+                    candidate,
+                    [matched],
+                    rationale=(
+                        f"resolver returned {decision.outcome.value}, discarded "
+                        f"under R1a: the candidate stance "
+                        f"{signature.stance.value} inverts lineage "
+                        f"{matched.hypothesis_id}'s current stance "
+                        f"{matched.current_stance.value}, and merging would put "
+                        f"two opposed commitments in one lineage"
+                    ),
+                )
+                # Provenance is preserved through the override, including what
+                # the resolver actually said, so the discard is auditable.
+                return replace(
+                    parked,
+                    overridden_resolver_outcome=decision.outcome,
+                    resolver_id=decision.resolver_id,
+                    resolver_raw_response=decision.resolver_raw_response,
+                    confidence=decision.confidence,
+                )
+
+        # The outcome binds AS RETURNED (F-8). ``confidence`` is provenance
+        # only: there is no threshold, no minimum, no low-confidence automatic
+        # parking and no confidence-based rewriting of the outcome.
+        return decision
+
+    def _resolver_failure(
+        self, candidate: CandidateProposal, detail: str, decision: object
+    ) -> GovernedRejection:
+        """F-7 case (d): a malformed or unusable resolver response.
+
+        A visible governed failure, never repaired, never retried, never
+        defaulted to an outcome the resolver did not return.
+        """
+        return GovernedRejection(
+            GovernedOutcome.INVALID_APPRAISAL_RESPONSE,
+            f"identity resolver response unusable for candidate "
+            f"{candidate.local_ref!r}: {detail}",
+            boundary=ModelBoundary.IDENTITY_RESOLVER,
+            references=(candidate.local_ref,),
+            raw_response=getattr(decision, "resolver_raw_response", None),
         )
 
     # -- internals ----------------------------------------------------------

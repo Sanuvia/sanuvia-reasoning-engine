@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from .conditions._prompt import SYSTEM as _BASELINE_SYSTEM
 from .evidence_appraisers.external import SYSTEM as _APPRAISAL_SYSTEM
 from .evidence_extractors.external import SYSTEM as _EXTRACTION_SYSTEM
+from .identity_resolvers.external import SYSTEM as _IDENTITY_SYSTEM
 
 
 def sha256(text: str) -> str:
@@ -71,6 +72,14 @@ _APPRAISAL_SCHEMA = (
     '"stance": string, "temporal_scope": string|null}}]}'
 )
 
+# R1 bounded identity resolution (§2 G case 4). Refs are resolution-scoped: no
+# durable HypothesisId crosses this boundary.
+_IDENTITY_SCHEMA = (
+    '{"outcome": "match_existing|refine_existing|distinct_new|'
+    'ambiguous_review_required", "matched_ref": string|null, '
+    '"rationale": string, "confidence": number[0..1]}'
+)
+
 _BASELINE_SCHEMA = (
     '{"best_explanations": [string], '
     '"competing_hypotheses_held": [{"id": string, "statement": string}], '
@@ -83,10 +92,12 @@ _BASELINE_SCHEMA = (
 
 EXTRACTION_PROMPT_ID = "extraction.observations.v1"
 APPRAISAL_PROMPT_ID = "appraisal.support-contradict-propose.v3"
+IDENTITY_PROMPT_ID = "identity.r1.bounded.v1"
 BASELINE_PROMPT_ID = "baseline.reasoning.v1"  # shared by both baselines
 
 EXTRACTION_SCHEMA_ID = "schema.extraction.v1"
 APPRAISAL_SCHEMA_ID = "schema.appraisal.v3"
+IDENTITY_SCHEMA_ID = "schema.identity.v1"
 BASELINE_SCHEMA_ID = "schema.baseline.v1"  # shared by both baselines
 
 
@@ -95,6 +106,7 @@ PROMPTS: dict[str, PromptSpec] = {
     for spec in (
         PromptSpec(EXTRACTION_PROMPT_ID, "evidence_extraction", _EXTRACTION_SYSTEM),
         PromptSpec(APPRAISAL_PROMPT_ID, "evidence_appraisal", _APPRAISAL_SYSTEM),
+        PromptSpec(IDENTITY_PROMPT_ID, "identity_resolution", _IDENTITY_SYSTEM),
         PromptSpec(BASELINE_PROMPT_ID, "baseline", _BASELINE_SYSTEM),
     )
 }
@@ -104,6 +116,7 @@ SCHEMAS: dict[str, SchemaSpec] = {
     for spec in (
         SchemaSpec(EXTRACTION_SCHEMA_ID, "evidence_extraction", _EXTRACTION_SCHEMA),
         SchemaSpec(APPRAISAL_SCHEMA_ID, "evidence_appraisal", _APPRAISAL_SCHEMA),
+        SchemaSpec(IDENTITY_SCHEMA_ID, "identity_resolution", _IDENTITY_SCHEMA),
         SchemaSpec(BASELINE_SCHEMA_ID, "baseline", _BASELINE_SCHEMA),
     )
 }
@@ -113,6 +126,7 @@ SCHEMAS: dict[str, SchemaSpec] = {
 EXPECTED_PROMPT_SHA256: dict[str, str] = {
     EXTRACTION_PROMPT_ID: "a45066719aa656a3ef544d6184988fd7e42461609ef9ffbb870cf14d218697d1",
     APPRAISAL_PROMPT_ID: "d5879923204f93ef8156bded29d7331f3070de389a7795283a72b7e7f50bc93c",
+    IDENTITY_PROMPT_ID: "45d0675753216e1439230776ffbf2150f82c760f04dd276b87344276415398d6",
     BASELINE_PROMPT_ID: "3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc",
 }
 
