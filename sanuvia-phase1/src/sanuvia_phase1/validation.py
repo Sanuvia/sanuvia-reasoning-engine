@@ -24,6 +24,8 @@ from typing import Any
 
 from sanuvia.domain import ClaimClass, EvidenceClass, IdentityOutcome, Stance
 
+from .extraction import ProposedStanding
+
 from .failures import BoundaryKind, MalformedOutputError
 
 # --- validated structures -----------------------------------------------------
@@ -37,6 +39,9 @@ class ValidatedObservation:
     classification_confidence: float
     provenance_confidence: float
     text_span: str | None
+    #: The standing the extractor PROPOSED (§2 E, R2). ``None`` where it
+    #: supplied none -- never defaulted here.
+    standing: "ProposedStanding | None" = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +198,42 @@ def _str_tuple(value: Any, field: str, boundary: BoundaryKind, raw: str) -> tupl
 # --- boundary validators ------------------------------------------------------
 
 
+def _optional_proposed_standing(
+    item: dict, field: str, boundary, raw_text: str
+) -> "ProposedStanding | None":
+    """Shape-check the proposed standing fields. Permitted VALUES are the
+    application's decision, not the validator's.
+
+    Absent ``role`` means the extractor proposed no standing, which is left
+    absent rather than defaulted -- defaulting is exactly how a
+    RESPONSE_OR_RESONANCE turn would silently become ordinary supporting
+    evidence.
+
+    Whether ``role`` and ``subject`` are permitted is decided by
+    ``standing.complete_standing``, which rejects an invalid proposal as
+    EVIDENCE_ROLE_VIOLATION under ruling Q6.
+    """
+    if "role" not in item and "subject_kind" not in item:
+        return None
+    if "source_kind" in item or "source_id" in item:
+        raise MalformedOutputError(
+            boundary,
+            f"{field}.source_kind/source_id are not the extractor's to supply: "
+            f"who spoke is a contextual fact the application supplies (§2 E)",
+            raw_text,
+        )
+    role = _require_nonempty_str(item.get("role"), f"{field}.role", boundary, raw_text)
+    subject_kind = _require_nonempty_str(
+        item.get("subject_kind"), f"{field}.subject_kind", boundary, raw_text
+    )
+    subject = item.get("subject")
+    if subject is not None and not isinstance(subject, str):
+        raise MalformedOutputError(
+            boundary, f"{field}.subject must be a string or null", raw_text
+        )
+    return ProposedStanding(role=role, subject_kind=subject_kind, subject=subject)
+
+
 def validate_extraction(raw_text: str) -> tuple[ValidatedObservation, ...]:
     """Validate an evidence-extraction reply.
 
@@ -250,6 +291,9 @@ def validate_extraction(raw_text: str) -> tuple[ValidatedObservation, ...]:
                     raw_text,
                 ),
                 text_span=span,
+                standing=_optional_proposed_standing(
+                    item, f"evidence[{k}]", boundary, raw_text
+                ),
             )
         )
     return tuple(out)

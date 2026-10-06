@@ -132,6 +132,9 @@ def build_extracted_case(
                     source=_provenance_source(ev.provenance),
                     evidence_role="",
                     acquisition_metadata=_provenance_metadata(ev.provenance),
+                    # The extractor-proposed, application-validated standing
+                    # (§2 E, R2) carried through to the engine.
+                    standing=ev.standing,
                 )
             )
         interactions.append(CaseInteraction(ti.index, ti.seq_label, tuple(evidence)))

@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 from sanuvia.application.api import EvidenceInput
 from sanuvia.application.ports.reasoning import Appraisal
-from sanuvia.domain import EvidenceClass, EvidenceRecordId, SpaceId, SubjectId
+from sanuvia.domain import EvidenceStanding, EvidenceClass, EvidenceRecordId, SpaceId, SubjectId
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +47,15 @@ class CaseEvidence:
     classification_confidence: float
     provenance_confidence: float
     source: str
-    evidence_role: str  # fixture metadata only; never sent to the engine
+    evidence_role: str  # legacy fixture label; never sent to the engine
+    #: The validated ``EvidenceStanding`` (§2 E). ``None`` where none was
+    #: supplied -- never defaulted to ordinary supporting evidence.
+    #:
+    #: Distinct from ``evidence_role`` above, which is a legacy fixture label
+    #: in a different vocabulary ("resonance", "decision", ...) and is NOT
+    #: mapped onto the governed ``EvidenceRole`` enum: deriving one from the
+    #: other would be inventing standing the fixture never stated.
+    standing: "EvidenceStanding | None" = None
     # Optional structured provenance (e.g. from an evidence extractor). Flows into
     # the Phase 0 evidence record via the public ``EvidenceInput.acquisition_metadata``
     # field — it does not affect reasoning. Empty for hand-authored fixtures.
@@ -91,6 +99,9 @@ class Case:
                 classification_confidence=ev.classification_confidence,
                 provenance_confidence=ev.provenance_confidence,
                 acquisition_metadata=ev.acquisition_metadata,
+                # §2 E: the validated standing reaches the engine, so the role
+                # gate is live. ``None`` stays ``None``.
+                standing=ev.standing,
             )
             for ev in interaction.evidence
         )

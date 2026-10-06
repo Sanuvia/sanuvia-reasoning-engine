@@ -30,13 +30,14 @@ RUN001_APPROVAL_SOURCE = "Phase 1 Run-001 governance approval (2026-08-26)"
 RUN001_VERIFICATION_SOURCE = "Run-001 artifact verification (2026-08-31)"
 
 # Current record version and the audit trail of prior pinned hashes.
-FREEZE_RECORD_VERSION = "5.0-appraisal-schema-v3-signature"
+FREEZE_RECORD_VERSION = "6.0-slice2-extractor-standing"
 FREEZE_RECORD_HISTORY: tuple[tuple[str, str], ...] = (
     # (version, freeze_record_sha256) — never overwritten.
     ("1.0-structure", "8a8841ba3003bbab0aadff8fa0f3ccceab6ec965cf209d5cc2f77ae30a91a44f"),
     ("2.0-run001", "0291e6e4b0452c4a4ca32daa4424e32982919b8da0558dc5b41d39644d8fe4ad"),
     ("3.0-run001-verified", "3f46ef56e12c776251a223180cfbf842f228fbbcb743ff5c466f7acf45c0a2dd"),
     ("4.0-appraisal-schema-v2", "8cf8dd7d25588dc892211b6fdf7f8e8f74e83a718c3308e372b4af6c06dc925a"),
+    ("5.0-appraisal-schema-v3-signature", "d3e6c79f0475dd46cfd5e5629d95cc9be650eb7d28efb24ac37300280743905c"),
 )
 
 

@@ -23,6 +23,12 @@ class TranscriptInteraction:
     index: int
     seq_label: str
     text: str
+    #: The participant who spoke this turn, where the transcript records one.
+    #:
+    #: A CONTEXTUAL fact, so the application supplies it and it is never asked
+    #: of the model and never accepted from it (§2 E, R2). It determines
+    #: ``standing.source_kind`` and ``standing.source_id``.
+    speaker: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from sanuvia.domain import EvidenceClass
+from sanuvia.domain import EvidenceStanding, EvidenceClass
 
 from .transcript import TranscriptInteraction
 
@@ -41,6 +41,27 @@ class EvidenceProvenance:
 
 
 @dataclass(frozen=True, slots=True)
+class ProposedStanding:
+    """What an extractor may PROPOSE about an observation's standing (R2).
+
+    Bounded to the parts that cannot be supplied from context:
+
+    * ``role`` -- which of the four ``EvidenceRole`` values applies;
+    * ``subject`` -- what the observation is about;
+    * ``subject_kind`` -- whether that subject is a participant, the dyad, a
+      third party, or none.
+
+    It deliberately carries **no** ``source_kind`` or ``source_id``. Those
+    follow from who spoke, which is a contextual fact the application supplies
+    and never asks of the model (§2 E).
+    """
+
+    role: str
+    subject_kind: str
+    subject: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ObservationSpec:
     """What an extractor decides about one observation *before* provenance is
     stamped. Authored by a scripted extractor, or parsed from a real model.
@@ -55,6 +76,13 @@ class ObservationSpec:
     classification_confidence: float
     provenance_confidence: float
     text_span: str | None = None
+    #: The semantic standing the extractor PROPOSED for this observation (§2 E,
+    #: R2). ``None`` where the extractor supplied none.
+    #:
+    #: Proposed, not decided: the application validates ``role`` and ``subject``
+    #: against the permitted enum and identifier set, and supplies the
+    #: contextual halves (``source_kind`` / ``source_id``) itself.
+    standing: "ProposedStanding | None" = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +96,10 @@ class ExtractedEvidence:
     classification_confidence: float
     provenance_confidence: float
     provenance: EvidenceProvenance
+    #: The validated, application-completed standing (§2 E). ``None`` only where
+    #: the extractor proposed none -- never defaulted to ordinary supporting
+    #: evidence.
+    standing: EvidenceStanding | None = None
 
 
 @dataclass(frozen=True, slots=True)

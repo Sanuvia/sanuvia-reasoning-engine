@@ -16,11 +16,14 @@ selected here.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import dataclasses
+
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from ..extraction import EvidenceExtractor, ExtractedEvidence, ObservationSpec, stamp
 from ..transcript import TranscriptInteraction
+from ..standing import complete_standing
 from ..validation import validate_extraction
 
 
@@ -43,9 +46,18 @@ SYSTEM = (
     '{"evidence": [{"observation": string, "evidence_class": '
     '"narrative|reflective|behavioural|contradictory|missing|failed_acquisition", '
     '"reliability": number, "classification_confidence": number, '
-    '"provenance_confidence": number, "text_span": string|null}]}\n'
-    "Return an empty list if the text contains no extractable observation. Do not "
-    "output any prose outside the JSON object."
+    '"provenance_confidence": number, "text_span": string|null, '
+    '"role": "event_observation|account|response_or_resonance|meta_instruction", '
+    '"subject_kind": "participant|dyad|third_party|none", '
+    '"subject": string|null}]}\n'
+    "role says what the observation IS: event_observation for something that "
+    "happened, account for a participant's own telling of it, "
+    "response_or_resonance for a reaction to what the system said, "
+    "meta_instruction for an instruction about the process itself. "
+    "subject says what the observation is ABOUT; give null when subject_kind is "
+    "dyad or none. Do not state who spoke -- that is supplied, not yours to "
+    "decide. Return an empty list if the text contains no extractable "
+    "observation. Do not output any prose outside the JSON object."
 )
 
 INSTRUCTION = "Extract the observations now."
@@ -56,10 +68,19 @@ class ExternalEvidenceExtractor:
     port. Real runs are **not** guaranteed deterministic."""
 
     def __init__(
-        self, client: ExtractionClient, *, extractor_id: str = "external-extractor"
+        self,
+        client: ExtractionClient,
+        *,
+        extractor_id: str = "external-extractor",
+        permitted_participants: Sequence[str] = (),
     ) -> None:
         self._client = client
         self.extractor_id = extractor_id
+        #: The permitted participant identifier set. A CONTEXTUAL fact the
+        #: application supplies (§2 E, R2); it is never asked of the model, and
+        #: a proposed subject outside it is a governed failure, not a value to
+        #: repair.
+        self._permitted = tuple(permitted_participants)
 
     def extract(
         self, interaction: TranscriptInteraction, transcript_id: str
@@ -74,16 +95,31 @@ class ExternalEvidenceExtractor:
         observations = validate_extraction(self._client(request))
         out: list[ExtractedEvidence] = []
         for k, obs in enumerate(observations, start=1):
+            ref = f"{transcript_id}:{interaction.index}:{k}"
+            # The application validates the PROPOSED standing and supplies the
+            # contextual half itself. An invalid proposal raises
+            # EVIDENCE_ROLE_VIOLATION here, which rejects the whole interaction
+            # (Q6): no repair, no normalisation, no segment-level partial
+            # commit. The complete extraction output is already preserved in
+            # the validated observations above.
+            standing = complete_standing(
+                obs.standing,
+                ref=ref,
+                speaker=interaction.speaker,
+                permitted_participants=self._permitted,
+            )
             spec = ObservationSpec(
-                ref=f"{transcript_id}:{interaction.index}:{k}",
+                ref=ref,
                 observation=obs.observation,
                 evidence_class=obs.evidence_class,
                 reliability=obs.reliability,
                 classification_confidence=obs.classification_confidence,
                 provenance_confidence=obs.provenance_confidence,
                 text_span=obs.text_span,
+                standing=obs.standing,
             )
-            out.append(stamp(spec, interaction, transcript_id, self.extractor_id))
+            stamped = stamp(spec, interaction, transcript_id, self.extractor_id)
+            out.append(dataclasses.replace(stamped, standing=standing))
         return tuple(out)
 
 
