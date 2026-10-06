@@ -81,6 +81,7 @@ from .scope import (
     SpaceKind,
     personal_space_id,
     shared_space_id,
+    space_kind_of,
 )
 from .prediction import FutureTrajectory, Prediction, TrajectoryKind
 from .recognition import RecognitionEvent, RecognitionKind
@@ -125,6 +126,7 @@ __all__ = [
     "SpaceKind",
     "personal_space_id",
     "shared_space_id",
+    "space_kind_of",
     "EvidenceRecordId",
     "InferenceRecordId",
     "WorldModelVersionId",

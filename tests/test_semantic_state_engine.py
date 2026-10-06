@@ -1217,3 +1217,76 @@ def test_absent_a_new_hint_the_prior_trajectory_carries_forward():
     predictions = list(deps.predictions.list_for_subject(SUBJECT))
     assert predictions
     assert predictions[-1].trajectory.description == "authored once"
+
+
+def test_trajectory_contract_is_unchanged_by_slice_2():
+    """Regression: R1, standing and divergence must not have moved the contract.
+
+    Addendum E-1 and Amendment A-1 are accepted and this milestone introduces
+    no prediction lifecycle policy. The three rules are re-asserted together,
+    through a resolver-wired engine, because that is the configuration the
+    Slice 2 work added and the one most likely to have disturbed them.
+    """
+    from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+        ScriptedIdentityResolver,
+    )
+
+    class _HintPerCall:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def appraise(self, request):
+            self.calls += 1
+            signature = CommitmentSignatureView(
+                subject=request.participants[0] if request.participants else "p1",
+                attribution="voice", claim_class=ClaimClass.INTERPRETATION,
+                stance=Stance.OPEN,
+            )
+            return AppraisalResponse(
+                proposals=(
+                    CandidateProposal(
+                        "c1", "a recurring pattern", signature,
+                        predicted_trajectory=_traj(f"hint {self.calls}"),
+                    ),
+                )
+            )
+
+    appraiser = _HintPerCall()
+    svc, _, deps = _service(appraiser=appraiser,
+                            resolver=ScriptedIdentityResolver(["c1"]))
+    svc.record_interaction(SUBJECT, [_ev("first")])
+    svc.record_interaction(SUBJECT, [_ev("second")])
+
+    predictions = list(deps.predictions.list_for_subject(SUBJECT))
+    assert predictions, "support crossed the unchanged 0.600 gate"
+    # A new hint replaces the prior trajectory across interactions.
+    assert predictions[-1].trajectory.description == f"hint {appraiser.calls}"
+
+    # Hints remain content-only: they moved no support and no uncertainty.
+    (hypothesis,) = deps.hypotheses.list_for_subject(SUBJECT)
+    assert hypothesis.support.value == 0.64, "R6 accumulation, untouched"
+    assert deps.config.prediction_support_threshold == 0.6
+
+
+def test_trajectory_hint_still_cannot_create_a_prediction_under_slice_2():
+    """The gate is applied before any hint is read -- still true."""
+    class _HighHintLowSupport:
+        def appraise(self, request):
+            signature = CommitmentSignatureView(
+                subject=request.participants[0] if request.participants else "p1",
+                attribution="voice", claim_class=ClaimClass.INTERPRETATION,
+                stance=Stance.OPEN,
+            )
+            return AppraisalResponse(
+                proposals=(
+                    CandidateProposal("c1", "a recurring pattern", signature,
+                                      predicted_trajectory=_traj("authored")),
+                )
+            )
+
+    svc, _, deps = _service(appraiser=_HighHintLowSupport())
+    result = svc.record_interaction(SUBJECT, [_ev("only one")])
+
+    (hypothesis,) = deps.hypotheses.list_for_subject(SUBJECT)
+    assert hypothesis.support.value == 0.4
+    assert result.predictions == ()

@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sanuvia.domain import (
+    space_kind_of,
     DEFAULT_SPACE_ID,
     AcquisitionStrategy,
     CognitiveState,
@@ -263,4 +264,10 @@ class CoreLoop:
             lineage_stance=stances,
             lineage_key_index=lineage_keys,
             source_ref_index=index_of() if index_of is not None else None,
+            # Supplied in the SAME change as divergence candidate construction.
+            # Check 8b's "divergence requires a shared space" test is a no-op
+            # without it, so offering candidates while leaving this None would
+            # create exactly the half-wired disclosure path the coupling exists
+            # to prevent.
+            space_kind=space_kind_of(space_id),
         )

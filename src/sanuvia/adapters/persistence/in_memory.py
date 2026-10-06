@@ -515,6 +515,11 @@ class InMemoryDependencyGraphStore:
     def edges_to(self, ref: ObjectRef) -> Sequence[DependencyEdge]:
         return [e for e in self._edges if e.to_ref == ref]
 
+    def all_edges(self) -> Sequence[DependencyEdge]:
+        """Every recorded edge. Used to exclude already-paired divergence
+        candidates before disclosure (§2 J.1 rule 6b)."""
+        return list(self._edges)
+
     # -- snapshot/restore (Technical Design v1.5.4 §5.3, F-9) --------------
     #
     # Each store copies **every mutable container it owns**, to whatever depth

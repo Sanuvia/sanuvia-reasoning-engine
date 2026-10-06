@@ -33,6 +33,10 @@ from datetime import datetime
 
 from sanuvia.application.ports.reasoning import AppraisalRequest
 from sanuvia.domain import (
+    ObjectRef,
+    SpaceKind,
+    canonical_divergence_pair,
+    space_kind_of,
     DEFAULT_SPACE_ID,
     GovernedOutcome,
     GovernedRejection,
@@ -147,6 +151,12 @@ class _RevisionRun:
     #: at step 6 or 8 can carry the responses already collected for earlier
     #: observations in the same interaction (§5.8).
     raw_responses: list = field(default_factory=list)
+    #: Admitted records in membership order, for divergence candidate
+    #: construction (§2 J.1 rule 9).
+    admitted_pool: list = field(default_factory=list)
+    #: Already-recorded ``DIVERGES_WITH`` pairs, excluded before disclosure
+    #: (rule 6b) so an existing pair is never re-offered.
+    existing_divergence_pairs: frozenset = field(default_factory=frozenset)
 
     # -- id helpers ---------------------------------------------------------
 
@@ -247,18 +257,34 @@ class _RevisionRun:
         for pid in self._lineage_subjects():
             if pid not in participants:
                 participants.append(pid)
+
+        # §2 J.1 rule 7: divergence requires a SHARED reasoning space, and the
+        # caller enforces it. A space that does not declare itself shared
+        # offers no candidates at all, so nothing can be disclosed across a
+        # personal or undeclared boundary -- the construction side of the same
+        # condition complete-plan check 8b re-verifies before mutation.
+        candidates: list = []
+        if space_kind_of(self.space_id) is SpaceKind.SHARED:
+            candidates = list(
+                _handles.build_divergence_candidates(
+                    observation=evidence,
+                    admitted=self.admitted_pool,
+                    existing_pairs=self.existing_divergence_pairs,
+                )
+            )
+
         table = _handles.build_table(
             request_id=request_id,
             observation=evidence,
             active_hypotheses=list(self.entering),
-            candidates=[],
+            candidates=candidates,
             participants=participants,
         )
         obs_view, hyp_views, cand_views = _handles.build_request_views(
             table=table,
             observation=evidence,
             active_hypotheses=list(self.entering),
-            candidates=[],
+            candidates=candidates,
             signatures=self._signature_views(table),
         )
         request = AppraisalRequest(
@@ -288,6 +314,37 @@ class _RevisionRun:
             for bearing in response.bearings:
                 bearings.append(
                     (table.resolve_hypothesis(str(bearing.target)), bearing.kind)
+                )
+
+            # -- divergence: evidence <-> evidence, symmetric and co-valid ---
+            #
+            # Separate from contradiction and from the support axis: a
+            # DIVERGES_WITH edge changes no hypothesis, no support value and no
+            # stance. It records that two participant accounts of the same
+            # thing differ, both of which remain admitted and valid.
+            for divergence in response.divergences:
+                other = table.resolve_divergence_candidate(str(divergence.with_evidence))
+                # Canonical ordering, so the relationship is ONE edge whichever
+                # direction it was proposed from. Direction carries no causal
+                # meaning and is an ordering artifact (§2 J).
+                a, b = canonical_divergence_pair(
+                    ObjectRef(str(evidence.id)), ObjectRef(str(other))
+                )
+                if (a, b) in self.existing_divergence_pairs:
+                    continue  # already recorded; never a second relationship
+                if any(
+                    e.relation is DependencyRelation.DIVERGES_WITH
+                    and (e.from_ref, e.to_ref) == (a, b)
+                    for e in self.edges
+                ):
+                    continue  # proposed twice in one interaction
+                self.edges.append(
+                    DependencyEdge(
+                        id=DependencyEdgeId(self.deps.ids.new_id("dep")),
+                        from_ref=a, to_ref=b,
+                        relation=DependencyRelation.DIVERGES_WITH,
+                        created_at=self.now,
+                    )
                 )
 
             # -- step 8: identity adjudication, before any durable id --------
@@ -886,6 +943,22 @@ class ModelRevisionEngine:
         )
         self._d = deps
 
+    def _recorded_divergence_pairs(self) -> frozenset:
+        """Canonical ``DIVERGES_WITH`` pairs already in the dependency graph.
+
+        Rule 6b excludes an already-paired candidate BEFORE disclosure, so a
+        pair recorded once is never offered to the model again.
+        """
+        store = getattr(self._d, "dependencies", None)
+        edges = getattr(store, "all_edges", None)
+        if edges is None:
+            return frozenset()
+        return frozenset(
+            (edge.from_ref, edge.to_ref)
+            for edge in edges()
+            if edge.relation is DependencyRelation.DIVERGES_WITH
+        )
+
     def _committed_views(self, subject_id, entering, space_id) -> dict:
         """Committed lineages, keyed by the immutable (subject, attribution).
 
@@ -949,6 +1022,17 @@ class ModelRevisionEngine:
         run.adjudicator = self._adjudicator
         run.committed_views = self._committed_views(subject_id, entering, space_id)
 
+        # Divergence candidate construction (§2 J.1). Admitted records in
+        # MEMBERSHIP order: committed records in admission sequence, then this
+        # interaction's own batch. Membership order is deliberately not
+        # canonical-id order -- an interaction's evidence-N ids are all minted
+        # before any appraisal call, so they carry no chronological meaning
+        # within it.
+        run.admitted_pool = list(
+            d.evidence.list_for_subject(subject_id, space_id=space_id)
+        ) + list(evidence_batch)
+        run.existing_divergence_pairs = self._recorded_divergence_pairs()
+
         for evidence in evidence_batch:
             run.ingest(evidence)
 
@@ -962,7 +1046,23 @@ class ModelRevisionEngine:
             return PlannedRevision(
                 subject_id=subject_id, space_id=space_id,
                 evidence=tuple(evidence_batch),
-                committed_events=(), records=(), edges=(),
+                committed_events=(), records=(),
+                # DIVERGES_WITH edges survive a hold; nothing else does.
+                #
+                # A divergence is evidence <-> evidence (§2 J), so it depends on
+                # no hypothesis committing and is applied atomically with the
+                # plan. An interaction that only records a divergence changes no
+                # WorldModel version -- it holds -- but the relationship it
+                # established is still reasoning state and must be written.
+                #
+                # The other edges are deliberately dropped: a SUPPORTS edge
+                # whose revision event did not commit would point at a
+                # hypothesis record that was never written, which is the orphan
+                # class M-3 closed.
+                edges=tuple(
+                    e for e in run.edges
+                    if e.relation is DependencyRelation.DIVERGES_WITH
+                ),
                 anomalies=tuple(run.anomalies),
                 lineages=tuple(run.lineages),
                 statement_versions=tuple(run.statement_versions),
