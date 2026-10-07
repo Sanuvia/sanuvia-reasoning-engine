@@ -109,13 +109,28 @@ def test_standing_reaches_the_engine_through_the_evidence_input():
 # --- 3. the application validates, it does not trust -------------------------
 
 
-@pytest.mark.parametrize("bad_role", ["resonance", "", "EVENT_OBSERVATION", "unknown"])
+@pytest.mark.parametrize("bad_role", ["resonance", "EVENT_OBSERVATION", "unknown"])
 def test_an_invalid_proposed_role_rejects_the_whole_interaction(bad_role):
-    """Q6: governed failure, no repair, no partial commit."""
-    with pytest.raises((GovernedRejection, MalformedOutputError)) as exc:
+    """Q6: governed failure, no repair, no partial commit.
+
+    This previously accepted either exception class. A non-empty but
+    unpermitted role is a VALUE the application judges, so the governed outcome
+    is required; the empty-string case is a shape failure the validator catches
+    first and is asserted separately below.
+    """
+    with pytest.raises(GovernedRejection) as exc:
         _extract(_reply(bad_role))
-    if isinstance(exc.value, GovernedRejection):
-        assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
+
+    assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
+    # Q6: the complete extraction output is preserved on the rejection.
+    assert exc.value.raw_response is not None
+    assert bad_role in exc.value.raw_response
+
+
+def test_an_empty_role_is_a_shape_failure_at_the_validator():
+    """An absent value never reaches the application's value judgement."""
+    with pytest.raises(MalformedOutputError, match="role"):
+        _extract(_reply(""))
 
 
 def test_an_invalid_subject_kind_rejects_the_interaction():

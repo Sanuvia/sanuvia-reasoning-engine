@@ -120,6 +120,7 @@ class GovernedRejection(DomainError):
         references: tuple[str, ...] = (),
         raw_response: str | None = None,
         appraisal_responses: tuple[tuple[str, str | None], ...] = (),
+        provenance: tuple[tuple[str, str], ...] = (),
     ) -> None:
         if outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE and boundary is None:
             raise InvariantViolation(
@@ -150,4 +151,12 @@ class GovernedRejection(DomainError):
         #: ordered and attributable, so a reviewer can see what the appraiser
         #: returned across the whole interaction, including the failing call.
         self.appraisal_responses = appraisal_responses
+        #: Ordered ``(key, value)`` provenance for the boundary that produced
+        #: this rejection -- for the identity resolver, its ``resolver_id`` and
+        #: the versioned prompt and schema it ran under (§2 G, F-7 d).
+        #:
+        #: A rejection has to say which configured component produced the
+        #: unusable response, or the audit cannot tell one resolver version
+        #: from another when the behaviour later changes.
+        self.provenance = provenance
         super().__init__(f"{outcome.value}: {detail}" if detail else outcome.value)

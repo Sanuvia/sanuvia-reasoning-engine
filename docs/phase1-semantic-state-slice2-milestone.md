@@ -175,6 +175,85 @@ tests; no existing test was skipped, xfailed, deleted, relaxed or weakened.
   preparation, which is not authorized here.
 * No claim of full reasoning-system completion is made.
 
+## 8. Bounded repair — independent review of 2026-10-07
+
+Three blockers, each reproduced before the fix and each regression driven
+through the real caller path.
+
+### B-1 — closed resolver reference vocabulary
+
+**Defect reproduced.** The request offered only `C1`. A reply naming `hyp-1`
+was carried forward **as the durable `HypothesisId`** and accepted, attaching
+`evidence-2` to the existing lineage. `hyp-9` was refused only because no such
+lineage existed — a store-membership accident, not a rule.
+
+**Repair.** `matched_ref` is validated against the offered reference set
+before any mapping. An unoffered label is unusable output, never interpreted
+as a durable identifier. The docstring claiming an unknown label is "returned
+as-is so the application rejects it" is removed; it described the defect.
+
+### B-2 — governed resolver rejection with complete provenance
+
+**Defect reproduced.** A `"not json"` reply escaped as `MalformedOutputError`.
+Rollback happened, but no governed rejected-plan record was ever produced.
+
+**Repair.** `ExternalIdentityResolver.resolve` converts the validation failure
+into `INVALID_APPRAISAL_RESPONSE` with `boundary=IDENTITY_RESOLVER`, carrying
+the exact raw reply and the resolver provenance. No retry, no repair, no
+normalisation, no fallback outcome.
+
+`GovernedRejection` gained `provenance`; `TrajectoryRecord` gained `boundary`,
+`boundary_raw_response` and `boundary_provenance`. The rejected-plan record
+now recovers: governed failure, boundary, resolver raw response, resolver id,
+prompt version, schema version, `committed=false`. The interaction's appraisal
+responses are kept **separate** — both boundaries are crossed in the same
+interaction and neither may overwrite the other.
+
+### B-3 — interaction-level extraction rejection
+
+**Defect reproduced.** With two turns where turn 2 proposed `role="resonance"`,
+extraction aborted the **entire run**: turn 1 never reached its condition, the
+validated extraction output was lost, and no interaction-level record existed.
+
+**Repair.** `build_extracted_case` catches the governed rejection per
+interaction and marks that `CaseInteraction` pre-rejected with empty evidence;
+the loop continues. `SanuviaPersistentCondition.step` emits the rejected-plan
+record for it. The extractor re-raises carrying the complete validated
+extraction output as `raw_response`, so ruling Q6's preservation requirement
+is met. Provider response and interaction rejection record remain distinct.
+
+A test asserts that reasoning state after the two-turn run is **equivalent to
+processing only the valid interaction**.
+
+### Tests tightened, none weakened
+
+`test_malformed_resolver_output_is_rejected_not_repaired` now requires the
+governed outcome, boundary, exact raw reply and resolver id rather than
+accepting either exception class.
+`test_resolver_naming_an_unadmitted_lineage_is_a_governed_failure` is replaced
+by `test_resolver_reference_vocabulary_is_closed`, parametrised over `C99`,
+`hyp-1` and `hyp-9`, so it tests the closed vocabulary rather than relying on
+durable-id membership.
+`test_an_invalid_proposed_role_rejects_the_whole_interaction` now requires
+`EVIDENCE_ROLE_VIOLATION` and asserts the preserved extraction output; the
+empty-role case is split into a separate shape-failure assertion, because an
+absent value never reaches the application's value judgement.
+
+### Deferred — Run 003 prerequisites, recorded not implemented
+
+Classified as Run 003 prerequisites, not blockers for this repair, and
+deliberately **not** implemented here. None is Slice 2 policy:
+
+1. **Request-scoped participant labels for the extractor**, mapped back safely.
+   The extractor is currently given durable participant identifiers as the
+   permitted set.
+2. **Governed speaker context.** A speakerless transcript yields
+   `source_kind=SYSTEM_SURFACE`, so no record is a participant account and
+   divergence eligibility is empty.
+3. **REAL-mode failure when the permitted-participant configuration is
+   absent.** An empty permitted set currently rejects every proposed subject
+   rather than failing clearly at configuration time.
+
 ---
 
 Slice 1 remains accepted. This milestone implements only the authorized Slice 2

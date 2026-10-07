@@ -200,6 +200,19 @@ class TrajectoryRecord:
     #: makes none), and a Scripted-path entry carries ``None`` for its response
     #: because that adapter produces no raw response by construction.
     appraisal_responses: tuple[tuple[str, str | None], ...] = ()
+    #: Which model boundary produced a governed failure -- ``"APPRAISAL"`` or
+    #: ``"IDENTITY_RESOLVER"`` (§4, F-7). An interaction can cross both, so the
+    #: audit must say which one, and the two are never conflated.
+    boundary: str | None = None
+    #: The raw response from the boundary that FAILED, where that boundary is
+    #: not the appraiser. Kept separate from ``appraisal_responses``: a
+    #: resolver failure must not overwrite what the appraiser returned for the
+    #: interaction -- both are needed to read the rejection.
+    boundary_raw_response: str | None = None
+    #: Ordered ``(key, value)`` provenance for that boundary -- for the
+    #: identity resolver, its ``resolver_id`` and the versioned prompt and
+    #: schema it ran under.
+    boundary_provenance: tuple[tuple[str, str], ...] = ()
 
 
 # --- Foundation-model structured output (Phase 1 response contract, §9) -------

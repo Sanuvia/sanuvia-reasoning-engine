@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 from ..extraction import EvidenceExtractor, ExtractedEvidence, ObservationSpec, stamp
 from ..transcript import TranscriptInteraction
+from sanuvia.domain import GovernedRejection
+
 from ..standing import complete_standing
 from ..validation import validate_extraction
 
@@ -92,7 +94,8 @@ class ExternalEvidenceExtractor:
         )
         # Strict validation: malformed output raises MalformedOutputError — it is
         # never coerced into empty evidence or defaulted confidences.
-        observations = validate_extraction(self._client(request))
+        raw = self._client(request)
+        observations = validate_extraction(raw)
         out: list[ExtractedEvidence] = []
         for k, obs in enumerate(observations, start=1):
             ref = f"{transcript_id}:{interaction.index}:{k}"
@@ -102,12 +105,28 @@ class ExternalEvidenceExtractor:
             # (Q6): no repair, no normalisation, no segment-level partial
             # commit. The complete extraction output is already preserved in
             # the validated observations above.
-            standing = complete_standing(
-                obs.standing,
-                ref=ref,
-                speaker=interaction.speaker,
-                permitted_participants=self._permitted,
-            )
+            try:
+                standing = complete_standing(
+                    obs.standing,
+                    ref=ref,
+                    speaker=interaction.speaker,
+                    permitted_participants=self._permitted,
+                )
+            except GovernedRejection as rejection:
+                # Q6: the COMPLETE extraction output is preserved on the
+                # rejection, so the audit can show what the extractor actually
+                # returned for the interaction it rejected. Re-raised rather
+                # than repaired: no normalisation, no partial commit, and no
+                # segment is salvaged.
+                raise GovernedRejection(
+                    rejection.outcome,
+                    rejection.detail,
+                    boundary=rejection.boundary,
+                    breach_kind=rejection.breach_kind,
+                    references=rejection.references,
+                    raw_response=raw,
+                    provenance=(("extractor_id", self.extractor_id),),
+                ) from None
             spec = ObservationSpec(
                 ref=ref,
                 observation=obs.observation,

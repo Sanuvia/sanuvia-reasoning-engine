@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 from sanuvia.application.api import EvidenceInput
 from sanuvia.application.ports.reasoning import Appraisal
-from sanuvia.domain import EvidenceStanding, EvidenceClass, EvidenceRecordId, SpaceId, SubjectId
+from sanuvia.domain import EvidenceStanding, GovernedRejection, EvidenceClass, EvidenceRecordId, SpaceId, SubjectId
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +70,15 @@ class CaseInteraction:
     index: int
     seq_label: str
     evidence: tuple[CaseEvidence, ...]
+    #: Set when extraction produced a governed rejection for THIS interaction
+    #: (ruling Q6). The interaction is rejected as a whole: its ``evidence``
+    #: stays empty, nothing from it is committed, and the condition emits a
+    #: rejected-plan record for it rather than processing it.
+    #:
+    #: An interaction-level rejection, not a run-level abort. Earlier
+    #: interactions keep their normal processing and later ones still run --
+    #: rejecting one interaction is not a reason to discard the rest.
+    pre_rejection: "GovernedRejection | None" = None
 
 
 @dataclass(frozen=True, slots=True)

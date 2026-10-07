@@ -358,6 +358,11 @@ class DeterministicAdjudicator:
             boundary=ModelBoundary.IDENTITY_RESOLVER,
             references=(candidate.local_ref,),
             raw_response=getattr(decision, "resolver_raw_response", None),
+            provenance=(
+                (("resolver_id", getattr(decision, "resolver_id", "") or ""),)
+                if getattr(decision, "resolver_id", None)
+                else ()
+            ),
         )
 
     # -- internals ----------------------------------------------------------

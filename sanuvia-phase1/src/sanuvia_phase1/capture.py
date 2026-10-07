@@ -242,6 +242,13 @@ def from_rejected_plan(
                 "outcome": InteractionOutcome.REJECTED_PLAN.value,
                 "governed_failure": rejection.outcome.value,
                 "committed": False,
+                "boundary": (
+                    rejection.boundary.value
+                    if rejection.boundary is not None
+                    else None
+                ),
+                "boundary_raw_response": rejection.raw_response,
+                "boundary_provenance": dict(rejection.provenance),
                 "appraisal_responses": [
                     {"evidence_id": evidence_id, "raw_response": raw_response}
                     for evidence_id, raw_response in rejection.appraisal_responses
@@ -259,6 +266,15 @@ def from_rejected_plan(
         governed_failure=rejection.outcome.value,
         committed=False,
         appraisal_responses=tuple(rejection.appraisal_responses),
+        boundary=(
+            rejection.boundary.value if rejection.boundary is not None else None
+        ),
+        # The failing boundary's own raw response, kept SEPARATE from the
+        # interaction's appraisal responses above. For a resolver failure both
+        # boundaries were crossed in the same interaction, and replacing one
+        # with the other would lose half the evidence needed to read it.
+        boundary_raw_response=rejection.raw_response,
+        boundary_provenance=tuple(rejection.provenance),
     )
 
 

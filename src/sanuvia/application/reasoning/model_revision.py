@@ -663,6 +663,11 @@ class _RevisionRun:
                 else response.raw_response
             ),
             appraisal_responses=tuple(self.raw_responses),
+            # Carried through unchanged. A rejection raised at the identity
+            # resolver already names which resolver and which prompt/schema
+            # version produced it; re-raising without that would strip the
+            # provenance the audit needs to attribute the failure.
+            provenance=rejection.provenance,
         )
 
     def _note_trajectory(self, hid: HypothesisId, proposal) -> None:

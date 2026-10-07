@@ -32,8 +32,12 @@ What it does NOT do
 
 * **No retries.** One call, one answer.
 * **No repair, rewriting or normalisation.** A malformed or unusable reply is a
-  visible governed failure (F-7 case (d)), raised by the application as
-  ``INVALID_APPRAISAL_RESPONSE`` with ``boundary=IDENTITY_RESOLVER``.
+  visible governed failure (F-7 case (d)), raised as
+  ``INVALID_APPRAISAL_RESPONSE`` with ``boundary=IDENTITY_RESOLVER`` and
+  carrying the exact raw reply plus this resolver's provenance.
+* **A closed reference vocabulary.** The reply may name only the refs this
+  request offered. An unoffered label is unusable output, never carried
+  forward as though it were a durable identifier.
 * **No confidence threshold.** ``confidence`` is provenance only (F-8): it is
   recorded and reported, and never changes an outcome.
 * **No durable identity.** The engine issues every durable id at step 9, after
@@ -51,12 +55,26 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from sanuvia.application.ports.reasoning import CandidateProposal
-from sanuvia.domain import HypothesisId, IdentityDecision, IdentityOutcome
+from sanuvia.domain import (
+    GovernedOutcome,
+    GovernedRejection,
+    HypothesisId,
+    IdentityDecision,
+    IdentityOutcome,
+    ModelBoundary,
+)
 
+from ..failures import MalformedOutputError
 from ..validation import validate_identity_resolution
 
 #: Stable provenance id recorded on every decision this resolver produces.
 RESOLVER_ID = "identity.r1.bounded.v1"
+
+#: The versioned prompt and schema this resolver runs under (§2 G provenance).
+#: Declared here rather than imported from the registry so the adapter carries
+#: its own identity without a circular import; the registry pins the hashes.
+PROMPT_VERSION = "identity.r1.bounded.v1"
+SCHEMA_VERSION = "schema.identity.v1"
 
 SYSTEM = (
     "You decide whether a CANDIDATE commitment is the same commitment as one of "
@@ -143,14 +161,44 @@ class ExternalIdentityResolver:
         )
 
         raw = self._client(prompt)
-        validated = validate_identity_resolution(raw)
+        try:
+            validated = validate_identity_resolution(raw)
+        except MalformedOutputError as exc:
+            # A malformed reply is a GOVERNED failure at this boundary, not a
+            # transport error that escapes to the caller. Raising it as
+            # MalformedOutputError meant rollback happened but no governed
+            # rejected-plan record was ever produced, so the audit lost both
+            # the outcome and the model's words.
+            #
+            # Converted, never repaired: no retry, no normalisation, no
+            # fallback outcome. The exact raw reply and the resolver
+            # provenance travel with it.
+            raise self._governed_failure(
+                candidate, str(exc), raw
+            ) from None
 
-        # Map the label back. An unknown label is NOT repaired: it is returned
-        # as-is so the application rejects it as unusable, which keeps the
-        # governed failure where the authority sits (§1.3, F-11).
+        # CLOSED REFERENCE VOCABULARY.
+        #
+        # The request offered C1, C2, ... and the model may name only those.
+        # This previously fell back to the model's own string when the label
+        # was unknown, so a reply naming "hyp-1" was carried forward AS a
+        # durable HypothesisId -- and was accepted whenever a lineage happened
+        # to be called that. A reply naming "hyp-9" was refused only because no
+        # such lineage existed, which is a membership accident, not a rule.
+        #
+        # The application must never infer that a model-supplied string is a
+        # durable identifier. An unoffered label is unusable output.
         matched: HypothesisId | None = None
         if validated.matched_ref is not None:
-            matched = by_ref.get(validated.matched_ref, validated.matched_ref)
+            if validated.matched_ref not in by_ref:
+                raise self._governed_failure(
+                    candidate,
+                    f"matched_ref {validated.matched_ref!r} was not offered for "
+                    f"this resolution; the offered references are "
+                    f"{sorted(by_ref)}",
+                    raw,
+                )
+            matched = by_ref[validated.matched_ref]
 
         return IdentityDecision(
             outcome=validated.outcome,
@@ -161,6 +209,30 @@ class ExternalIdentityResolver:
             confidence=validated.confidence,
             resolver_id=self.resolver_id,
             resolver_raw_response=raw,
+        )
+
+
+    def _governed_failure(
+        self, candidate: CandidateProposal, detail: str, raw: str
+    ) -> GovernedRejection:
+        """F-7 case (d): an unusable identity-resolver response.
+
+        Carries the complete provenance the audit needs to attribute the
+        failure: the exact raw reply, which resolver produced it, and the
+        versioned prompt and schema it ran under.
+        """
+        return GovernedRejection(
+            GovernedOutcome.INVALID_APPRAISAL_RESPONSE,
+            f"identity resolver response unusable for candidate "
+            f"{candidate.local_ref!r}: {detail}",
+            boundary=ModelBoundary.IDENTITY_RESOLVER,
+            references=(candidate.local_ref,),
+            raw_response=raw,
+            provenance=(
+                ("resolver_id", self.resolver_id),
+                ("prompt_version", PROMPT_VERSION),
+                ("schema_version", SCHEMA_VERSION),
+            ),
         )
 
 

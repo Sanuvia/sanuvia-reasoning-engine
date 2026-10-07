@@ -37,6 +37,8 @@ from .conditions import (
     TranscriptContextFmCondition,
 )
 from .demonstrator import DemonstrationReport
+from sanuvia.domain import GovernedRejection
+
 from .extraction import EvidenceExtractor, EvidenceProvenance, ExtractionResult
 from .ports import LanguageModel
 from .runconfig import GOLDEN, REAL, RealRunConfig, validate_run_configuration
@@ -115,7 +117,24 @@ def build_extracted_case(
     for ti in transcript.interactions:
         if on_interaction_start is not None:
             on_interaction_start(ti.index, ti.seq_label)
-        extracted = extractor.extract(ti, transcript.transcript_id)
+        # Ruling Q6 / §2 E: invalid extractor-proposed standing rejects the
+        # WHOLE INTERACTION -- not the whole run.
+        #
+        # This previously let the rejection propagate out of the loop, so a
+        # single bad turn aborted extraction entirely: earlier interactions
+        # never reached their condition, later ones never ran, and the
+        # validated extraction output was lost from the audit. The rejection is
+        # caught per interaction, recorded against it, and the loop continues.
+        #
+        # Nothing from the rejected interaction is committed: its evidence list
+        # stays empty, so it contributes no engine id, no evidence record and
+        # no mutation of any kind.
+        pre_rejection: GovernedRejection | None = None
+        try:
+            extracted = extractor.extract(ti, transcript.transcript_id)
+        except GovernedRejection as rejection:
+            pre_rejection = rejection
+            extracted = ()
         extractions.append(ExtractionResult(ti.index, ti.seq_label, extracted))
         evidence: list[CaseEvidence] = []
         for ev in extracted:
@@ -137,7 +156,11 @@ def build_extracted_case(
                     standing=ev.standing,
                 )
             )
-        interactions.append(CaseInteraction(ti.index, ti.seq_label, tuple(evidence)))
+        interactions.append(
+            CaseInteraction(
+                ti.index, ti.seq_label, tuple(evidence), pre_rejection=pre_rejection
+            )
+        )
 
     case = Case(
         case_id=case_id,

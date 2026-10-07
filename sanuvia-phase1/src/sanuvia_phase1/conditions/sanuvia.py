@@ -83,6 +83,19 @@ class SanuviaPersistentCondition:
     def step(self, interaction: CaseInteraction) -> TrajectoryRecord:
         if self._service is None:
             raise RuntimeError("SanuviaPersistentCondition.start() must run before step()")
+        # An interaction whose extraction was rejected (ruling Q6) never
+        # reaches the engine: it is already decided. The rejected-plan record
+        # is emitted for it directly, so the audit shows WHY the interaction
+        # produced nothing instead of it looking like an ordinary hold.
+        pre_rejection = getattr(interaction, "pre_rejection", None)
+        if pre_rejection is not None:
+            return from_rejected_plan(
+                self.name,
+                interaction,
+                self._case.evidence_refs(interaction),
+                pre_rejection,
+            )
+
         inputs = self._case.evidence_inputs(interaction)  # empty for a hold
         try:
             result = self._service.record_interaction(

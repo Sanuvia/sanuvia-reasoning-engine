@@ -229,20 +229,37 @@ def test_resolver_ambiguous_parks_the_candidate():
     "not json at all",
 ])
 def test_malformed_resolver_output_is_rejected_not_repaired(payload):
-    """F-7 (d): visible governed failure. Never repaired, never defaulted."""
-    with pytest.raises((MalformedOutputError, GovernedRejection)):
+    """F-7 (d): a GOVERNED failure. Never repaired, never defaulted.
+
+    This previously accepted either exception class, which let a
+    MalformedOutputError escape the service and leave no governed rejected-plan
+    record at all. The governed outcome is now required.
+    """
+    with pytest.raises(GovernedRejection) as exc:
         _run(_ProposesStatements("the first reading", "a different reading"),
              _RecordingClient(payload))
 
+    assert exc.value.outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE
+    assert exc.value.boundary is ModelBoundary.IDENTITY_RESOLVER
+    assert exc.value.raw_response == payload, "the exact reply is preserved"
+    assert dict(exc.value.provenance)["resolver_id"] == RESOLVER_ID
 
-def test_resolver_naming_an_unadmitted_lineage_is_a_governed_failure():
-    """The reply must name a candidate the BOUND admitted, or it is unusable."""
+
+@pytest.mark.parametrize("unoffered", ["C99", "hyp-1", "hyp-9"])
+def test_resolver_reference_vocabulary_is_closed(unoffered):
+    """The reply may name only the refs THIS request offered.
+
+    Checked against the offered set, not against durable-store membership. The
+    distinction matters: "hyp-1" names a real lineage, and a membership test
+    would have accepted it even though the request offered only C1.
+    """
     with pytest.raises(GovernedRejection) as exc:
         _run(_ProposesStatements("the first reading", "a different reading"),
-             _RecordingClient(_reply("match_existing", ref="C99")))
+             _RecordingClient(_reply("match_existing", ref=unoffered)))
 
     assert exc.value.outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE
     assert exc.value.boundary is ModelBoundary.IDENTITY_RESOLVER
+    assert "was not offered" in str(exc.value)
 
 
 def test_resolver_failure_preserves_the_resolver_raw_response():
