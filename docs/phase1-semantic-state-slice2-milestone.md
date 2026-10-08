@@ -209,6 +209,11 @@ prompt version, schema version, `committed=false`. The interaction's appraisal
 responses are kept **separate** — both boundaries are crossed in the same
 interaction and neither may overwrite the other.
 
+Complete for every resolver rejection as of the A-1 follow-up below. At the
+time of the B-2 repair, two valid-JSON-but-unusable shapes were still rejected
+at the application layer, where only `resolver_id` is available, so their
+records carried no prompt or schema version. A-1 closes that.
+
 ### B-3 — interaction-level extraction rejection
 
 **Defect reproduced.** With two turns where turn 2 proposed `role="resonance"`,
@@ -253,6 +258,47 @@ deliberately **not** implemented here. None is Slice 2 policy:
 3. **REAL-mode failure when the permitted-participant configuration is
    absent.** An empty permitted set currently rejects every proposed subject
    rather than failing clearly at configuration time.
+
+## 9. A-1 — resolver shape validation at the provenance boundary
+
+Audit-completeness follow-up to the independently accepted Slice 2 milestone.
+Not a blocker, and it reopens nothing.
+
+**Gap.** Two valid-JSON resolver shapes were rejected in
+`identity.py::_govern_resolver_decision`:
+
+* `MATCH_EXISTING` with `matched_ref = null`;
+* `DISTINCT_NEW` with a non-null `matched_ref`.
+
+Both are **shape** rules, decidable from the reply alone, not semantic identity
+adjudication. Raised at the application layer, the rejection could carry only
+`resolver_id` — reproduced before the repair — so the audit could not say which
+prompt or schema version produced the unusable reply.
+
+**Repair.** Both rules moved into `validate_identity_resolution`, the adapter's
+validation boundary, which is where the resolver's provenance lives. The
+existing `except MalformedOutputError` path there already raises the governed
+failure with the full provenance, so no new failure path was introduced.
+
+**Defence in depth retained.** The application-layer checks are unchanged and
+unweakened. They are now unreachable through the normal adapter path, and a
+test proves they still reject both shapes when an `IdentityDecision` is
+supplied directly — the case the guard exists for.
+
+**Result.** Both shapes now produce `INVALID_APPRAISAL_RESPONSE` with
+`boundary=IDENTITY_RESOLVER`, the exact raw reply, and `resolver_id`,
+`prompt_version` and `schema_version`, with reasoning state unchanged and no
+identifier consumed.
+
+**Not changed:** B-1 closed vocabulary, B-2 malformed-output handling, B-3
+interaction-level extraction rejection, the four identity outcomes, the
+resolver protocol, its prompt, and every other failure's provenance semantics.
+
+**Observed, not fixed (out of the A-1 scope):** `REFINE_EXISTING` with
+`matched_ref = null` is still rejected at the application layer and so still
+carries only `resolver_id`. The authorization named only the `MATCH_EXISTING`
+and `DISTINCT_NEW` shapes, so this one was deliberately left alone and is
+reported rather than repaired.
 
 ---
 

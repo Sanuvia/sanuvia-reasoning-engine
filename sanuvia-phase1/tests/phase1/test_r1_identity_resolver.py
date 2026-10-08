@@ -275,13 +275,24 @@ def test_resolver_failure_preserves_the_resolver_raw_response():
 
 
 def test_resolver_cannot_assign_durable_identity_with_distinct_new():
-    """DISTINCT_NEW founds a lineage, so it must not name one."""
+    """DISTINCT_NEW founds a lineage, so it must not name one.
+
+    The claim is unchanged; only where it is enforced moved (A-1). This is now
+    caught at the adapter's validation boundary, where the resolver's full
+    provenance is available, so the assertion is on the governed outcome and
+    the stated reason rather than on one layer's wording.
+    """
     with pytest.raises(GovernedRejection) as exc:
         _run(_ProposesStatements("the first reading", "a different reading"),
              _RecordingClient(_reply("distinct_new", ref="C1")))
 
     assert exc.value.outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE
-    assert "durable identity is engine-issued" in str(exc.value)
+    assert exc.value.boundary is ModelBoundary.IDENTITY_RESOLVER
+    assert "engine issues its durable identity" in str(exc.value)
+    # And the rejection now carries the complete resolver provenance.
+    assert set(dict(exc.value.provenance)) == {
+        "resolver_id", "prompt_version", "schema_version",
+    }
 
 
 def test_engine_issues_the_durable_id_for_a_resolver_distinct_new():

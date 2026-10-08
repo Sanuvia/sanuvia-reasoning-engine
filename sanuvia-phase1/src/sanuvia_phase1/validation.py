@@ -387,6 +387,35 @@ def validate_identity_resolution(raw_text: str) -> ValidatedIdentityResolution:
             boundary, "matched_ref must be a non-empty string or null", raw_text
         )
 
+    # Outcome/reference SHAPE rules (A-1). These are shape, not semantic
+    # identity adjudication: whether a merge names something, and whether a
+    # creation names nothing, is decidable from the reply alone.
+    #
+    # They live here, at the adapter's validation boundary, because that is
+    # where the resolver's provenance -- resolver_id, prompt version, schema
+    # version -- is available to travel with the governed failure. Raised from
+    # the application layer instead, the rejection could carry only the
+    # resolver id, so the audit could not say which prompt or schema version
+    # produced the unusable reply.
+    #
+    # The equivalent application-layer checks remain as defence in depth: an
+    # IdentityDecision reaching the engine from any other path is still
+    # refused there.
+    if outcome is IdentityOutcome.MATCH_EXISTING and matched_ref is None:
+        raise MalformedOutputError(
+            boundary,
+            "outcome match_existing must name the matched_ref it matches",
+            raw_text,
+        )
+    if outcome is IdentityOutcome.DISTINCT_NEW and matched_ref is not None:
+        raise MalformedOutputError(
+            boundary,
+            f"outcome distinct_new must not name a matched_ref; got "
+            f"{matched_ref!r}. A distinct commitment founds a lineage, and the "
+            f"engine issues its durable identity after adjudication",
+            raw_text,
+        )
+
     confidence = data.get("confidence")
     if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
         raise MalformedOutputError(
