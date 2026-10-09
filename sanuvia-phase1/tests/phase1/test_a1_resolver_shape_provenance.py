@@ -1,4 +1,4 @@
-"""A-1 — resolver shape failures carry complete audit provenance.
+"""Resolver shape failures carry complete audit provenance (A-1, R-1, O-1).
 
 Two valid-JSON-but-unusable resolver shapes were rejected at the application
 layer, where only ``resolver_id`` is available. The rejected-plan record could
@@ -51,7 +51,8 @@ from sanuvia_phase1.trajectory import InteractionOutcome
 
 SUBJECT = "subject-a1"
 
-#: The two shapes under repair: valid JSON, governed outcome, unusable shape.
+#: Valid JSON, governed outcome, unusable shape. One rule per outcome, so the
+#: four together are exhaustive over the identity vocabulary.
 MATCH_WITHOUT_REF = json.dumps({
     "outcome": "match_existing", "matched_ref": None,
     "rationale": "same commitment", "confidence": 0.7,
@@ -60,10 +61,27 @@ DISTINCT_WITH_REF = json.dumps({
     "outcome": "distinct_new", "matched_ref": "C1",
     "rationale": "a different commitment", "confidence": 0.7,
 })
+#: R-1 -- a refinement must say what it refines.
+REFINE_WITHOUT_REF = json.dumps({
+    "outcome": "refine_existing", "matched_ref": None,
+    "rationale": "narrower", "confidence": 0.7,
+})
+#: O-1 -- an unresolved candidate names nothing by definition. This was
+#: ACCEPTED before the repair, not merely under-provenanced.
+AMBIGUOUS_WITH_REF = json.dumps({
+    "outcome": "ambiguous_review_required", "matched_ref": "C1",
+    "rationale": "cannot distinguish", "confidence": 0.7,
+})
 
 SHAPES = pytest.mark.parametrize(
-    "payload", [MATCH_WITHOUT_REF, DISTINCT_WITH_REF],
-    ids=["match_existing_without_ref", "distinct_new_with_ref"],
+    "payload",
+    [MATCH_WITHOUT_REF, DISTINCT_WITH_REF, REFINE_WITHOUT_REF, AMBIGUOUS_WITH_REF],
+    ids=[
+        "match_existing_without_ref",
+        "distinct_new_with_ref",
+        "refine_existing_without_ref",
+        "ambiguous_review_required_with_ref",
+    ],
 )
 
 
@@ -222,16 +240,28 @@ class _ReturnsDecision:
 @pytest.mark.parametrize("outcome,matched", [
     (IdentityOutcome.MATCH_EXISTING, None),
     (IdentityOutcome.DISTINCT_NEW, "hyp-1"),
-], ids=["match_existing_without_ref", "distinct_new_with_ref"])
+    (IdentityOutcome.REFINE_EXISTING, None),
+], ids=[
+    "match_existing_without_ref",
+    "distinct_new_with_ref",
+    "refine_existing_without_ref",
+])
 def test_the_application_still_rejects_these_shapes_from_another_path(
     outcome, matched
 ):
     """Defence in depth: the application guard remains and is not weakened.
 
-    The adapter now catches both shapes first, so this reaches the application
+    The adapter now catches these shapes first, so this reaches the application
     check by supplying an IdentityDecision directly -- the case the guard
     exists for, since an invalid decision could arrive from a path that does
     not go through ``validate_identity_resolution``.
+
+    ``AMBIGUOUS_REVIEW_REQUIRED`` with a reference (O-1) is deliberately absent
+    from this set: the application has no equivalent guard, because a stray
+    ``matched_hypothesis_id`` on a parked decision is inert -- the parked
+    adjudication is built from ``plausible_matches``, not from it. Adding one
+    would be new governed behaviour beyond the authorised shape rules, so it is
+    reported rather than invented. The adapter rule is what enforces O-1.
     """
     from sanuvia.application.reasoning.identity import LineageView
 
@@ -259,3 +289,76 @@ def test_the_application_still_rejects_these_shapes_from_another_path(
 
     assert exc.value.outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE
     assert exc.value.boundary is ModelBoundary.IDENTITY_RESOLVER
+
+
+# --- R-1: the offered-reference requirement ----------------------------------
+
+
+@pytest.mark.parametrize("unoffered", ["hyp-1", "C99"], ids=["durable_id", "unknown"])
+def test_refine_existing_must_name_an_offered_reference(unoffered: str) -> None:
+    """R-1: a named ref must be one THIS request offered.
+
+    Enforced by the closed reference vocabulary in the adapter (B-1), which
+    every non-null ref passes through, so naming a durable id cannot bypass it
+    on the refine path any more than on the match path. ``hyp-1`` is a real
+    lineage here, so this is not a near miss.
+    """
+    payload = json.dumps({
+        "outcome": "refine_existing", "matched_ref": unoffered,
+        "rationale": "narrower", "confidence": 0.7,
+    })
+    rejection, store, _ = _reject(payload)
+
+    assert rejection.outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE
+    assert rejection.boundary is ModelBoundary.IDENTITY_RESOLVER
+    assert "was not offered" in str(rejection)
+    assert dict(rejection.provenance) == {
+        "resolver_id": RESOLVER_ID,
+        "prompt_version": PROMPT_VERSION,
+        "schema_version": SCHEMA_VERSION,
+    }
+    assert [l.hypothesis_id for l in store.lineages.list_for_subject(SUBJECT)] == [
+        "hyp-1"
+    ], "the durable lineage really is called hyp-1"
+
+
+# --- valid shapes are untouched ----------------------------------------------
+
+
+def test_refine_existing_with_an_offered_reference_still_resolves() -> None:
+    """R-1 must not disturb the valid refinement path."""
+    service, store, _ = _service(json.dumps({
+        "outcome": "refine_existing", "matched_ref": "C1",
+        "rationale": "narrower", "confidence": 0.7,
+    }))
+    service.record_interaction(SUBJECT, [_ev("second")])
+
+    (lineage,) = store.lineages.list_for_subject(SUBJECT)
+    versions = list(store.statement_versions.history(lineage.hypothesis_id))
+    assert [v.statement for v in versions] == ["the first reading", "a second reading"]
+
+
+def test_ambiguous_review_required_with_a_null_reference_still_parks() -> None:
+    """O-1 must not change valid ambiguous-review parking."""
+    service, store, _ = _service(json.dumps({
+        "outcome": "ambiguous_review_required", "matched_ref": None,
+        "rationale": "cannot distinguish", "confidence": 0.7,
+    }))
+    service.record_interaction(SUBJECT, [_ev("second")])
+
+    assert len(store.lineages.list_for_subject(SUBJECT)) == 1, "nothing founded"
+    (parked,) = store.identity_adjudications.list_for_subject(SUBJECT)
+    assert parked.decision.outcome is IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED
+    assert parked.candidate_statement == "a second reading"
+    assert parked.plausible_matches, "plausible candidates are preserved"
+
+
+# --- raw-response fidelity ----------------------------------------------------
+
+
+@SHAPES
+def test_the_raw_response_is_preserved_byte_for_byte(payload: str) -> None:
+    """Including whitespace: the audit holds what the model actually sent."""
+    spaced = "  " + payload + "\n"
+    rejection, _, _ = _reject(spaced)
+    assert rejection.raw_response == spaced

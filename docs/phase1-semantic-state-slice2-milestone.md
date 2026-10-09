@@ -209,10 +209,11 @@ prompt version, schema version, `committed=false`. The interaction's appraisal
 responses are kept **separate** — both boundaries are crossed in the same
 interaction and neither may overwrite the other.
 
-Complete for every resolver rejection as of the A-1 follow-up below. At the
-time of the B-2 repair, two valid-JSON-but-unusable shapes were still rejected
-at the application layer, where only `resolver_id` is available, so their
-records carried no prompt or schema version. A-1 closes that.
+Provenance coverage is stated precisely in §10, which supersedes any blanket
+reading of this paragraph. At the time of the B-2 repair, several
+valid-JSON-but-unusable shapes were still rejected at the application layer,
+where only `resolver_id` is available, so their records carried no prompt or
+schema version. A-1 closed two of them; R-1 and O-1 closed the rest.
 
 ### B-3 — interaction-level extraction rejection
 
@@ -294,11 +295,61 @@ identifier consumed.
 interaction-level extraction rejection, the four identity outcomes, the
 resolver protocol, its prompt, and every other failure's provenance semantics.
 
-**Observed, not fixed (out of the A-1 scope):** `REFINE_EXISTING` with
-`matched_ref = null` is still rejected at the application layer and so still
-carries only `resolver_id`. The authorization named only the `MATCH_EXISTING`
-and `DISTINCT_NEW` shapes, so this one was deliberately left alone and is
-reported rather than repaired.
+**Observed, not fixed at the time (out of the A-1 scope):** `REFINE_EXISTING`
+with `matched_ref = null`. Closed by R-1 in §10.
+
+## 10. R-1 / O-1 — the remaining resolver shapes, and verified coverage
+
+Follow-up to A-1. Same pattern, same boundary, no new mechanism.
+
+**R-1 — `REFINE_EXISTING` must name an offered reference.** The *presence*
+rule moved into `validate_identity_resolution`; it previously rejected at the
+application layer carrying only `resolver_id`. The *offered* half was already
+correct: every non-null reference passes through the adapter's closed
+vocabulary (B-1), so naming a durable id cannot bypass it on the refine path
+any more than on the match path. Both halves are now tested.
+
+**O-1 — `AMBIGUOUS_REVIEW_REQUIRED` must not name a reference.** This was
+**accepted** before the repair, not merely under-provenanced: a reply naming
+`C1` alongside an unresolved outcome passed through. It is now rejected at the
+same boundary. Valid parking is unchanged and asserted.
+
+### Verified provenance coverage
+
+Every row below is reproduced by a test that drives the real
+`ReasoningService` and the real `ExternalIdentityResolver` with a fake client.
+"Complete" means `INVALID_APPRAISAL_RESPONSE`, `boundary=IDENTITY_RESOLVER`,
+the exact raw reply (whitespace included), and all three of `resolver_id`,
+`prompt_version`, `schema_version` — on the rejection **and** on the
+rejected-plan record, with `committed=false`, all 15 stores unchanged and no
+identifier consumed.
+
+| Resolver reply | Rejected at | Provenance | Covered by |
+|---|---|---|---|
+| Malformed / non-JSON | adapter | **complete** | B-2 |
+| Reference not offered (any outcome) | adapter (closed vocabulary) | **complete** | B-1, R-1 |
+| `MATCH_EXISTING` + null ref | adapter | **complete** | A-1 |
+| `DISTINCT_NEW` + ref | adapter | **complete** | A-1 |
+| `REFINE_EXISTING` + null ref | adapter | **complete** | **R-1** |
+| `AMBIGUOUS_REVIEW_REQUIRED` + ref | adapter | **complete** | **O-1** |
+
+The four outcome/reference rules are exhaustive over the identity vocabulary —
+one per outcome — so no resolver shape remains that is rejected without
+complete provenance.
+
+### Defence in depth
+
+The application-layer checks are unchanged and unweakened, and are tested
+against directly-supplied `IdentityDecision` objects for `MATCH_EXISTING`
+without a reference, `DISTINCT_NEW` with one, and `REFINE_EXISTING` without
+one.
+
+`AMBIGUOUS_REVIEW_REQUIRED` with a reference has **no** application-layer
+equivalent, and none was added. A stray `matched_hypothesis_id` on a parked
+decision is inert — the parked adjudication is built from `plausible_matches`,
+not from it — so adding a guard would be new governed behaviour beyond the
+authorised shape rules. The adapter rule is what enforces O-1. Recorded rather
+than invented.
 
 ---
 

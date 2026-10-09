@@ -387,9 +387,21 @@ def validate_identity_resolution(raw_text: str) -> ValidatedIdentityResolution:
             boundary, "matched_ref must be a non-empty string or null", raw_text
         )
 
-    # Outcome/reference SHAPE rules (A-1). These are shape, not semantic
-    # identity adjudication: whether a merge names something, and whether a
-    # creation names nothing, is decidable from the reply alone.
+    # Outcome/reference SHAPE rules (A-1, then R-1 and O-1). These are shape,
+    # not semantic identity adjudication: whether a merge names something, and
+    # whether a creation or an unresolved candidate names nothing, is decidable
+    # from the reply alone.
+    #
+    # One rule per outcome, so the four together are exhaustive:
+    #   match_existing             must name a ref
+    #   refine_existing            must name a ref
+    #   distinct_new               must not
+    #   ambiguous_review_required  must not
+    #
+    # Whether a named ref is one this request OFFERED is a separate rule, and
+    # it stays in the adapter (B-1) because only the adapter knows the offered
+    # set. Every non-null ref passes through it, so naming a durable id cannot
+    # bypass the closed vocabulary on any outcome.
     #
     # They live here, at the adapter's validation boundary, because that is
     # where the resolver's provenance -- resolver_id, prompt version, schema
@@ -413,6 +425,24 @@ def validate_identity_resolution(raw_text: str) -> ValidatedIdentityResolution:
             f"outcome distinct_new must not name a matched_ref; got "
             f"{matched_ref!r}. A distinct commitment founds a lineage, and the "
             f"engine issues its durable identity after adjudication",
+            raw_text,
+        )
+    if outcome is IdentityOutcome.REFINE_EXISTING and matched_ref is None:
+        raise MalformedOutputError(
+            boundary,
+            "outcome refine_existing must name the matched_ref it refines",
+            raw_text,
+        )
+    if (
+        outcome is IdentityOutcome.AMBIGUOUS_REVIEW_REQUIRED
+        and matched_ref is not None
+    ):
+        raise MalformedOutputError(
+            boundary,
+            f"outcome ambiguous_review_required must not name a matched_ref; "
+            f"got {matched_ref!r}. The prompt contract reserves matched_ref for "
+            f"match_existing and refine_existing, and an unresolved candidate "
+            f"names nothing by definition",
             raw_text,
         )
 
