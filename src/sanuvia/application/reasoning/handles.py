@@ -302,13 +302,13 @@ def build_request_views(
 
     by_eid = {r.id: r for r in candidates}
     cand_views: list[EvidenceCandidateView] = []
-    for handle, eid in table.divergence_candidates.items():
+    for evidence_handle, eid in table.divergence_candidates.items():
         rec = by_eid.get(eid)
         if rec is None or rec.standing is None:
             continue
         cand_views.append(
             EvidenceCandidateView(
-                handle=handle,
+                handle=evidence_handle,
                 content=rec.content,
                 standing=standing_view(rec.standing, inverse),
             )

@@ -61,6 +61,7 @@ An authored signature always wins: ``ProposedHypothesis`` gains an optional
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from sanuvia.application.ports.reasoning import (
     Appraisal,
@@ -71,6 +72,8 @@ from sanuvia.application.ports.reasoning import (
     CandidateProposal,
     CommitmentSignatureView,
     HypothesisHandle,
+    ParticipantLabel,
+    ProposedHypothesis,
 )
 from sanuvia.domain import (
     VOICE_SANUVIA_WORKING_READING,
@@ -151,6 +154,8 @@ class ScriptedAppraiser:
         the rejection into the adapter, which has no authority to decide it
         (§1.3, F-11).
         """
+        if request.observation_id is None:
+            return AppraisalResponse()
         authored = self._script.get(request.observation_id)
         if authored is None:
             return AppraisalResponse()
@@ -202,15 +207,22 @@ class ScriptedAppraiser:
             return by_statement[statement]
         return HypothesisHandle(f"{request.request_id}::unresolved:{authored_id}")
 
-    def _signature_for(self, proposal, request: AppraisalRequest) -> CommitmentSignatureView:
+    def _signature_for(
+        self, proposal: ProposedHypothesis, request: AppraisalRequest
+    ) -> CommitmentSignatureView:
         """An authored signature if the fixture supplies one; else the migration."""
-        authored = getattr(proposal, "signature", None)
+        authored: CommitmentSignatureView | None = proposal.signature
         if authored is not None:
             return authored
         label = next(iter(request.participants), None) if request.participants else None
         return CommitmentSignatureView(
             # A1: the modelled subject reused as the commitment subject.
-            subject=label if label is not None else str(request.subject_id),
+            # ``build_table`` always supplies at least one participant, so
+            # ``label`` is never None here; the fallback is defensive only.
+            subject=cast(
+                "ParticipantLabel",
+                label if label is not None else str(request.subject_id),
+            ),
             # Derived: authored lineage distinctness.
             attribution=migrated_attribution(proposal.hypothesis_id),
             claim_class=MIGRATED_CLAIM_CLASS,  # A2

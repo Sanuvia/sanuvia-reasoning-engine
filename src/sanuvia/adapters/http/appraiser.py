@@ -15,6 +15,11 @@ it must not grow into a conversation/NLP layer here.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sanuvia.adapters.reasoning.scripted_appraiser import ScriptedAppraiser
+
 from collections.abc import Sequence
 
 from sanuvia.application.ports.reasoning import (
@@ -34,7 +39,7 @@ class HarnessAppraiser:
         # statement catalogue accumulates across submissions. A later
         # ``supports=(H,)`` can then resolve the lineage H named, which a
         # per-call translator could not.
-        self._translator = None
+        self._translator: "ScriptedAppraiser | None" = None
 
     def set_pending(self, appraisal: Appraisal) -> None:
         self._pending = appraisal

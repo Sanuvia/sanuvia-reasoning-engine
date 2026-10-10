@@ -14,6 +14,8 @@ do. The adapter validation boundary is exercised; no rejection is hand-built.
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 
 import pytest
@@ -25,6 +27,7 @@ from sanuvia.adapters.support.deterministic import ManualClock, SequentialIdGene
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api.service import EvidenceInput, ReasoningService
 from sanuvia.application.ports.reasoning import (
+    AppraisalRequest,
     AppraisalResponse,
     CandidateProposal,
     CommitmentSignatureView,
@@ -91,7 +94,7 @@ class _ProposesTwoReadings:
     def __init__(self) -> None:
         self.calls = 0
 
-    def appraise(self, request):
+    def appraise(self, request: AppraisalRequest) -> AppraisalResponse:
         self.calls += 1
         statement = "the first reading" if self.calls == 1 else "a second reading"
         signature = CommitmentSignatureView(
@@ -111,7 +114,7 @@ def _ev(text: str) -> EvidenceInput:
     )
 
 
-def _service(resolver_reply: str):
+def _service(resolver_reply: str) -> tuple[ReasoningService, Any, SequentialIdGenerator]:
     store = InMemoryReasoningStore()
     ids = SequentialIdGenerator()
     deps = build_in_memory_dependencies(
@@ -123,7 +126,7 @@ def _service(resolver_reply: str):
     return service, store, ids
 
 
-def _reject(payload: str):
+def _reject(payload: str) -> tuple[GovernedRejection, Any, SequentialIdGenerator]:
     service, store, ids = _service(payload)
     with pytest.raises(GovernedRejection) as exc:
         service.record_interaction(SUBJECT, [_ev("second")])
@@ -134,7 +137,7 @@ def _reject(payload: str):
 
 
 @SHAPES
-def test_the_shape_is_a_governed_identity_resolver_rejection(payload):
+def test_the_shape_is_a_governed_identity_resolver_rejection(payload: str) -> None:
     rejection, _, _ = _reject(payload)
 
     assert rejection.outcome is GovernedOutcome.INVALID_APPRAISAL_RESPONSE
@@ -142,13 +145,13 @@ def test_the_shape_is_a_governed_identity_resolver_rejection(payload):
 
 
 @SHAPES
-def test_the_exact_raw_resolver_response_is_preserved(payload):
+def test_the_exact_raw_resolver_response_is_preserved(payload: str) -> None:
     rejection, _, _ = _reject(payload)
     assert rejection.raw_response == payload, "the exact reply, not a summary"
 
 
 @SHAPES
-def test_the_rejection_carries_complete_resolver_provenance(payload):
+def test_the_rejection_carries_complete_resolver_provenance(payload: str) -> None:
     """The point of the repair: all three, not just resolver_id."""
     rejection, _, _ = _reject(payload)
     provenance = dict(rejection.provenance)
@@ -162,7 +165,7 @@ def test_the_rejection_carries_complete_resolver_provenance(payload):
 
 
 @SHAPES
-def test_the_rejected_plan_record_carries_the_full_audit_payload(payload):
+def test_the_rejected_plan_record_carries_the_full_audit_payload(payload: str) -> None:
     rejection, _, _ = _reject(payload)
     record = from_rejected_plan(
         "sanuvia", CASE_001.interactions[0], ("ER-001",), rejection
@@ -192,7 +195,7 @@ def test_the_rejected_plan_record_carries_the_full_audit_payload(payload):
 
 
 @SHAPES
-def test_reasoning_state_is_unchanged(payload):
+def test_reasoning_state_is_unchanged(payload: str) -> None:
     _, store, _ = _reject(payload)
 
     for name, store_obj in bundle_stores(store).items():
@@ -210,7 +213,7 @@ def test_reasoning_state_is_unchanged(payload):
 
 
 @SHAPES
-def test_no_identifier_is_consumed(payload):
+def test_no_identifier_is_consumed(payload: str) -> None:
     _, _, ids = _reject(payload)
     assert ids.new_id("evidence") == "evidence-2"
     assert ids.new_id("req") == "req-2"
@@ -219,7 +222,7 @@ def test_no_identifier_is_consumed(payload):
 # --- defence in depth ---------------------------------------------------------
 
 
-def _decision(outcome: IdentityOutcome, matched):
+def _decision(outcome: IdentityOutcome, matched: str | None) -> IdentityDecision:
     return IdentityDecision(
         outcome=outcome, candidate_local_ref="c1", matched_hypothesis_id=matched,
     )
@@ -233,7 +236,7 @@ class _ReturnsDecision:
     def __init__(self, decision: IdentityDecision) -> None:
         self._decision = decision
 
-    def resolve(self, candidate, plausible):
+    def resolve(self, candidate: Any, plausible: Any) -> IdentityDecision:
         return self._decision
 
 
@@ -247,8 +250,8 @@ class _ReturnsDecision:
     "refine_existing_without_ref",
 ])
 def test_the_application_still_rejects_these_shapes_from_another_path(
-    outcome, matched
-):
+    outcome: IdentityOutcome, matched: str | None
+) -> None:
     """Defence in depth: the application guard remains and is not weakened.
 
     The adapter now catches these shapes first, so this reaches the application
@@ -257,11 +260,14 @@ def test_the_application_still_rejects_these_shapes_from_another_path(
     not go through ``validate_identity_resolution``.
 
     ``AMBIGUOUS_REVIEW_REQUIRED`` with a reference (O-1) is deliberately absent
-    from this set: the application has no equivalent guard, because a stray
-    ``matched_hypothesis_id`` on a parked decision is inert -- the parked
-    adjudication is built from ``plausible_matches``, not from it. Adding one
+    from this set: the application has no equivalent guard. A stray
+    ``matched_hypothesis_id`` on a parked decision does not affect reasoning
+    state -- the parked adjudication draws its ``plausible_matches`` from the
+    resolver's plausible set, not from it -- but it IS recorded on the parked
+    ``IdentityAdjudication``, which persists the whole decision. Adding a guard
     would be new governed behaviour beyond the authorised shape rules, so it is
-    reported rather than invented. The adapter rule is what enforces O-1.
+    reported rather than invented, and the adapter rule enforces O-1 before
+    such a decision can reach the application.
     """
     from sanuvia.application.reasoning.identity import LineageView
 

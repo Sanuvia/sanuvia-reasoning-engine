@@ -10,6 +10,8 @@ Fake clients only. No provider is selected and nothing reaches a network.
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 
 import pytest
@@ -41,7 +43,7 @@ def _ev(text: str) -> EvidenceInput:
     )
 
 
-def _service(client):
+def _service(client: Any) -> tuple[ReasoningService, InMemoryReasoningStore]:
     store = InMemoryReasoningStore()
     deps = build_in_memory_dependencies(
         store=store, appraiser=ExternalEvidenceAppraiser(client=client),
@@ -50,8 +52,9 @@ def _service(client):
     return ReasoningService(deps), store
 
 
-def _reply(prompt: AppraisalPrompt, *, claim="behaviour_pattern", stance="affirms",
-           scope="recurring") -> str:
+def _reply(prompt: AppraisalPrompt, *, claim: str = "behaviour_pattern",
+           stance: str = "affirms",
+           scope: str = "recurring") -> str:
     return json.dumps({
         "supports": [], "contradicts": [],
         "proposals": [{
@@ -65,7 +68,7 @@ def _reply(prompt: AppraisalPrompt, *, claim="behaviour_pattern", stance="affirm
     })
 
 
-def test_returned_signature_reaches_the_committed_statement_version():
+def test_returned_signature_reaches_the_committed_statement_version() -> None:
     """Inbound: the model's stated signature becomes the stored version."""
     svc, store = _service(_reply)
     svc.record_interaction(SUBJECT, [_ev("an observation")])
@@ -81,7 +84,7 @@ def test_returned_signature_reaches_the_committed_statement_version():
     assert lineage.attribution == VOICE_SANUVIA_WORKING_READING
 
 
-def test_prompt_carries_the_signature_of_each_active_hypothesis():
+def test_prompt_carries_the_signature_of_each_active_hypothesis() -> None:
     """Outbound: the model sees what each existing commitment commits to."""
     seen: list[AppraisalPrompt] = []
 
@@ -105,7 +108,7 @@ def test_prompt_carries_the_signature_of_each_active_hypothesis():
     assert offered.subject in seen[1].participants
 
 
-def test_prompt_lists_the_participant_labels_a_subject_may_name():
+def test_prompt_lists_the_participant_labels_a_subject_may_name() -> None:
     """Outbound: without these the model cannot state a resolvable subject."""
     seen: list[AppraisalPrompt] = []
 
@@ -122,7 +125,9 @@ def test_prompt_lists_the_participant_labels_a_subject_may_name():
     ("claim_class", "not_a_claim_class"),
     ("stance", "maybe"),
 ])
-def test_signature_values_outside_the_governed_enums_are_rejected(field, value):
+def test_signature_values_outside_the_governed_enums_are_rejected(
+    field: str, value: str
+) -> None:
     """Rejected, never coerced or defaulted."""
     def client(prompt: AppraisalPrompt) -> str:
         payload = json.loads(_reply(prompt))
@@ -136,7 +141,7 @@ def test_signature_values_outside_the_governed_enums_are_rejected(field, value):
     assert store.lineages.list_for_subject(SUBJECT) == []
 
 
-def test_a_missing_signature_is_rejected_not_defaulted():
+def test_a_missing_signature_is_rejected_not_defaulted() -> None:
     def client(prompt: AppraisalPrompt) -> str:
         return json.dumps({
             "supports": [], "contradicts": [],
@@ -148,7 +153,7 @@ def test_a_missing_signature_is_rejected_not_defaulted():
         svc.record_interaction(SUBJECT, [_ev("an observation")])
 
 
-def test_model_supplied_attribution_is_rejected():
+def test_model_supplied_attribution_is_rejected() -> None:
     """§2 H: the voice is not the model's to choose.
 
     Accepting it would let the model decide whether its own interpretation is
@@ -165,7 +170,7 @@ def test_model_supplied_attribution_is_rejected():
         svc.record_interaction(SUBJECT, [_ev("an observation")])
 
 
-def test_an_invented_participant_label_is_refused_by_the_engine():
+def test_an_invented_participant_label_is_refused_by_the_engine() -> None:
     """The adapter does not validate the subject; the engine does (§1.3, F-11)."""
     from sanuvia.domain import GovernedRejection
 

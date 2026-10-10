@@ -236,7 +236,7 @@ class ExternalIdentityResolver:
         )
 
 
-def identity_resolver_from_env():
+def identity_resolver_from_env() -> None:
     """Placeholder factory — intentionally refuses to auto-select a provider."""
     raise RuntimeError(
         "No identity-resolution provider is configured. R1 is opt-in: construct "

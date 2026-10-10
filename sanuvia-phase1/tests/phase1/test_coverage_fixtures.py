@@ -3,6 +3,8 @@ prediction invalidation and failed evidence acquisition."""
 
 from __future__ import annotations
 
+from typing import Any
+
 from _identity_support import durable_ids
 
 from fixtures.longitudinal.failed_acquisition import (
@@ -29,7 +31,7 @@ def _conditions(case: object) -> list:  # type: ignore[type-arg]
         ScriptedLanguageModel(("{}",) * n),
     )
 
-def _durable(conds, case) -> dict[str, str]:
+def _durable(conds: Any, case: Any) -> dict[str, str]:
     """Authored fixture id -> engine-issued durable id (see _identity_support)."""
     sanuvia = next(c for c in conds if isinstance(c, SanuviaPersistentCondition))
     return durable_ids(sanuvia._store, case)

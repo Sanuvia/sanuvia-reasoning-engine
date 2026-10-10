@@ -9,13 +9,15 @@ Fake clients / scripted doubles only.
 
 from __future__ import annotations
 
+from typing import Any
+
 import dataclasses
 
 import pytest
 
 from fixtures.longitudinal.case_001 import CASE_001
 
-from sanuvia.application.ports.reasoning import AppraisalResponse, Bearing, BearingKind
+from sanuvia.application.ports.reasoning import AppraisalRequest, AppraisalResponse, Bearing, BearingKind
 from sanuvia.application.ports.reasoning import HypothesisHandle
 from sanuvia_phase1.conditions import SanuviaPersistentCondition
 from sanuvia_phase1.trajectory import InteractionOutcome
@@ -24,21 +26,21 @@ from sanuvia_phase1.trajectory import InteractionOutcome
 class _ReferencesUnknownHypothesis:
     """Appraiser that names a handle the request never issued."""
 
-    def appraise(self, request):
+    def appraise(self, request: AppraisalRequest) -> AppraisalResponse:
         return AppraisalResponse(
             bearings=(Bearing(HypothesisHandle("never-issued"), BearingKind.SUPPORTS),)
         )
 
 
-def _first_with_evidence():
+def _first_with_evidence() -> Any:
     return next(i for i in CASE_001.interactions if CASE_001.evidence_refs(i))
 
 
-def _hold_interaction():
+def _hold_interaction() -> Any:
     return next(i for i in CASE_001.interactions if not CASE_001.evidence_refs(i))
 
 
-def test_rejected_plan_is_recorded_on_the_trajectory_not_raised():
+def test_rejected_plan_is_recorded_on_the_trajectory_not_raised() -> None:
     """A refused plan is a governed outcome of the interaction, not a crash."""
     condition = SanuviaPersistentCondition(
         CASE_001, appraiser=_ReferencesUnknownHypothesis()
@@ -51,7 +53,7 @@ def test_rejected_plan_is_recorded_on_the_trajectory_not_raised():
     assert record.committed is False
 
 
-def test_rejected_plan_preserves_the_admitted_observations():
+def test_rejected_plan_preserves_the_admitted_observations() -> None:
     """§5.8: the audit carries the observation refs that WERE admitted."""
     condition = SanuviaPersistentCondition(
         CASE_001, appraiser=_ReferencesUnknownHypothesis()
@@ -64,7 +66,7 @@ def test_rejected_plan_preserves_the_admitted_observations():
     assert record.ingested_evidence_ids, "evidence was admitted before the refusal"
 
 
-def test_rejected_plan_leaves_every_reasoning_state_view_empty():
+def test_rejected_plan_leaves_every_reasoning_state_view_empty() -> None:
     """§5.8: reasoning state is unchanged, so every view is empty."""
     condition = SanuviaPersistentCondition(
         CASE_001, appraiser=_ReferencesUnknownHypothesis()
@@ -80,13 +82,17 @@ def test_rejected_plan_leaves_every_reasoning_state_view_empty():
     assert record.model_version_id is None
 
 
-def test_rejected_plan_mutates_no_reasoning_state():
+def test_rejected_plan_mutates_no_reasoning_state() -> None:
     """The other half of TD-18: rejected STATE does not survive."""
     condition = SanuviaPersistentCondition(
         CASE_001, appraiser=_ReferencesUnknownHypothesis()
     )
     condition.start()
     condition.step(_first_with_evidence())
+
+    assert condition._store is not None  # start() ran
+
+    assert condition._store is not None  # start() ran
 
     store = condition._store
     assert store.evidence.list_for_subject(
@@ -97,7 +103,7 @@ def test_rejected_plan_mutates_no_reasoning_state():
         CASE_001.subject_id, space_id=CASE_001.space_id) == []
 
 
-def test_rejected_plan_and_no_evidence_hold_are_structurally_distinct():
+def test_rejected_plan_and_no_evidence_hold_are_structurally_distinct() -> None:
     """§5.7: they can never be confused, by shape rather than by flag.
 
     The hold carries no observations because none were admitted. The rejected
@@ -126,7 +132,7 @@ def test_rejected_plan_and_no_evidence_hold_are_structurally_distinct():
     assert hold.governed_failure is None
 
 
-def test_a_committed_interaction_is_marked_committed():
+def test_a_committed_interaction_is_marked_committed() -> None:
     """The third shape: neither refused nor empty."""
     condition = SanuviaPersistentCondition(CASE_001)
     condition.start()
@@ -138,7 +144,7 @@ def test_a_committed_interaction_is_marked_committed():
     assert record.hypotheses, "a committed interaction has reasoning state"
 
 
-def test_governed_failure_is_an_outcome_name_not_an_error_message():
+def test_governed_failure_is_an_outcome_name_not_an_error_message() -> None:
     """Audit carries the governed outcome, not free text."""
     from sanuvia.domain import GovernedOutcome
 

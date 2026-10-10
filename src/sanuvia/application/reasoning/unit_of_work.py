@@ -104,13 +104,12 @@ class UnitOfWork:
         self.begin()
         return self
 
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         # Any exception -- governed rejection or internal breach -- restores.
         if exc_type is not None:
             self.restore()
         elif self._open:
             self.commit()
-        return False
 
 
 def bundle_stores(store: Any) -> dict[str, Any]:

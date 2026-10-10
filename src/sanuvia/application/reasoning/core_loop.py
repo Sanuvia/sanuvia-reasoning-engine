@@ -25,6 +25,11 @@ demonstrator can render them directly.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sanuvia.domain import HypothesisId, Stance
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -167,6 +172,9 @@ class CoreLoop:
         planned = self._engine.plan(subject_id, batch, current, space_id=space_id)
         self._validate(planned, subject_id, space_id)
         commit_plan(d, planned)
+        # Every plan() return path sets ``result`` -- the hold path and the
+        # committed path both construct one -- so it is never None here.
+        assert planned.result is not None
         applied = RevisionApplied(
             model=planned.model,
             result=planned.result,
@@ -209,7 +217,12 @@ class CoreLoop:
         return tuple(sorted(hypotheses, key=lambda h: h.support.value, reverse=True))
 
 
-    def _validate(self, planned, subject_id, space_id) -> None:
+    def _validate(
+        self,
+        planned: PlannedRevision,
+        subject_id: SubjectId,
+        space_id: SpaceId,
+    ) -> None:
         """Complete-plan validation before any mutation (§3.1 step 13, §3.2).
 
         Mutation-free. Raises ``GovernedRejection`` on the first failure, which
@@ -224,8 +237,8 @@ class CoreLoop:
             h.hypothesis_id: h
             for h in d.hypotheses.list_for_subject(subject_id, space_id=space_id)
         }
-        lineage_keys: dict = {}
-        stances: dict = {}
+        lineage_keys: dict[tuple[str, str], list["HypothesisId"]] = {}
+        stances: dict["HypothesisId", "Stance"] = {}
         store = getattr(d, "lineages", None)
         versions = getattr(d, "statement_versions", None)
         if store is not None:

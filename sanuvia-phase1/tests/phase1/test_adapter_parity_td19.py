@@ -11,6 +11,8 @@ a network.
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 
 import pytest
@@ -40,7 +42,7 @@ def _ev(text: str) -> EvidenceInput:
     )
 
 
-def _outcome_of(appraiser) -> GovernedOutcome:
+def _outcome_of(appraiser: Any) -> GovernedOutcome:
     deps = build_in_memory_dependencies(
         store=InMemoryReasoningStore(), appraiser=appraiser,
         ids=SequentialIdGenerator(), clock=ManualClock(),
@@ -69,14 +71,14 @@ def _external_unknown() -> ExternalEvidenceAppraiser:
     return ExternalEvidenceAppraiser(client=lambda _prompt: _EXTERNAL_REPLY)
 
 
-def test_td19_unknown_reference_produces_the_same_governed_outcome():
+def test_td19_unknown_reference_produces_the_same_governed_outcome() -> None:
     """TD-19: identical governed outcome from both adapters."""
     scripted = _outcome_of(_scripted_unknown())
     external = _outcome_of(_external_unknown())
     assert scripted is external is GovernedOutcome.UNKNOWN_HYPOTHESIS_REFERENCE
 
 
-def test_td19_neither_adapter_persists_anything_on_the_rejection():
+def test_td19_neither_adapter_persists_anything_on_the_rejection() -> None:
     """TD-19: parity covers the mutation consequence, not just the outcome."""
     for appraiser in (_scripted_unknown(), _external_unknown()):
         store = InMemoryReasoningStore()
@@ -90,7 +92,7 @@ def test_td19_neither_adapter_persists_anything_on_the_rejection():
         assert store.lineages.list_for_subject(SUBJECT) == []
 
 
-def test_td19_neither_adapter_decides_the_rejection_itself():
+def test_td19_neither_adapter_decides_the_rejection_itself() -> None:
     """TD-19: the adapter raises nothing; the governed control is behind the port.
 
     An adapter that validated references itself would pass the outcome test
@@ -99,6 +101,7 @@ def test_td19_neither_adapter_decides_the_rejection_itself():
     reference rather than raise on it.
     """
     from sanuvia.application.ports.reasoning import (
+    AppraisalRequest,
         AppraisalRequest, ObservationView, EvidenceHandle,
     )
 
@@ -129,7 +132,7 @@ def test_td19_neither_adapter_decides_the_rejection_itself():
 # --- TD-19 completion: classification, result shape, state equivalence ------
 
 
-def _reject(appraiser):
+def _reject(appraiser: Any) -> tuple[GovernedRejection, Any]:
     """Run one interaction and return (rejection, store)."""
     store = InMemoryReasoningStore()
     deps = build_in_memory_dependencies(
@@ -141,7 +144,7 @@ def _reject(appraiser):
     return exc.value, store
 
 
-def test_td19_offending_reference_classification_matches_across_paths():
+def test_td19_offending_reference_classification_matches_across_paths() -> None:
     """TD-19 / N-4: the governed CLASSIFICATION of the offending reference.
 
     Not merely the same outcome: both adapters must classify the offending
@@ -171,7 +174,7 @@ def test_td19_offending_reference_classification_matches_across_paths():
     assert scripted_class == external_class == "never-issued"
 
 
-def test_td19_result_shape_is_identical_across_paths():
+def test_td19_result_shape_is_identical_across_paths() -> None:
     """TD-19: committed:false and the governed discriminators agree."""
     scripted_exc, _ = _reject(_scripted_unknown())
     external_exc, _ = _reject(_external_unknown())
@@ -183,7 +186,7 @@ def test_td19_result_shape_is_identical_across_paths():
     # which is the strongest form of "not committed".
 
 
-def test_td19_raw_response_is_excluded_from_parity_and_preserved_per_path():
+def test_td19_raw_response_is_excluded_from_parity_and_preserved_per_path() -> None:
     """TD-19 excludes raw_response from the cross-path equality, by design.
 
     ScriptedAppraiser produces no raw response by construction, so comparing
@@ -207,7 +210,7 @@ def test_td19_raw_response_is_excluded_from_parity_and_preserved_per_path():
     assert scripted_exc.appraisal_responses == (("evidence-1", None),)
 
 
-def test_td19_reasoning_state_is_completely_equivalent_across_paths():
+def test_td19_reasoning_state_is_completely_equivalent_across_paths() -> None:
     """TD-19: every store in the bundle, not only evidence and lineages.
 
     Checking two stores would let a divergence hide in any of the other
@@ -233,7 +236,7 @@ def test_td19_reasoning_state_is_completely_equivalent_across_paths():
         )
 
 
-def test_td19_neither_adapter_persists_evidence_or_lineage_state():
+def test_td19_neither_adapter_persists_evidence_or_lineage_state() -> None:
     """TD-19, stated explicitly for the two stores the defect would touch."""
     for appraiser in (_scripted_unknown(), _external_unknown()):
         _, store = _reject(appraiser)
@@ -243,7 +246,7 @@ def test_td19_neither_adapter_persists_evidence_or_lineage_state():
         assert store.ledger.read(SUBJECT) == []
 
 
-def test_td19_identifier_counters_agree_across_paths():
+def test_td19_identifier_counters_agree_across_paths() -> None:
     """TD-19: a rejection must leave both paths equally reusable."""
     for appraiser in (_scripted_unknown(), _external_unknown()):
         store = InMemoryReasoningStore()

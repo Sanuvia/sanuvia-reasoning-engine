@@ -24,7 +24,7 @@ def _sanuvia_with_ids() -> tuple[list[TrajectoryRecord], dict[str, str]]:
     c.finish()
     return recs, _durable_ids(c)
 
-def _durable_ids(condition) -> dict[str, str]:
+def _durable_ids(condition: SanuviaPersistentCondition) -> dict[str, str]:
     """Authored fixture id -> engine-issued durable id.
 
     Locked §3.3 / Technical Design v1.5.4: the engine issues every durable
@@ -38,6 +38,7 @@ def _durable_ids(condition) -> dict[str, str]:
     matched exactly against what the engine stored -- no heuristic -- so these
     tests keep asserting the exact lineage rather than weakening to a count.
     """
+    assert condition._store is not None  # start() ran
     hypotheses = condition._store.hypotheses.list_for_subject(
         CASE_001.subject_id, space_id=CASE_001.space_id
     )

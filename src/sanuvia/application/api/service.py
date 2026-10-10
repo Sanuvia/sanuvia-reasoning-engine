@@ -16,6 +16,11 @@ Two boundary guarantees:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sanuvia.application.reasoning.unit_of_work import UnitOfWork
+
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -188,7 +193,7 @@ class ReasoningService:
             breach_kind=BreachKind.COMMIT_ATOMICITY,
         )
 
-    def _unit_of_work(self):
+    def _unit_of_work(self) -> "UnitOfWork | None":
         """A UnitOfWork over this service's stores, when they support snapshots.
 
         ``None`` means no rollback boundary is available. That is not by itself

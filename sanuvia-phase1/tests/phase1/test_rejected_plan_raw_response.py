@@ -15,6 +15,8 @@ tuning, no protected evidence touched.
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 
 import pytest
@@ -31,7 +33,7 @@ UNKNOWN_HANDLE_REPLY = json.dumps(
 )
 
 
-def _proposal_reply(prompt, *, statement: str) -> str:
+def _proposal_reply(prompt: Any, *, statement: str) -> str:
     """A well-formed v3 proposal, using a label the prompt actually supplied."""
     return json.dumps({
         "supports": [], "contradicts": [],
@@ -48,18 +50,18 @@ def _proposal_reply(prompt, *, statement: str) -> str:
     })
 
 
-def _single_record_interaction():
+def _single_record_interaction() -> Any:
     return next(i for i in CASE_001.interactions if len(CASE_001.evidence_refs(i)) == 1)
 
 
-def _multi_record_interaction():
+def _multi_record_interaction() -> Any:
     return next(i for i in CASE_001.interactions if len(CASE_001.evidence_refs(i)) > 1)
 
 
 # --- Test A: single-record unknown reference --------------------------------
 
 
-def _run_single_record_rejection():
+def _run_single_record_rejection() -> tuple[Any, Any]:
     condition = SanuviaPersistentCondition(
         CASE_001,
         appraiser=ExternalEvidenceAppraiser(client=lambda _p: UNKNOWN_HANDLE_REPLY),
@@ -68,7 +70,7 @@ def _run_single_record_rejection():
     return condition, condition.step(_single_record_interaction())
 
 
-def test_single_record_rejection_preserves_the_raw_appraiser_response():
+def test_single_record_rejection_preserves_the_raw_appraiser_response() -> None:
     """The defect: raw was '' for the unknown-reference family."""
     _, record = _run_single_record_rejection()
 
@@ -77,7 +79,7 @@ def test_single_record_rejection_preserves_the_raw_appraiser_response():
     assert record.appraisal_responses[0][1] == UNKNOWN_HANDLE_REPLY
 
 
-def test_single_record_rejection_keeps_the_governed_shape():
+def test_single_record_rejection_keeps_the_governed_shape() -> None:
     """§5.7: outcome, governed failure and committed:false are unchanged."""
     _, record = _run_single_record_rejection()
 
@@ -86,16 +88,18 @@ def test_single_record_rejection_keeps_the_governed_shape():
     assert record.committed is False
 
 
-def test_single_record_rejection_keeps_the_admitted_observations():
+def test_single_record_rejection_keeps_the_admitted_observations() -> None:
     _, record = _run_single_record_rejection()
     assert record.ingested_evidence_ids == CASE_001.evidence_refs(
         _single_record_interaction()
     )
 
 
-def test_single_record_rejection_still_rolls_reasoning_state_back():
+def test_single_record_rejection_still_rolls_reasoning_state_back() -> None:
     """Rollback semantics are untouched: audit gained data, state did not."""
     condition, record = _run_single_record_rejection()
+    assert condition._store is not None  # start() ran
+    assert condition._store is not None  # start() ran
     store = condition._store
 
     assert store.evidence.list_for_subject(
@@ -109,7 +113,7 @@ def test_single_record_rejection_still_rolls_reasoning_state_back():
     assert record.revision_events == ()
 
 
-def test_single_record_raw_echo_embeds_the_response():
+def test_single_record_raw_echo_embeds_the_response() -> None:
     """``raw`` stays a canonical JSON echo, as on every other record."""
     _, record = _run_single_record_rejection()
     echoed = json.loads(record.raw)
@@ -132,7 +136,7 @@ class _SucceedsThenReferencesUnknown:
         self.calls = 0
         self.replies: list[str] = []
 
-    def __call__(self, prompt) -> str:
+    def __call__(self, prompt: Any) -> str:
         self.calls += 1
         reply = (
             _proposal_reply(prompt, statement="an accepted first reading")
@@ -143,7 +147,7 @@ class _SucceedsThenReferencesUnknown:
         return reply
 
 
-def _run_multi_record_rejection():
+def _run_multi_record_rejection() -> tuple[Any, Any, Any]:
     client = _SucceedsThenReferencesUnknown()
     condition = SanuviaPersistentCondition(
         CASE_001, appraiser=ExternalEvidenceAppraiser(client=client)
@@ -153,14 +157,14 @@ def _run_multi_record_rejection():
     return condition, record, client
 
 
-def test_multi_record_rejection_is_a_rejected_plan():
+def test_multi_record_rejection_is_a_rejected_plan() -> None:
     _, record, client = _run_multi_record_rejection()
     assert client.calls == 2, "both observations were appraised"
     assert record.outcome is InteractionOutcome.REJECTED_PLAN
     assert record.committed is False
 
 
-def test_multi_record_rejection_retains_the_earlier_response():
+def test_multi_record_rejection_retains_the_earlier_response() -> None:
     """The point of the ordered carrier.
 
     A single ``raw_response`` field would show only the failing call, so the
@@ -178,12 +182,12 @@ def test_multi_record_rejection_retains_the_earlier_response():
     assert "an accepted first reading" in earlier_raw
 
 
-def test_multi_record_rejection_retains_the_failing_response():
+def test_multi_record_rejection_retains_the_failing_response() -> None:
     _, record, client = _run_multi_record_rejection()
     assert record.appraisal_responses[1][1] == UNKNOWN_HANDLE_REPLY == client.replies[1]
 
 
-def test_multi_record_responses_are_ordered_and_attributable():
+def test_multi_record_responses_are_ordered_and_attributable() -> None:
     """Each response names the observation it answered, in call order."""
     _, record, _ = _run_multi_record_rejection()
 
@@ -193,14 +197,14 @@ def test_multi_record_responses_are_ordered_and_attributable():
     assert len(set(evidence_ids)) == 2
 
 
-def test_multi_record_rejection_is_deterministic():
+def test_multi_record_rejection_is_deterministic() -> None:
     """Same inputs, same ordered audit."""
     first = _run_multi_record_rejection()[1].appraisal_responses
     second = _run_multi_record_rejection()[1].appraisal_responses
     assert first == second
 
 
-def test_multi_record_rejection_still_rolls_reasoning_state_back():
+def test_multi_record_rejection_still_rolls_reasoning_state_back() -> None:
     """The earlier appraisal SUCCEEDED and founded a lineage in the plan.
 
     It must still not survive: the interaction was rejected, so the earlier
@@ -208,6 +212,8 @@ def test_multi_record_rejection_still_rolls_reasoning_state_back():
     That is the TD-18 distinction, exercised where it is easiest to get wrong.
     """
     condition, record, _ = _run_multi_record_rejection()
+    assert condition._store is not None  # start() ran
+    assert condition._store is not None  # start() ran
     store = condition._store
 
     assert store.evidence.list_for_subject(
@@ -219,7 +225,7 @@ def test_multi_record_rejection_still_rolls_reasoning_state_back():
     assert record.hypotheses == ()
 
 
-def test_a_committed_interaction_records_no_appraisal_responses():
+def test_a_committed_interaction_records_no_appraisal_responses() -> None:
     """The carrier is the rejected-plan audit, not a general response log."""
     condition = SanuviaPersistentCondition(CASE_001)
     condition.start()
@@ -229,7 +235,7 @@ def test_a_committed_interaction_records_no_appraisal_responses():
     assert record.appraisal_responses == ()
 
 
-def test_a_no_evidence_hold_records_no_appraisal_responses():
+def test_a_no_evidence_hold_records_no_appraisal_responses() -> None:
     """A hold makes no appraisal call, so there is nothing to carry (§5.7)."""
     condition = SanuviaPersistentCondition(CASE_001)
     condition.start()

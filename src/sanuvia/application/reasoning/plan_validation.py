@@ -284,7 +284,7 @@ def _check_3_duplicate_proposals(obs: AppraisedObservation) -> None:
     This is the only condition ``DUPLICATE_HYPOTHESIS_PROPOSAL`` covers; locked
     §3.10 scopes it with an explicit "only".
     """
-    seen: dict[tuple[str, tuple], str] = {}
+    seen: dict[tuple[str, tuple[object, ...]], str] = {}
     for p in obs.proposals:
         sig = p.signature
         key = (
@@ -538,17 +538,18 @@ def _check_9_standing_rules(obs: AppraisedObservation, plan: RevisionPlan) -> No
             )
         by_ref[ref] = st.role
 
-    rec = next((r for r in plan.admitted if r.id == obs.evidence_id), None)
-    if rec is None or rec.standing is None:
+    triggering = next((r for r in plan.admitted if r.id == obs.evidence_id), None)
+    if triggering is None or triggering.standing is None:
         return
-    if not rec.standing.is_appraisable and (
+    if not triggering.standing.is_appraisable and (
         obs.bearings or obs.proposals or obs.divergences
     ):
         raise GovernedRejection(
             GovernedOutcome.EVIDENCE_ROLE_VIOLATION,
-            f"record {rec.id} has role {rec.standing.role.value} and may be the "
+            f"record {triggering.id} has role "
+            f"{triggering.standing.role.value} and may be the "
             f"triggering evidence of no support-changing operation",
-            references=(str(rec.id),),
+            references=(str(triggering.id),),
             raw_response=obs.raw_response,
         )
 

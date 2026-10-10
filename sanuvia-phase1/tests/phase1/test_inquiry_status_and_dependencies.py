@@ -15,7 +15,7 @@ from sanuvia_phase1.language_models import ScriptedLanguageModel
 from sanuvia_phase1.trajectory import TrajectoryRecord
 
 
-def _sanuvia_with_ids() -> list[TrajectoryRecord]:
+def _sanuvia_with_ids() -> tuple[list[TrajectoryRecord], dict[str, str]]:
     c = SanuviaPersistentCondition(CASE_001)
     c.start()
     recs = [c.step(i) for i in CASE_001.interactions]
@@ -28,8 +28,9 @@ def _sanuvia() -> list[TrajectoryRecord]:
     return recs
 
 
-def _durable_ids(condition) -> dict[str, str]:
+def _durable_ids(condition: SanuviaPersistentCondition) -> dict[str, str]:
     """Authored fixture id -> engine-issued durable id (see _identity_support)."""
+    assert condition._store is not None  # start() ran
     return durable_ids(condition._store, CASE_001)
 
 

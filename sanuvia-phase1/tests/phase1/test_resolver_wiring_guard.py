@@ -13,6 +13,8 @@ assert both branches, and that they are not cross-wired.
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 
 from fixtures.longitudinal.case_001 import CASE_001
@@ -25,8 +27,9 @@ from sanuvia_phase1.conditions import SanuviaPersistentCondition
 from sanuvia_phase1.evidence_appraisers.external import ExternalEvidenceAppraiser
 
 
-def _deps_of(condition) -> object:
+def _deps_of(condition: SanuviaPersistentCondition) -> Any:
     """The dependencies the condition actually built."""
+    assert condition._service is not None  # start() ran
     return condition._service._deps
 
 
@@ -39,7 +42,7 @@ def _fake_external() -> ExternalEvidenceAppraiser:
     )
 
 
-def test_external_branch_receives_no_identity_resolver():
+def test_external_branch_receives_no_identity_resolver() -> None:
     """The defining assertion: a real appraiser gets no fixture resolver."""
     condition = SanuviaPersistentCondition(CASE_001, appraiser=_fake_external())
     condition.start()
@@ -49,7 +52,7 @@ def test_external_branch_receives_no_identity_resolver():
     assert not isinstance(deps.identity_resolver, ScriptedIdentityResolver)
 
 
-def test_external_branch_keeps_the_injected_real_appraiser():
+def test_external_branch_keeps_the_injected_real_appraiser() -> None:
     """Guarding identity must not have swapped the appraiser back to scripted."""
     appraiser = _fake_external()
     condition = SanuviaPersistentCondition(CASE_001, appraiser=appraiser)
@@ -60,7 +63,7 @@ def test_external_branch_keeps_the_injected_real_appraiser():
     assert not isinstance(deps.appraiser, ScriptedAppraiser)
 
 
-def test_scripted_branch_receives_the_fixture_authored_resolver():
+def test_scripted_branch_receives_the_fixture_authored_resolver() -> None:
     """The converse: without an injected appraiser, the double IS wired."""
     condition = SanuviaPersistentCondition(CASE_001)
     condition.start()
@@ -70,7 +73,7 @@ def test_scripted_branch_receives_the_fixture_authored_resolver():
     assert isinstance(deps.appraiser, ScriptedAppraiser)
 
 
-def test_the_two_branches_are_not_cross_wired():
+def test_the_two_branches_are_not_cross_wired() -> None:
     """Resolver and appraiser must move together, never independently.
 
     A scripted appraiser with no resolver cannot express its authored
@@ -96,7 +99,7 @@ def test_the_two_branches_are_not_cross_wired():
     assert external_pair == (False, False)
 
 
-def test_the_real_run_pipeline_injects_a_real_appraiser():
+def test_the_real_run_pipeline_injects_a_real_appraiser() -> None:
     """The REAL path reaches the External branch, so it gets no resolver.
 
     Read structurally rather than by executing a run: the pipeline passes an
@@ -114,7 +117,7 @@ def test_the_real_run_pipeline_injects_a_real_appraiser():
     assert "resolver_for_script" not in source
 
 
-def test_default_wiring_injects_no_resolver():
+def test_default_wiring_injects_no_resolver() -> None:
     """build_in_memory_dependencies must not default one in."""
     from sanuvia.adapters.wiring import build_in_memory_dependencies
 

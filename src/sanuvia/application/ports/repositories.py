@@ -33,7 +33,10 @@ from sanuvia.domain import (
     EvidenceRecordId,
     Hypothesis,
     HypothesisId,
+    HypothesisLineage,
     HypothesisRecordId,
+    IdentityAdjudication,
+    IdentityAdjudicationId,
     InferenceRecord,
     InferenceRecordId,
     Inquiry,
@@ -47,6 +50,7 @@ from sanuvia.domain import (
     RevisionEvent,
     RevisionLedgerEntry,
     SpaceId,
+    StatementVersion,
     SubjectId,
     SystemModellingContext,
     WorldModel,
@@ -278,6 +282,59 @@ class SystemModellingContextStore(Protocol):
 
 
 @runtime_checkable
+@runtime_checkable
+class HypothesisLineageStore(Protocol):
+    """The immutable half of a commitment signature (§2 H), written once at
+    ``DISTINCT_NEW``. Retrieval is bounded on ``(subject, attribution)``, which
+    admits **several** lineages, so ``find_by_key`` returns all of them."""
+
+    def add(self, lineage: HypothesisLineage) -> None: ...
+
+    def get(self, hypothesis_id: HypothesisId) -> HypothesisLineage | None: ...
+
+    def find_by_key(
+        self,
+        subject_id: SubjectId,
+        signature_subject: str,
+        attribution: str,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
+    ) -> tuple[HypothesisId, ...]: ...
+
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[HypothesisLineage]: ...
+
+
+@runtime_checkable
+class StatementVersionStore(Protocol):
+    """Append-only statement history (§2 I). ``REFINE_EXISTING`` appends a
+    version and never overwrites, because exact-match adjudication compares
+    against every version of a lineage, not only the current one (F-2)."""
+
+    def append(self, version: StatementVersion) -> None: ...
+
+    def history(
+        self, hypothesis_id: HypothesisId
+    ) -> Sequence[StatementVersion]: ...
+
+
+@runtime_checkable
+class IdentityAdjudicationStore(Protocol):
+    """Parked candidates (§2 D). Creates and revises no hypothesis; ruling Q2
+    gives it no resolution path."""
+
+    def add(self, record: IdentityAdjudication) -> None: ...
+
+    def get(
+        self, record_id: IdentityAdjudicationId
+    ) -> IdentityAdjudication | None: ...
+
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[IdentityAdjudication]: ...
+
+
 class SnapshotableStore(Protocol):
     """A store that can hand out an opaque restore token.
 

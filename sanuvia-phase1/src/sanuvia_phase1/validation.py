@@ -20,9 +20,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import Enum
+from typing import TypeVar
 from typing import Any
 
 from sanuvia.domain import ClaimClass, EvidenceClass, IdentityOutcome, Stance
+
+#: Any governed enum validated by value at a model boundary.
+_E = TypeVar("_E", bound=Enum)
 
 from .extraction import ProposedStanding
 
@@ -199,7 +204,7 @@ def _str_tuple(value: Any, field: str, boundary: BoundaryKind, raw: str) -> tupl
 
 
 def _optional_proposed_standing(
-    item: dict, field: str, boundary, raw_text: str
+    item: dict[str, object], field: str, boundary: BoundaryKind, raw_text: str
 ) -> "ProposedStanding | None":
     """Shape-check the proposed standing fields. Permitted VALUES are the
     application's decision, not the validator's.
@@ -299,7 +304,13 @@ def validate_extraction(raw_text: str) -> tuple[ValidatedObservation, ...]:
     return tuple(out)
 
 
-def _require_enum(value: object, enum_cls, field: str, boundary, raw_text: str):
+def _require_enum(
+    value: object,
+    enum_cls: type[_E],
+    field: str,
+    boundary: BoundaryKind,
+    raw_text: str,
+) -> _E:
     """One of the governed enum values, by value. No coercion, no default."""
     allowed = {member.value: member for member in enum_cls}
     if not isinstance(value, str) or value not in allowed:
@@ -312,7 +323,7 @@ def _require_enum(value: object, enum_cls, field: str, boundary, raw_text: str):
 
 
 def _require_signature(
-    value: object, field: str, boundary, raw_text: str
+    value: object, field: str, boundary: BoundaryKind, raw_text: str
 ) -> ValidatedSignature:
     """A proposal's stated signature. Rejected, never defaulted."""
     if not isinstance(value, dict):

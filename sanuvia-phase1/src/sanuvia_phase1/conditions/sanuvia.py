@@ -53,7 +53,7 @@ class SanuviaPersistentCondition:
         scripted = self._appraiser is None
         script = dict(self._case.appraisal_script)
         appraiser: EvidenceAppraiser = (
-            ScriptedAppraiser(script) if scripted else self._appraiser  # type: ignore[assignment]
+            ScriptedAppraiser(script) if scripted else self._appraiser
         )
         # IDENTITY DECISIONS ARE AUTHORED BY THE CASE, on the scripted path only.
         #

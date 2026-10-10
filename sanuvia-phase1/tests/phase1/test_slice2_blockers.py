@@ -8,6 +8,8 @@ Fake clients only. No provider, no network, no model inference.
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 
 import pytest
@@ -19,6 +21,7 @@ from sanuvia.adapters.support.deterministic import ManualClock, SequentialIdGene
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api.service import EvidenceInput, ReasoningService
 from sanuvia.application.ports.reasoning import (
+    AppraisalRequest,
     AppraisalResponse,
     CandidateProposal,
     CommitmentSignatureView,
@@ -66,7 +69,7 @@ class _ProposesTwoReadings:
     def __init__(self) -> None:
         self.calls = 0
 
-    def appraise(self, request):
+    def appraise(self, request: AppraisalRequest) -> AppraisalResponse:
         self.calls += 1
         statement = "the first reading" if self.calls == 1 else "a second reading"
         signature = CommitmentSignatureView(
@@ -86,7 +89,7 @@ def _reply(ref: str | None) -> str:
     })
 
 
-def _run(resolver_reply: str):
+def _run(resolver_reply: str) -> tuple[ReasoningService, Any, SequentialIdGenerator]:
     """Two interactions through the real service with the real resolver."""
     store = InMemoryReasoningStore()
     ids = SequentialIdGenerator()
@@ -102,7 +105,7 @@ def _run(resolver_reply: str):
 # --- B-1 Case A: an unoffered, durable-looking reference ---------------------
 
 
-def test_b1_unoffered_durable_looking_reference_is_rejected():
+def test_b1_unoffered_durable_looking_reference_is_rejected() -> None:
     """The request offered only C1; "hyp-1" is not in the vocabulary.
 
     It was previously carried forward AS the durable id and accepted, because
@@ -123,7 +126,7 @@ def test_b1_unoffered_durable_looking_reference_is_rejected():
     assert "was not offered" in str(exc.value)
 
 
-def test_b1_rejection_rolls_the_interaction_back_completely():
+def test_b1_rejection_rolls_the_interaction_back_completely() -> None:
     service, store, ids = _run(_reply("hyp-1"))
     before_evidence = len(store.evidence.list_for_subject(SUBJECT))
 
@@ -146,7 +149,7 @@ def test_b1_rejection_rolls_the_interaction_back_completely():
 
 
 @pytest.mark.parametrize("unoffered", ["hyp-1", "hyp-9", "C2", "", "  "])
-def test_b1_no_unoffered_reference_is_ever_accepted(unoffered):
+def test_b1_no_unoffered_reference_is_ever_accepted(unoffered: str) -> None:
     """Only C1 was offered, so every one of these is unusable output."""
     service, _, _ = _run(_reply(unoffered))
     with pytest.raises(GovernedRejection) as exc:
@@ -158,7 +161,7 @@ def test_b1_no_unoffered_reference_is_ever_accepted(unoffered):
 # --- B-1 Case B: the offered reference still works ---------------------------
 
 
-def test_b1_the_offered_reference_resolves_normally():
+def test_b1_the_offered_reference_resolves_normally() -> None:
     """C1 maps to the intended candidate; Slice 2 behaviour is unchanged."""
     service, store, _ = _run(_reply("C1"))
     service.record_interaction(SUBJECT, [_ev("second")])
@@ -179,7 +182,7 @@ def _expected_provenance() -> dict[str, str]:
     }
 
 
-def test_b2_malformed_resolver_output_is_a_governed_rejection():
+def test_b2_malformed_resolver_output_is_a_governed_rejection() -> None:
     """"not json" escaped as MalformedOutputError, so no governed record existed."""
     service, _, _ = _run("not json")
 
@@ -192,7 +195,7 @@ def test_b2_malformed_resolver_output_is_a_governed_rejection():
     assert dict(exc.value.provenance) == _expected_provenance()
 
 
-def test_b2_malformed_resolver_output_rolls_back_and_restores_counters():
+def test_b2_malformed_resolver_output_rolls_back_and_restores_counters() -> None:
     service, store, ids = _run("not json")
     with pytest.raises(GovernedRejection):
         service.record_interaction(SUBJECT, [_ev("second")])
@@ -210,7 +213,7 @@ def test_b2_malformed_resolver_output_rolls_back_and_restores_counters():
 
 
 @pytest.mark.parametrize("payload", ["not json", _reply("hyp-1")])
-def test_b2_the_rejected_plan_record_carries_the_full_resolver_provenance(payload):
+def test_b2_the_rejected_plan_record_carries_the_full_resolver_provenance(payload: str) -> None:
     """The AUDIT RECORD, not merely the exception."""
     service, _, _ = _run(payload)
     with pytest.raises(GovernedRejection) as exc:
@@ -234,7 +237,7 @@ def test_b2_the_rejected_plan_record_carries_the_full_resolver_provenance(payloa
     assert echoed["committed"] is False
 
 
-def test_b2_the_appraisal_responses_are_kept_separate_from_the_resolver_reply():
+def test_b2_the_appraisal_responses_are_kept_separate_from_the_resolver_reply() -> None:
     """Both boundaries were crossed; neither may overwrite the other."""
     service, _, _ = _run("not json")
     with pytest.raises(GovernedRejection) as exc:
@@ -255,7 +258,7 @@ def test_b2_the_appraisal_responses_are_kept_separate_from_the_resolver_reply():
 # ===========================================================================
 
 
-def _observation(role: str) -> dict:
+def _observation(role: str) -> dict[str, object]:
     return {
         "observation": "she left the room", "evidence_class": "behavioural",
         "reliability": 0.8, "classification_confidence": 0.9,
@@ -269,7 +272,7 @@ class _SecondTurnHasInvalidStanding:
         self.calls = 0
         self.replies: list[str] = []
 
-    def __call__(self, _request) -> str:
+    def __call__(self, _request: Any) -> str:
         self.calls += 1
         role = "event_observation" if self.calls == 1 else "resonance"
         reply = json.dumps({"evidence": [_observation(role)]})
@@ -277,7 +280,7 @@ class _SecondTurnHasInvalidStanding:
         return reply
 
 
-def _two_turn_case():
+def _two_turn_case() -> tuple[Any, Any]:
     client = _SecondTurnHasInvalidStanding()
     extractor = ExternalEvidenceExtractor(
         client=client, permitted_participants=("pA", "pB")
@@ -295,7 +298,7 @@ def _two_turn_case():
     return extracted, client
 
 
-def test_b3_an_invalid_later_interaction_does_not_abort_the_run():
+def test_b3_an_invalid_later_interaction_does_not_abort_the_run() -> None:
     """The whole run previously aborted; now one interaction is rejected."""
     extracted, client = _two_turn_case()
 
@@ -303,7 +306,7 @@ def test_b3_an_invalid_later_interaction_does_not_abort_the_run():
     assert len(extracted.case.interactions) == 2, "the run completed"
 
 
-def test_b3_the_valid_interaction_is_unaffected():
+def test_b3_the_valid_interaction_is_unaffected() -> None:
     extracted, _ = _two_turn_case()
     first = extracted.case.interactions[0]
 
@@ -311,7 +314,7 @@ def test_b3_the_valid_interaction_is_unaffected():
     assert len(first.evidence) == 1
 
 
-def test_b3_the_invalid_interaction_is_rejected_and_admits_nothing():
+def test_b3_the_invalid_interaction_is_rejected_and_admits_nothing() -> None:
     extracted, _ = _two_turn_case()
     second = extracted.case.interactions[1]
 
@@ -320,7 +323,7 @@ def test_b3_the_invalid_interaction_is_rejected_and_admits_nothing():
     assert second.evidence == (), "no evidence from a rejected interaction"
 
 
-def test_b3_the_validated_extraction_output_is_preserved():
+def test_b3_the_validated_extraction_output_is_preserved() -> None:
     """Q6: the COMPLETE extraction output survives on the rejection."""
     extracted, client = _two_turn_case()
     rejection = extracted.case.interactions[1].pre_rejection
@@ -329,7 +332,7 @@ def test_b3_the_validated_extraction_output_is_preserved():
     assert "resonance" in rejection.raw_response
 
 
-def test_b3_the_condition_emits_a_rejected_plan_record_for_it():
+def test_b3_the_condition_emits_a_rejected_plan_record_for_it() -> None:
     """Through the real condition, so the audit shape is the governed one."""
     extracted, client = _two_turn_case()
     condition = SanuviaPersistentCondition(extracted.case)
@@ -352,11 +355,15 @@ def test_b3_the_condition_emits_a_rejected_plan_record_for_it():
     assert second.boundary_raw_response == client.replies[1]
 
 
-def test_b3_the_rejected_interaction_mutates_no_reasoning_state():
+def test_b3_the_rejected_interaction_mutates_no_reasoning_state() -> None:
     extracted, _ = _two_turn_case()
     condition = SanuviaPersistentCondition(extracted.case)
     condition.start()
     condition.step(extracted.case.interactions[0])
+
+    assert condition._store is not None  # start() ran
+
+    assert condition._store is not None  # start() ran
 
     store = condition._store
     subject, space = extracted.case.subject_id, extracted.case.space_id
@@ -378,7 +385,7 @@ def test_b3_the_rejected_interaction_mutates_no_reasoning_state():
     assert after == before, "the rejected interaction changed reasoning state"
 
 
-def test_b3_the_run_matches_processing_only_the_valid_interaction():
+def test_b3_the_run_matches_processing_only_the_valid_interaction() -> None:
     """Reasoning state is equivalent to a valid-only run."""
     extracted, _ = _two_turn_case()
 
@@ -393,7 +400,9 @@ def test_b3_the_run_matches_processing_only_the_valid_interaction():
 
     subject, space = extracted.case.subject_id, extracted.case.space_id
 
-    def projection(condition):
+    def projection(condition: Any) -> tuple[Any, ...]:
+        assert condition._store is not None  # start() ran
+        assert condition._store is not None  # start() ran
         store = condition._store
         return (
             [e.id for e in store.evidence.list_for_subject(subject, space_id=space)],

@@ -345,11 +345,22 @@ without a reference, `DISTINCT_NEW` with one, and `REFINE_EXISTING` without
 one.
 
 `AMBIGUOUS_REVIEW_REQUIRED` with a reference has **no** application-layer
-equivalent, and none was added. A stray `matched_hypothesis_id` on a parked
-decision is inert — the parked adjudication is built from `plausible_matches`,
-not from it — so adding a guard would be new governed behaviour beyond the
-authorised shape rules. The adapter rule is what enforces O-1. Recorded rather
-than invented.
+equivalent, and none was added.
+
+**Correction to an earlier statement.** That absence was previously described
+by saying a stray `matched_hypothesis_id` on a parked decision is "inert".
+That was imprecise. It is inert *for reasoning state*: the parked
+`IdentityAdjudication` builds its `plausible_matches` from the resolver's
+plausible set, not from `matched_hypothesis_id`, and no lineage, hypothesis,
+support value or statement version is affected by it. But
+`IdentityAdjudication.decision` persists the **whole** `IdentityDecision`, so
+a stray reference *was* recorded on the parked audit record. "Inert" should
+have been "did not affect reasoning state, but was recorded in the audit".
+
+This is not a live defect: O-1 now rejects the shape at the adapter, so such a
+decision cannot reach the application at all. The application-layer guard
+remains absent by choice — adding one would be new governed behaviour beyond
+the authorised shape rules — and the adapter rule is what enforces O-1.
 
 ---
 

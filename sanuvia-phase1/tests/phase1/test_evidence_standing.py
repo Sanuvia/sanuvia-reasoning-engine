@@ -18,6 +18,10 @@ Fake clients only. No model inference.
 
 from __future__ import annotations
 
+from sanuvia.application.ports.reasoning import AppraisalRequest, AppraisalResponse
+
+from typing import Any
+
 import json
 
 import pytest
@@ -40,7 +44,7 @@ PERMITTED = ("pA", "pB")
 
 def _reply(role: str | None = "event_observation", *, subject_kind: str = "participant",
            subject: str | None = "pB", omit_standing: bool = False,
-           extra: dict | None = None) -> str:
+           extra: dict[str, object] | None = None) -> str:
     item = {
         "observation": "the partner left the room",
         "evidence_class": "behavioural",
@@ -56,7 +60,7 @@ def _reply(role: str | None = "event_observation", *, subject_kind: str = "parti
     return json.dumps({"evidence": [item]})
 
 
-def _extract(reply: str, *, speaker: str | None = "pA"):
+def _extract(reply: str, *, speaker: str | None = "pA") -> tuple[Any, ...]:
     extractor = ExternalEvidenceExtractor(
         client=lambda _r: reply, permitted_participants=PERMITTED
     )
@@ -69,7 +73,7 @@ def _extract(reply: str, *, speaker: str | None = "pA"):
 # --- 1/2. the extractor supplies standing and it is persisted ----------------
 
 
-def test_extractor_supplied_standing_is_completed_and_carried():
+def test_extractor_supplied_standing_is_completed_and_carried() -> None:
     (evidence,) = _extract(_reply("event_observation"))
 
     assert evidence.standing is not None
@@ -78,7 +82,7 @@ def test_extractor_supplied_standing_is_completed_and_carried():
     assert evidence.standing.subject_id == "pB"
 
 
-def test_the_application_supplies_the_speaking_participant_not_the_model():
+def test_the_application_supplies_the_speaking_participant_not_the_model() -> None:
     """source_kind/source_id are contextual facts, never asked of the model."""
     (evidence,) = _extract(_reply(), speaker="pA")
 
@@ -86,13 +90,13 @@ def test_the_application_supplies_the_speaking_participant_not_the_model():
     assert evidence.standing.source_id == "pA"
 
 
-def test_a_model_supplied_source_is_rejected():
+def test_a_model_supplied_source_is_rejected() -> None:
     """The model may not state who spoke."""
     with pytest.raises(MalformedOutputError, match="source_kind"):
         _extract(_reply(extra={"source_kind": "participant", "source_id": "pB"}))
 
 
-def test_standing_reaches_the_engine_through_the_evidence_input():
+def test_standing_reaches_the_engine_through_the_evidence_input() -> None:
     """The gate is only live if the standing actually arrives."""
     from fixtures.longitudinal.case_001 import CASE_001
     from sanuvia_phase1.case import CaseEvidence
@@ -110,7 +114,7 @@ def test_standing_reaches_the_engine_through_the_evidence_input():
 
 
 @pytest.mark.parametrize("bad_role", ["resonance", "EVENT_OBSERVATION", "unknown"])
-def test_an_invalid_proposed_role_rejects_the_whole_interaction(bad_role):
+def test_an_invalid_proposed_role_rejects_the_whole_interaction(bad_role: str) -> None:
     """Q6: governed failure, no repair, no partial commit.
 
     This previously accepted either exception class. A non-empty but
@@ -127,19 +131,19 @@ def test_an_invalid_proposed_role_rejects_the_whole_interaction(bad_role):
     assert bad_role in exc.value.raw_response
 
 
-def test_an_empty_role_is_a_shape_failure_at_the_validator():
+def test_an_empty_role_is_a_shape_failure_at_the_validator() -> None:
     """An absent value never reaches the application's value judgement."""
     with pytest.raises(MalformedOutputError, match="role"):
         _extract(_reply(""))
 
 
-def test_an_invalid_subject_kind_rejects_the_interaction():
+def test_an_invalid_subject_kind_rejects_the_interaction() -> None:
     with pytest.raises(GovernedRejection) as exc:
         _extract(_reply(subject_kind="everyone"))
     assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
 
 
-def test_a_subject_outside_the_permitted_set_rejects_the_interaction():
+def test_a_subject_outside_the_permitted_set_rejects_the_interaction() -> None:
     """The permitted identifier set is the application's, not the model's."""
     with pytest.raises(GovernedRejection) as exc:
         _extract(_reply(subject="pZ"))
@@ -147,12 +151,12 @@ def test_a_subject_outside_the_permitted_set_rejects_the_interaction():
     assert "permitted participant" in str(exc.value)
 
 
-def test_a_participant_subject_kind_without_a_subject_is_rejected():
+def test_a_participant_subject_kind_without_a_subject_is_rejected() -> None:
     with pytest.raises(GovernedRejection):
         _extract(_reply(subject=None))
 
 
-def test_an_unpermitted_speaker_rejects_the_interaction():
+def test_an_unpermitted_speaker_rejects_the_interaction() -> None:
     with pytest.raises(GovernedRejection) as exc:
         _extract(_reply(), speaker="pZ")
     assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
@@ -161,7 +165,7 @@ def test_an_unpermitted_speaker_rejects_the_interaction():
 # --- 4. RESPONSE_OR_RESONANCE cannot become ordinary support -----------------
 
 
-def test_response_or_resonance_is_not_appraisable():
+def test_response_or_resonance_is_not_appraisable() -> None:
     """F-1 / TD-13e: resonance cannot raise support. The whole point."""
     (evidence,) = _extract(_reply("response_or_resonance"))
 
@@ -170,12 +174,12 @@ def test_response_or_resonance_is_not_appraisable():
     assert EvidenceRole.RESPONSE_OR_RESONANCE not in APPRAISABLE_ROLES
 
 
-def test_meta_instruction_is_not_appraisable():
+def test_meta_instruction_is_not_appraisable() -> None:
     (evidence,) = _extract(_reply("meta_instruction", subject_kind="none", subject=None))
     assert evidence.standing.is_appraisable is False
 
 
-def test_a_non_appraisable_record_reaches_the_engine_but_is_never_appraised():
+def test_a_non_appraisable_record_reaches_the_engine_but_is_never_appraised() -> None:
     """Q1 is structural: the engine makes no appraisal call for it at all."""
     from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
     from sanuvia.adapters.support.deterministic import ManualClock, SequentialIdGenerator
@@ -187,7 +191,7 @@ def test_a_non_appraisable_record_reaches_the_engine_but_is_never_appraised():
         def __init__(self) -> None:
             self.calls = 0
 
-        def appraise(self, request):
+        def appraise(self, request: AppraisalRequest) -> AppraisalResponse:
             self.calls += 1
             raise AssertionError("a non-appraisable record must not be appraised")
 
@@ -221,7 +225,7 @@ def test_a_non_appraisable_record_reaches_the_engine_but_is_never_appraised():
 
 
 @pytest.mark.parametrize("role", ["event_observation", "account"])
-def test_authorised_roles_remain_appraisable(role):
+def test_authorised_roles_remain_appraisable(role: str) -> None:
     (evidence,) = _extract(_reply(role))
     assert evidence.standing.is_appraisable is True
 
@@ -229,7 +233,7 @@ def test_authorised_roles_remain_appraisable(role):
 # --- 6. absent standing is left absent ---------------------------------------
 
 
-def test_absent_standing_is_not_defaulted_to_ordinary_support():
+def test_absent_standing_is_not_defaulted_to_ordinary_support() -> None:
     """Do not invent standing. Absent means absent, not 'ordinary evidence'."""
     (evidence,) = _extract(_reply(omit_standing=True))
     assert evidence.standing is None
@@ -238,7 +242,7 @@ def test_absent_standing_is_not_defaulted_to_ordinary_support():
 # --- 7. standing changes neither attribution nor identity --------------------
 
 
-def test_standing_does_not_change_attribution_or_identity_semantics():
+def test_standing_does_not_change_attribution_or_identity_semantics() -> None:
     """Standing is about what an observation IS, not whose commitment it states."""
     observation_role = _extract(_reply("event_observation"))[0]
     account_role = _extract(_reply("account"))[0]

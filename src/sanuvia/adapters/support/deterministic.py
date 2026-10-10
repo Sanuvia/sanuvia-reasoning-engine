@@ -8,6 +8,7 @@ ambient wall-clock or randomness.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 
 class ManualClock:
@@ -51,4 +52,4 @@ class SequentialIdGenerator:
         return dict(self._counters)
 
     def restore(self, token: object) -> None:
-        self._counters = dict(token)  # type: ignore[arg-type]
+        self._counters = dict(cast("dict[str, int]", token))

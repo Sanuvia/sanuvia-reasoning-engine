@@ -16,8 +16,10 @@ equality -- no similarity, no normalisation, no heuristic.
 
 from __future__ import annotations
 
+from typing import Any
 
-def durable_ids(store, case) -> dict[str, str]:
+
+def durable_ids(store: Any, case: Any) -> dict[str, str]:
     """Authored fixture hypothesis id -> engine-issued durable id."""
     by_statement: dict[str, str] = {}
     for hypothesis in store.hypotheses.list_for_subject(

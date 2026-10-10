@@ -13,6 +13,7 @@ consistent set of them for convenient wiring.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import cast
 from dataclasses import dataclass, field
 
 from sanuvia.domain import (
@@ -113,7 +114,11 @@ class InMemoryEvidenceStore:
         return (dict(self._by_id), dict(self._by_ref))
 
     def restore(self, token: object) -> None:
-        by_id, by_ref = token  # type: ignore[misc]
+        by_id, by_ref = cast(
+            "tuple[dict[EvidenceRecordId, EvidenceRecord], "
+            "dict[SourceObservationRef, EvidenceRecordId]]",
+            token,
+        )
         self._by_id = dict(by_id)
         self._by_ref = dict(by_ref)
 
@@ -150,7 +155,7 @@ class InMemoryInferenceStore:
         return dict(self._by_id)
 
     def restore(self, token: object) -> None:
-        self._by_id = dict(token)  # type: ignore[index,arg-type]
+        self._by_id = dict(cast("dict[InferenceRecordId, InferenceRecord]", token))
 
 class InMemoryHypothesisRepository:
     """Implements ``HypothesisRepository`` with lineage retention (FR-RS-003)."""
@@ -229,7 +234,7 @@ class InMemoryHypothesisRepository:
         return list(self._records)
 
     def restore(self, token: object) -> None:
-        self._records = list(token)  # type: ignore[index,arg-type]
+        self._records = list(cast("list[Hypothesis]", token))
 
 class InMemoryPredictionRepository:
     """Implements ``PredictionRepository``."""
@@ -267,7 +272,10 @@ class InMemoryPredictionRepository:
         return (dict(self._by_id), list(self._order))
 
     def restore(self, token: object) -> None:
-        self._by_id, self._order = dict(token[0]), list(token[1])  # type: ignore[index,arg-type]
+        by_id, order = cast(
+            "tuple[dict[PredictionId, Prediction], list[PredictionId]]", token
+        )
+        self._by_id, self._order = dict(by_id), list(order)
 
 class InMemoryInquiryRepository:
     """Implements ``InquiryRepository`` with status history retention."""
@@ -310,7 +318,7 @@ class InMemoryInquiryRepository:
         return list(self._records)
 
     def restore(self, token: object) -> None:
-        self._records = list(token)  # type: ignore[index,arg-type]
+        self._records = list(cast("list[Inquiry]", token))
 
 class InMemoryWorldModelRepository:
     """Implements ``WorldModelRepository`` (append-only versions + pointer)."""
@@ -366,7 +374,13 @@ class InMemoryWorldModelRepository:
         return (dict(self._versions), dict(self._current))
 
     def restore(self, token: object) -> None:
-        self._versions, self._current = dict(token[0]), dict(token[1])  # type: ignore[index,arg-type]
+        versions, current = cast(
+            "tuple["
+            "dict[tuple[SpaceId, SubjectId, WorldModelVersionId], WorldModel], "
+            "dict[tuple[SpaceId, SubjectId], CurrentModelSnapshot]]",
+            token,
+        )
+        self._versions, self._current = dict(versions), dict(current)
 
 class InMemoryRevisionLedgerStore:
     """Implements ``RevisionLedgerStore`` — append-only, monotonic per subject."""
@@ -423,7 +437,12 @@ class InMemoryRevisionLedgerStore:
         return {k: list(v) for k, v in self._by_scope.items()}
 
     def restore(self, token: object) -> None:
-        self._by_scope = {k: list(v) for k, v in token.items()}  # type: ignore[index,arg-type]
+        self._by_scope = {
+            key: list(entries)
+            for key, entries in cast(
+                "dict[tuple[SpaceId, SubjectId], list[RevisionLedgerEntry]]", token
+            ).items()
+        }
 
 class InMemoryAnomalyResolutionStore:
     """Implements ``AnomalyResolutionStore``."""
@@ -446,7 +465,7 @@ class InMemoryAnomalyResolutionStore:
         return dict(self._by_id)
 
     def restore(self, token: object) -> None:
-        self._by_id = dict(token)  # type: ignore[index,arg-type]
+        self._by_id = dict(cast("dict[AnomalyResolutionId, AnomalyResolution]", token))
 
 class InMemoryProvenanceRepository:
     """Implements ``ProvenanceRepository``."""
@@ -469,7 +488,7 @@ class InMemoryProvenanceRepository:
         return dict(self._by_id)
 
     def restore(self, token: object) -> None:
-        self._by_id = dict(token)  # type: ignore[index,arg-type]
+        self._by_id = dict(cast("dict[ProvenanceRecordId, ProvenanceRecord]", token))
 
 class InMemoryRecognitionRepository:
     """Implements ``RecognitionRepository``."""
@@ -498,7 +517,7 @@ class InMemoryRecognitionRepository:
         return list(self._events)
 
     def restore(self, token: object) -> None:
-        self._events = list(token)  # type: ignore[index,arg-type]
+        self._events = list(cast("list[RecognitionEvent]", token))
 
 class InMemoryDependencyGraphStore:
     """Implements ``DependencyGraphStore``."""
@@ -529,7 +548,7 @@ class InMemoryDependencyGraphStore:
         return list(self._edges)
 
     def restore(self, token: object) -> None:
-        self._edges = list(token)  # type: ignore[index,arg-type]
+        self._edges = list(cast("list[DependencyEdge]", token))
 
 class InMemorySystemModellingContextStore:
     """Implements ``SystemModellingContextStore``."""
@@ -554,7 +573,7 @@ class InMemorySystemModellingContextStore:
         return dict(self._by_subject)
 
     def restore(self, token: object) -> None:
-        self._by_subject = dict(token)  # type: ignore[index,arg-type]
+        self._by_subject = dict(cast("dict[SubjectId, SystemModellingContext]", token))
 
 
 
@@ -639,7 +658,11 @@ class InMemoryHypothesisLineageStore:
         )
 
     def restore(self, token: object) -> None:
-        by_id, by_key = token  # type: ignore[misc]
+        by_id, by_key = cast(
+            "tuple[dict[HypothesisId, HypothesisLineage], "
+            "dict[tuple[SpaceId, SubjectId, str, str], list[HypothesisId]]]",
+            token,
+        )
         self._by_id = dict(by_id)
         self._by_key = {key: list(ids) for key, ids in by_key.items()}
 
@@ -676,7 +699,12 @@ class InMemoryStatementVersionStore:
         return {k: list(v) for k, v in self._by_lineage.items()}
 
     def restore(self, token: object) -> None:
-        self._by_lineage = {k: list(v) for k, v in token.items()}  # type: ignore[union-attr]
+        self._by_lineage = {
+            hypothesis_id: list(versions)
+            for hypothesis_id, versions in cast(
+                "dict[HypothesisId, list[StatementVersion]]", token
+            ).items()
+        }
 
 
 class InMemoryIdentityAdjudicationStore:
@@ -713,7 +741,7 @@ class InMemoryIdentityAdjudicationStore:
         return dict(self._by_id)
 
     def restore(self, token: object) -> None:
-        self._by_id = dict(token)  # type: ignore[arg-type]
+        self._by_id = dict(cast("dict[IdentityAdjudicationId, IdentityAdjudication]", token))
 
 
 @dataclass

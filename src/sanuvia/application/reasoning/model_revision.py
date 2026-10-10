@@ -28,12 +28,39 @@ live in :class:`ReasoningConfig` and are documented there as replaceable.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    # Type-checking only. These names are imported inside functions at runtime
+    # to keep the import graph acyclic; naming them here lets the run's fields
+    # carry real element types without changing that.
+    from sanuvia.application.ports.reasoning import (
+        AppraisalResponse,
+        CandidateProposal,
+        CommitmentSignatureView,
+    )
+
+    from sanuvia.application.ports.reasoning import ParticipantLabel
+
+    from . import handles as _handles
+    from sanuvia.domain import (
+        CommitmentSignature,
+        HypothesisLineage,
+        IdentityAdjudication,
+        IdentityDecision,
+        StatementVersion,
+    )
+
+    from .identity import DeterministicAdjudicator, LineageKey, LineageView
+    from .plan_validation import AppraisedObservation
 
 from sanuvia.application.ports.reasoning import AppraisalRequest
 from sanuvia.domain import (
     ObjectRef,
+    ParticipantId,
     SpaceKind,
     canonical_divergence_pair,
     space_kind_of,
@@ -134,29 +161,35 @@ class _RevisionRun:
     #: to a later appraisal call (F-18); the in-flight MATCH_EXISTING arm absorbs
     #: the identity consequence.
     entering: tuple[Hypothesis, ...] = ()
-    #: Deterministic arm only; R1 stays Slice 2 and is never wired here.
-    adjudicator: object = None
+    #: The identity adjudicator for this run (§2 G).
+    adjudicator: "DeterministicAdjudicator | None" = None
     #: Committed lineage views, keyed by the immutable (subject, attribution).
-    committed_views: dict = field(default_factory=dict)
+    committed_views: "dict[LineageKey, list[LineageView]]" = field(
+        default_factory=dict
+    )
     #: Plan-local lineage key -> list[LineageView], for in-flight adjudication
     #: (§2 G). A list because one bound admits several lineages (M-2).
-    in_flight: dict = field(default_factory=dict)
-    lineages: list = field(default_factory=list)
-    statement_versions: list = field(default_factory=list)
-    adjudications: list = field(default_factory=list)
-    appraised: list = field(default_factory=list)
-    decisions: list = field(default_factory=list)
+    in_flight: "dict[LineageKey, list[LineageView]]" = field(default_factory=dict)
+    lineages: list[HypothesisLineage] = field(default_factory=list)
+    statement_versions: list[StatementVersion] = field(default_factory=list)
+    adjudications: list[IdentityAdjudication] = field(default_factory=list)
+    appraised: list[AppraisedObservation] = field(default_factory=list)
+    decisions: list[
+        tuple[IdentityDecision, CommitmentSignature, CandidateProposal, EvidenceRecord]
+    ] = field(default_factory=list)
     #: ``(evidence_id, raw_response)`` per appraisal call, in call order. Audit
     #: only: nothing in the reasoning path reads it. It exists so a rejection
     #: at step 6 or 8 can carry the responses already collected for earlier
     #: observations in the same interaction (§5.8).
-    raw_responses: list = field(default_factory=list)
+    raw_responses: list[tuple[str, str | None]] = field(default_factory=list)
     #: Admitted records in membership order, for divergence candidate
     #: construction (§2 J.1 rule 9).
-    admitted_pool: list = field(default_factory=list)
+    admitted_pool: list[EvidenceRecord] = field(default_factory=list)
     #: Already-recorded ``DIVERGES_WITH`` pairs, excluded before disclosure
     #: (rule 6b) so an existing pair is never re-offered.
-    existing_divergence_pairs: frozenset = field(default_factory=frozenset)
+    existing_divergence_pairs: "frozenset[tuple[ObjectRef, ObjectRef]]" = field(
+        default_factory=frozenset
+    )
 
     # -- id helpers ---------------------------------------------------------
 
@@ -263,13 +296,16 @@ class _RevisionRun:
         # offers no candidates at all, so nothing can be disclosed across a
         # personal or undeclared boundary -- the construction side of the same
         # condition complete-plan check 8b re-verifies before mutation.
-        candidates: list = []
+        candidates: list[EvidenceRecord] = []
         if space_kind_of(self.space_id) is SpaceKind.SHARED:
             candidates = list(
                 _handles.build_divergence_candidates(
                     observation=evidence,
                     admitted=self.admitted_pool,
-                    existing_pairs=self.existing_divergence_pairs,
+                    existing_pairs=cast(
+                        "frozenset[tuple[EvidenceRecordId, EvidenceRecordId]]",
+                        self.existing_divergence_pairs,
+                    ),
                 )
             )
 
@@ -358,6 +394,8 @@ class _RevisionRun:
                         raw_response=response.raw_response,
                     )
                 signature = self._resolve_signature(proposal, table)
+                # Set in plan() before any ingest() call; never None here.
+                assert self.adjudicator is not None
                 decision = self.adjudicator.adjudicate(
                     proposal, signature,
                     committed=self.committed_views, in_flight=self.in_flight,
@@ -393,7 +431,7 @@ class _RevisionRun:
 
     # -- adjudication helpers ----------------------------------------------
 
-    def _participants_for(self, evidence: EvidenceRecord) -> list:
+    def _participants_for(self, evidence: EvidenceRecord) -> list[ParticipantId]:
         """Participant ids this request may reference.
 
         Standing supplies them when present. Phase 0 records carry no standing,
@@ -402,7 +440,7 @@ class _RevisionRun:
         hidden in the adapter.
         """
         from sanuvia.domain import ParticipantId
-        found: list = []
+        found: list[ParticipantId] = []
         st = evidence.standing
         if st is not None:
             if st.source_id:
@@ -413,7 +451,9 @@ class _RevisionRun:
             found.append(ParticipantId(str(self.subject_id)))
         return found
 
-    def _signature_views(self, table) -> dict:
+    def _signature_views(
+        self, table: _handles.HandleTable
+    ) -> dict[HypothesisId, CommitmentSignatureView]:
         """Signature projections for the hypotheses offered to the appraiser.
 
         M-1.3. Every field is read from stored state rather than reconstructed:
@@ -459,7 +499,13 @@ class _RevisionRun:
                 # path in any case: with no lineage store, retrieval returns
                 # nothing and no candidate is ever adjudicated against it.
                 views[hid] = CommitmentSignatureView(
-                    subject=label if label is not None else str(self.subject_id),
+                    # ``_participants_for`` always yields at least one
+                    # participant, so ``label`` is never None here; the
+                    # fallback is defensive only.
+                    subject=cast(
+                        "ParticipantLabel",
+                        label if label is not None else str(self.subject_id),
+                    ),
                     attribution=UNGOVERNED_ATTRIBUTION,
                     claim_class=ClaimClass.INTERPRETATION,
                     stance=Stance.OPEN,
@@ -474,9 +520,20 @@ class _RevisionRun:
                 # the governed path. The inverse map is the correct direction,
                 # and the subject is guaranteed to be present because it was
                 # projected into the participant set above.
-                subject=inverse_participants.get(
-                    ParticipantId(str(lineage.signature_subject)),
-                    lineage.signature_subject,
+                # The cast documents an invariant mypy cannot see: every
+                # hypothesis in this loop comes from ``entering``, and
+                # ``_lineage_subjects`` projected each of their lineage
+                # subjects into the participant set before the table was
+                # built, so the lookup cannot miss. The fallback exists only
+                # so a future change cannot crash here; if it were ever taken
+                # it would emit a durable ParticipantId, which is why the
+                # projection above is the real guard.
+                subject=cast(
+                    "ParticipantLabel",
+                    inverse_participants.get(
+                        ParticipantId(str(lineage.signature_subject)),
+                        lineage.signature_subject,
+                    ),
                 ),
                 attribution=lineage.attribution,
                 claim_class=current.claim_class if current else ClaimClass.INTERPRETATION,
@@ -485,11 +542,11 @@ class _RevisionRun:
             )
         return views
 
-    def _lineage_subjects(self) -> list:
+    def _lineage_subjects(self) -> list[ParticipantId]:
         """Signature subjects of every hypothesis this request will offer."""
         from sanuvia.domain import ParticipantId
 
-        found: list = []
+        found: list[ParticipantId] = []
         for hypothesis in self.entering:
             lineage = self.deps_lineage(hypothesis.hypothesis_id)
             if lineage is not None:
@@ -498,11 +555,13 @@ class _RevisionRun:
                     found.append(pid)
         return found
 
-    def deps_lineage(self, hid: HypothesisId):
+    def deps_lineage(self, hid: HypothesisId) -> HypothesisLineage | None:
         store = getattr(self.deps, "lineages", None)
         return store.get(hid) if store is not None else None
 
-    def _resolve_signature(self, proposal, table):
+    def _resolve_signature(
+        self, proposal: CandidateProposal, table: _handles.HandleTable
+    ) -> CommitmentSignature:
         """Resolve a model-facing signature view into the durable value object.
 
         The ``subject`` label resolves through the request's table, so the model
@@ -517,7 +576,13 @@ class _RevisionRun:
             temporal_scope=view.temporal_scope,
         )
 
-    def _apply_decision(self, decision, signature, proposal, evidence) -> None:
+    def _apply_decision(
+        self,
+        decision: IdentityDecision,
+        signature: CommitmentSignature,
+        proposal: CandidateProposal,
+        evidence: EvidenceRecord,
+    ) -> None:
         """Turn an identity decision into plan entries. Still no writes."""
         from sanuvia.application.reasoning.identity import LineageView
         from sanuvia.domain import (
@@ -636,7 +701,7 @@ class _RevisionRun:
         )
 
     def _with_appraisal_audit(
-        self, rejection: GovernedRejection, response
+        self, rejection: GovernedRejection, response: "AppraisalResponse"
     ) -> GovernedRejection:
         """Re-raise a rejection carrying the interaction's appraisal responses.
 
@@ -670,7 +735,9 @@ class _RevisionRun:
             provenance=rejection.provenance,
         )
 
-    def _note_trajectory(self, hid: HypothesisId, proposal) -> None:
+    def _note_trajectory(
+        self, hid: HypothesisId, proposal: CandidateProposal
+    ) -> None:
         """Record an authored trajectory hint against a lineage (errata E-1).
 
         Plan-local and **content only**. It records a description for a
@@ -829,9 +896,9 @@ class PlannedRevision:
     records: tuple[Hypothesis, ...]
     edges: tuple[DependencyEdge, ...]
     anomalies: tuple[AnomalyResolution, ...]
-    lineages: tuple = ()
-    statement_versions: tuple = ()
-    adjudications: tuple = ()
+    lineages: tuple[HypothesisLineage, ...] = ()
+    statement_versions: tuple[StatementVersion, ...] = ()
+    adjudications: tuple[IdentityAdjudication, ...] = ()
     predictions: tuple[Prediction, ...] = ()
     inquiry: Inquiry | None = None
     provenance: ProvenanceRecord | None = None
@@ -839,7 +906,7 @@ class PlannedRevision:
     current_pointer: CurrentModelSnapshot | None = None
     committed: bool = False
     result: ModelRevisionResult | None = None
-    appraised: tuple = ()
+    appraised: tuple[AppraisedObservation, ...] = ()
 
 
 #: Attribution presented on a bundle that keeps no HypothesisLineage records
@@ -905,8 +972,8 @@ def commit_plan(deps: ReasoningDependencies, plan: PlannedRevision) -> None:
     if deps.identity_adjudications is not None:
         for adjudication in plan.adjudications:
             deps.identity_adjudications.add(adjudication)
-    for record in plan.records:
-        deps.hypotheses.add(record)
+    for hypothesis_record in plan.records:
+        deps.hypotheses.add(hypothesis_record)
     for event in plan.committed_events:
         deps.ledger.append(event)
     for edge in plan.edges:
@@ -948,7 +1015,7 @@ class ModelRevisionEngine:
         )
         self._d = deps
 
-    def _recorded_divergence_pairs(self) -> frozenset:
+    def _recorded_divergence_pairs(self) -> frozenset[tuple[ObjectRef, ObjectRef]]:
         """Canonical ``DIVERGES_WITH`` pairs already in the dependency graph.
 
         Rule 6b excludes an already-paired candidate BEFORE disclosure, so a
@@ -964,7 +1031,12 @@ class ModelRevisionEngine:
             if edge.relation is DependencyRelation.DIVERGES_WITH
         )
 
-    def _committed_views(self, subject_id, entering, space_id) -> dict:
+    def _committed_views(
+        self,
+        subject_id: SubjectId,
+        entering: Sequence[Hypothesis],
+        space_id: SpaceId,
+    ) -> dict[LineageKey, list[LineageView]]:
         """Committed lineages, keyed by the immutable (subject, attribution).
 
         Each key maps to a **list**: the bound admits several lineages (M-2),
@@ -979,7 +1051,7 @@ class ModelRevisionEngine:
         versions = getattr(d, "statement_versions", None)
         if store is None:
             return {}
-        views: dict = {}
+        views: dict[LineageKey, list[LineageView]] = {}
         for lineage in store.list_for_subject(subject_id, space_id=space_id):
             history = tuple(versions.history(lineage.hypothesis_id)) if versions else ()
             current = history[-1].stance if history else Stance.OPEN

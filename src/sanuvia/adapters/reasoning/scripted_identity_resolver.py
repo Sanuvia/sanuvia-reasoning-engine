@@ -50,8 +50,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from sanuvia.application.ports.reasoning import CandidateProposal
-from sanuvia.domain import HypothesisId, IdentityDecision, IdentityOutcome
+from sanuvia.application.ports.reasoning import Appraisal, CandidateProposal
+from sanuvia.domain import (
+    EvidenceRecordId,
+    HypothesisId,
+    IdentityDecision,
+    IdentityOutcome,
+)
 
 #: Marks every decision this double produces, so a parked or committed lineage
 #: traced back to it is identifiable as fixture-authored rather than resolved.
@@ -137,7 +142,9 @@ class ScriptedIdentityResolver:
         return decision
 
 
-def resolver_for_script(script: Mapping[object, object]) -> ScriptedIdentityResolver:
+def resolver_for_script(
+    script: Mapping[EvidenceRecordId, Appraisal],
+) -> ScriptedIdentityResolver:
     """Build a resolver from a ``ScriptedAppraiser`` script.
 
     Every authored ``hypothesis_id`` the script proposes is a commitment the
@@ -146,6 +153,6 @@ def resolver_for_script(script: Mapping[object, object]) -> ScriptedIdentityReso
     """
     refs: list[str] = []
     for appraisal in script.values():
-        for proposal in getattr(appraisal, "proposals", ()):  # type: ignore[attr-defined]
+        for proposal in appraisal.proposals:
             refs.append(str(proposal.hypothesis_id))
     return ScriptedIdentityResolver(refs)

@@ -137,7 +137,7 @@ def test_appraisal_missing_local_ref_is_rejected() -> None:
     ("initial_support", 0.4),
     ("supporting_evidence_ids", ["evidence-1"]),
 ])
-def test_appraisal_retired_v1_fields_are_rejected(retired, value) -> None:
+def test_appraisal_retired_v1_fields_are_rejected(retired: str, value: object) -> None:
     """v1.5.4 §2 C: none of the three is the model's to decide.
 
     Rejected rather than ignored. Silently dropping them would let a model

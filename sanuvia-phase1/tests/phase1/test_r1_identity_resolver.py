@@ -10,6 +10,8 @@ model inference is run.
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 
 import pytest
@@ -19,6 +21,7 @@ from sanuvia.adapters.support.deterministic import ManualClock, SequentialIdGene
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api.service import EvidenceInput, ReasoningService
 from sanuvia.application.ports.reasoning import (
+    AppraisalRequest,
     AppraisalResponse,
     Bearing,
     BearingKind,
@@ -62,7 +65,7 @@ class _ProposesStatements:
         self._stance, self._claim_class = stance, claim_class
         self.calls = 0
 
-    def appraise(self, request):
+    def appraise(self, request: AppraisalRequest) -> AppraisalResponse:
         statement = self._statements[min(self.calls, len(self._statements) - 1)]
         self.calls += 1
         signature = CommitmentSignatureView(
@@ -88,14 +91,17 @@ class _RecordingClient:
     """Fake resolver client: records the prompt, returns a fixed reply."""
 
     def __init__(self, reply: str) -> None:
-        self.reply, self.prompts = reply, []
+        self.reply = reply
+        self.prompts: list[Any] = []
 
     def __call__(self, prompt: IdentityResolutionPrompt) -> str:
         self.prompts.append(prompt)
         return self.reply
 
 
-def _run(appraiser, client, texts=("first", "second")):
+def _run(
+    appraiser: Any, client: Any, texts: tuple[str, ...] = ("first", "second")
+) -> tuple[Any, Any]:
     store = InMemoryReasoningStore()
     deps = build_in_memory_dependencies(
         store=store, appraiser=appraiser,
@@ -111,7 +117,7 @@ def _run(appraiser, client, texts=("first", "second")):
 # --- 1. exact duplicate bypasses the resolver --------------------------------
 
 
-def test_exact_duplicate_never_reaches_the_resolver():
+def test_exact_duplicate_never_reaches_the_resolver() -> None:
     """Case 2 is deterministic: an exact duplicate must not cost a model call."""
     client = _RecordingClient(_reply("distinct_new"))
     store, _ = _run(_ProposesStatements("the same reading", "the same reading"),
@@ -126,7 +132,7 @@ def test_exact_duplicate_never_reaches_the_resolver():
 # --- 2. plausible non-exact candidate reaches R1, with bounded inputs --------
 
 
-def test_plausible_non_exact_candidate_reaches_the_resolver():
+def test_plausible_non_exact_candidate_reaches_the_resolver() -> None:
     client = _RecordingClient(_reply("ambiguous_review_required"))
     _run(_ProposesStatements("the first reading", "a different reading"), client)
 
@@ -137,7 +143,7 @@ def test_plausible_non_exact_candidate_reaches_the_resolver():
     assert prompt.existing[0].statement == "the first reading"
 
 
-def test_resolver_receives_no_durable_identifier():
+def test_resolver_receives_no_durable_identifier() -> None:
     """Bounded inputs carry resolution-scoped refs, never a HypothesisId."""
     client = _RecordingClient(_reply("ambiguous_review_required"))
     store, _ = _run(_ProposesStatements("the first reading", "a different reading"),
@@ -156,7 +162,7 @@ def test_resolver_receives_no_durable_identifier():
 # --- 3-6. the four governed outcomes -----------------------------------------
 
 
-def test_resolver_match_existing_attaches_to_the_lineage():
+def test_resolver_match_existing_attaches_to_the_lineage() -> None:
     store, _ = _run(
         _ProposesStatements("the first reading", "a restated reading"),
         _RecordingClient(_reply("match_existing", ref="C1")),
@@ -166,7 +172,7 @@ def test_resolver_match_existing_attaches_to_the_lineage():
     assert hypothesis.supporting_evidence_ids == ("evidence-1", "evidence-2")
 
 
-def test_resolver_refine_existing_appends_a_statement_version():
+def test_resolver_refine_existing_appends_a_statement_version() -> None:
     """The same commitment, clarified: no new lineage, a new version."""
     store, _ = _run(
         _ProposesStatements("the first reading", "the first reading, specifically"),
@@ -181,7 +187,7 @@ def test_resolver_refine_existing_appends_a_statement_version():
     ], "appended, never overwriting the prior statement (F-2)"
 
 
-def test_refined_lineage_still_matches_its_earlier_statement():
+def test_refined_lineage_still_matches_its_earlier_statement() -> None:
     """F-2: a re-presented earlier statement identifies the lineage, not a duplicate."""
     client = _RecordingClient(_reply("refine_existing", ref="C1"))
     store, _ = _run(
@@ -196,7 +202,7 @@ def test_refined_lineage_still_matches_its_earlier_statement():
     assert len(client.prompts) == 1
 
 
-def test_resolver_distinct_new_founds_a_second_lineage():
+def test_resolver_distinct_new_founds_a_second_lineage() -> None:
     store, _ = _run(
         _ProposesStatements("the first reading", "a genuinely different reading"),
         _RecordingClient(_reply("distinct_new")),
@@ -206,7 +212,7 @@ def test_resolver_distinct_new_founds_a_second_lineage():
     assert len({l.lineage_key for l in lineages}) == 1, "same bound, two lineages"
 
 
-def test_resolver_ambiguous_parks_the_candidate():
+def test_resolver_ambiguous_parks_the_candidate() -> None:
     store, _ = _run(
         _ProposesStatements("the first reading", "an unclear reading"),
         _RecordingClient(_reply("ambiguous_review_required")),
@@ -228,7 +234,7 @@ def test_resolver_ambiguous_parks_the_candidate():
     '{"outcome": "distinct_new", "matched_ref": null, "rationale": "r", "confidence": 9}',
     "not json at all",
 ])
-def test_malformed_resolver_output_is_rejected_not_repaired(payload):
+def test_malformed_resolver_output_is_rejected_not_repaired(payload: str) -> None:
     """F-7 (d): a GOVERNED failure. Never repaired, never defaulted.
 
     This previously accepted either exception class, which let a
@@ -246,7 +252,7 @@ def test_malformed_resolver_output_is_rejected_not_repaired(payload):
 
 
 @pytest.mark.parametrize("unoffered", ["C99", "hyp-1", "hyp-9"])
-def test_resolver_reference_vocabulary_is_closed(unoffered):
+def test_resolver_reference_vocabulary_is_closed(unoffered: str) -> None:
     """The reply may name only the refs THIS request offered.
 
     Checked against the offered set, not against durable-store membership. The
@@ -262,7 +268,7 @@ def test_resolver_reference_vocabulary_is_closed(unoffered):
     assert "was not offered" in str(exc.value)
 
 
-def test_resolver_failure_preserves_the_resolver_raw_response():
+def test_resolver_failure_preserves_the_resolver_raw_response() -> None:
     """Provenance survives the rejection (§4, F-7 d)."""
     reply = _reply("match_existing", ref="C99")
     with pytest.raises(GovernedRejection) as exc:
@@ -274,7 +280,7 @@ def test_resolver_failure_preserves_the_resolver_raw_response():
 # --- 8. the resolver cannot supply durable identity --------------------------
 
 
-def test_resolver_cannot_assign_durable_identity_with_distinct_new():
+def test_resolver_cannot_assign_durable_identity_with_distinct_new() -> None:
     """DISTINCT_NEW founds a lineage, so it must not name one.
 
     The claim is unchanged; only where it is enforced moved (A-1). This is now
@@ -295,7 +301,7 @@ def test_resolver_cannot_assign_durable_identity_with_distinct_new():
     }
 
 
-def test_engine_issues_the_durable_id_for_a_resolver_distinct_new():
+def test_engine_issues_the_durable_id_for_a_resolver_distinct_new() -> None:
     """The resolver decides sameness; the ENGINE issues the identifier."""
     store, _ = _run(
         _ProposesStatements("the first reading", "a genuinely different reading"),
@@ -308,7 +314,7 @@ def test_engine_issues_the_durable_id_for_a_resolver_distinct_new():
 # --- 9. attribution is untouched by resolution -------------------------------
 
 
-def test_attribution_remains_the_governed_voice_label():
+def test_attribution_remains_the_governed_voice_label() -> None:
     for reply in (_reply("distinct_new"), _reply("refine_existing", ref="C1")):
         store, _ = _run(
             _ProposesStatements("the first reading", "a second reading"),
@@ -323,7 +329,7 @@ def test_attribution_remains_the_governed_voice_label():
 # --- 10. unresolved candidates stay parked -----------------------------------
 
 
-def test_parked_candidate_creates_no_hypothesis_and_is_preserved():
+def test_parked_candidate_creates_no_hypothesis_and_is_preserved() -> None:
     store, _ = _run(
         _ProposesStatements("the first reading", "an unclear reading"),
         _RecordingClient(_reply("ambiguous_review_required", confidence=0.05)),
@@ -338,7 +344,7 @@ def test_parked_candidate_creates_no_hypothesis_and_is_preserved():
     assert parked.decision.resolver_raw_response is not None
 
 
-def test_low_confidence_does_not_rewrite_a_returned_outcome():
+def test_low_confidence_does_not_rewrite_a_returned_outcome() -> None:
     """F-8: no threshold, no minimum, no confidence-based parking."""
     store, _ = _run(
         _ProposesStatements("the first reading", "a second reading"),
@@ -365,7 +371,7 @@ class _InvertsOnSecond:
     def __init__(self) -> None:
         self.calls = 0
 
-    def appraise(self, request):
+    def appraise(self, request: AppraisalRequest) -> AppraisalResponse:
         self.calls += 1
         stance = Stance.AFFIRMS if self.calls == 1 else Stance.NEGATES
         statement = (
@@ -387,7 +393,7 @@ class _InvertsOnSecond:
 
 
 @pytest.mark.parametrize("merge_outcome", ["refine_existing", "match_existing"])
-def test_inverted_stance_merge_outcomes_are_discarded_under_r1a(merge_outcome):
+def test_inverted_stance_merge_outcomes_are_discarded_under_r1a(merge_outcome: str) -> None:
     """C-1: both merge outcomes are discarded; the candidate parks instead."""
     store, _ = _run(_InvertsOnSecond(),
                     _RecordingClient(_reply(merge_outcome, ref="C1")))
@@ -401,7 +407,7 @@ def test_inverted_stance_merge_outcomes_are_discarded_under_r1a(merge_outcome):
     assert "R1a" in (parked.decision.rationale or "")
 
 
-def test_inverted_stance_distinct_new_is_not_overridden():
+def test_inverted_stance_distinct_new_is_not_overridden() -> None:
     """D-2: the override is NARROW. DISTINCT_NEW is not a merge outcome.
 
     It stands and founds a second lineage. The old all-inversions-park
@@ -413,7 +419,7 @@ def test_inverted_stance_distinct_new_is_not_overridden():
     assert store.identity_adjudications.list_for_subject(SUBJECT) == []
 
 
-def test_inverted_stance_distinct_new_still_faces_check_10():
+def test_inverted_stance_distinct_new_still_faces_check_10() -> None:
     """D-2: ... and remains subject to the normal subsequent validation.
 
     Without the structured CONTRADICTS operation the plan fails check 10, so
@@ -421,7 +427,7 @@ def test_inverted_stance_distinct_new_still_faces_check_10():
     requirement.
     """
     class _InvertsWithoutContradicts(_InvertsOnSecond):
-        def appraise(self, request):
+        def appraise(self, request: AppraisalRequest) -> AppraisalResponse:
             response = super().appraise(request)
             return AppraisalResponse(proposals=response.proposals, bearings=())
 
@@ -430,7 +436,7 @@ def test_inverted_stance_distinct_new_still_faces_check_10():
     assert exc.value.outcome is GovernedOutcome.INVALID_CONTRADICTION_PLAN
 
 
-def test_inverted_stance_ambiguous_is_not_overridden():
+def test_inverted_stance_ambiguous_is_not_overridden() -> None:
     """D-2: a resolver AMBIGUOUS_REVIEW_REQUIRED also stands as returned."""
     store, _ = _run(_InvertsOnSecond(),
                     _RecordingClient(_reply("ambiguous_review_required")))
@@ -443,7 +449,7 @@ def test_inverted_stance_ambiguous_is_not_overridden():
 # --- 12. no resolver outside the approved integration ------------------------
 
 
-def test_no_resolver_is_configured_by_default():
+def test_no_resolver_is_configured_by_default() -> None:
     """The real path gets R1 only where it is explicitly wired."""
     from sanuvia.adapters.reasoning import ScriptedAppraiser
 
@@ -451,7 +457,7 @@ def test_no_resolver_is_configured_by_default():
     assert deps.identity_resolver is None
 
 
-def test_without_a_resolver_a_non_exact_candidate_still_parks():
+def test_without_a_resolver_a_non_exact_candidate_still_parks() -> None:
     """Reading A is unchanged where R1 is not wired."""
     store = InMemoryReasoningStore()
     deps = build_in_memory_dependencies(

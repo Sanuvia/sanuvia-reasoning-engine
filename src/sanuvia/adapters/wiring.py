@@ -11,6 +11,8 @@ engine behaves the same regardless.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sanuvia.application.ports.reasoning import (
     CognitiveStateProvider,
     EvidenceAppraiser,
@@ -19,6 +21,9 @@ from sanuvia.application.ports.reasoning import (
 from sanuvia.application.ports.support import Clock, IdGenerator
 from sanuvia.application.reasoning import ReasoningConfig
 from sanuvia.application.reasoning.dependencies import ReasoningDependencies
+
+if TYPE_CHECKING:
+    from sanuvia.application.reasoning.identity import IdentityResolver
 from sanuvia.domain import ReasoningSystemId
 
 from .persistence.in_memory import InMemoryReasoningStore
@@ -39,7 +44,7 @@ def _deps_from_store(
     cognitive_state: CognitiveStateProvider | None,
     commit_policy: RevisionCommitPolicy | None,
     config: ReasoningConfig | None,
-    identity_resolver: object | None = None,
+    identity_resolver: "IdentityResolver | None" = None,
 ) -> ReasoningDependencies:
     return ReasoningDependencies(
         reasoning_system_id=ReasoningSystemId(reasoning_system_id),
@@ -77,7 +82,7 @@ def build_in_memory_dependencies(
     cognitive_state: CognitiveStateProvider | None = None,
     commit_policy: RevisionCommitPolicy | None = None,
     config: ReasoningConfig | None = None,
-    identity_resolver: object | None = None,
+    identity_resolver: "IdentityResolver | None" = None,
 ) -> ReasoningDependencies:
     """Assemble ``ReasoningDependencies`` from in-memory adapters (tests / exit
     test). Only the ``appraiser`` (the language-understanding boundary) must be
@@ -109,7 +114,7 @@ def build_sqlite_dependencies(
     cognitive_state: CognitiveStateProvider | None = None,
     commit_policy: RevisionCommitPolicy | None = None,
     config: ReasoningConfig | None = None,
-    identity_resolver: object | None = None,
+    identity_resolver: "IdentityResolver | None" = None,
 ) -> ReasoningDependencies:
     """Assemble ``ReasoningDependencies`` from the SQLite adapters. Identical in
     shape to the in-memory build — only the persistence backend differs.
