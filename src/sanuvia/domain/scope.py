@@ -57,6 +57,25 @@ def shared_space_id(name: str) -> SpaceId:
     return SpaceId(f"space:shared:{name}")
 
 
+def space_kind_of(space_id: SpaceId) -> SpaceKind | None:
+    """The kind of a well-formed space id, or ``None`` when it is not one.
+
+    The engine treats every space as an opaque isolation boundary, so this is a
+    **labelling** helper, not an access-control decision: it reads the kind the
+    well-formed id already declares (``space:personal:`` / ``space:shared:``).
+
+    ``None`` means "this id does not declare a kind", which is distinct from
+    "personal". The default space is neither, and the disclosure check treats
+    an undeclared kind as not shared rather than assuming either way.
+    """
+    text = str(space_id)
+    if text.startswith("space:shared:"):
+        return SpaceKind.SHARED
+    if text.startswith("space:personal:"):
+        return SpaceKind.PERSONAL
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class ReasoningScope:
     """The composite ownership boundary ``(space_id, subject_id)``.

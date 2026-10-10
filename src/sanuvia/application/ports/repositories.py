@@ -33,7 +33,10 @@ from sanuvia.domain import (
     EvidenceRecordId,
     Hypothesis,
     HypothesisId,
+    HypothesisLineage,
     HypothesisRecordId,
+    IdentityAdjudication,
+    IdentityAdjudicationId,
     InferenceRecord,
     InferenceRecordId,
     Inquiry,
@@ -47,6 +50,7 @@ from sanuvia.domain import (
     RevisionEvent,
     RevisionLedgerEntry,
     SpaceId,
+    StatementVersion,
     SubjectId,
     SystemModellingContext,
     WorldModel,
@@ -272,3 +276,79 @@ class SystemModellingContextStore(Protocol):
 
     def put(self, subject_id: SubjectId, context: SystemModellingContext) -> None: ...
     def get(self, subject_id: SubjectId) -> SystemModellingContext | None: ...
+
+
+# --- Snapshot capability (Technical Design v1.5.4 §5.3, F-9) ------------------
+
+
+@runtime_checkable
+@runtime_checkable
+class HypothesisLineageStore(Protocol):
+    """The immutable half of a commitment signature (§2 H), written once at
+    ``DISTINCT_NEW``. Retrieval is bounded on ``(subject, attribution)``, which
+    admits **several** lineages, so ``find_by_key`` returns all of them."""
+
+    def add(self, lineage: HypothesisLineage) -> None: ...
+
+    def get(self, hypothesis_id: HypothesisId) -> HypothesisLineage | None: ...
+
+    def find_by_key(
+        self,
+        subject_id: SubjectId,
+        signature_subject: str,
+        attribution: str,
+        *,
+        space_id: SpaceId = DEFAULT_SPACE_ID,
+    ) -> tuple[HypothesisId, ...]: ...
+
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[HypothesisLineage]: ...
+
+
+@runtime_checkable
+class StatementVersionStore(Protocol):
+    """Append-only statement history (§2 I). ``REFINE_EXISTING`` appends a
+    version and never overwrites, because exact-match adjudication compares
+    against every version of a lineage, not only the current one (F-2)."""
+
+    def append(self, version: StatementVersion) -> None: ...
+
+    def history(
+        self, hypothesis_id: HypothesisId
+    ) -> Sequence[StatementVersion]: ...
+
+
+@runtime_checkable
+class IdentityAdjudicationStore(Protocol):
+    """Parked candidates (§2 D). Creates and revises no hypothesis; ruling Q2
+    gives it no resolution path."""
+
+    def add(self, record: IdentityAdjudication) -> None: ...
+
+    def get(
+        self, record_id: IdentityAdjudicationId
+    ) -> IdentityAdjudication | None: ...
+
+    def list_for_subject(
+        self, subject_id: SubjectId, *, space_id: SpaceId = DEFAULT_SPACE_ID
+    ) -> Sequence[IdentityAdjudication]: ...
+
+
+class SnapshotableStore(Protocol):
+    """A store that can hand out an opaque restore token.
+
+    Each implementation copies **every mutable container it owns**, to whatever
+    depth its own shape requires -- the store, and only the store, knows that
+    shape. Record immutability is why the copies stay cheap; it is not why they
+    are correct.
+
+    The guard against getting this wrong is behavioural, not structural: TD-17b
+    mutates through the store's own public mutator under a key that already
+    exists in the snapshot, then restores and compares the full public read
+    surface. A nested container that was shallow-copied fails that test.
+    """
+
+    def snapshot(self) -> object: ...
+
+    def restore(self, token: object) -> None: ...

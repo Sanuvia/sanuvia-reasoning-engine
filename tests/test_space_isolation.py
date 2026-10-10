@@ -232,11 +232,30 @@ def test_ledger_is_partitioned_by_space(store: Any) -> None:
 class _ProposesPerSubject:
     """Proposes a hypothesis id ``H_<subject>`` per subject, then supports it."""
 
-    def appraise(self, subject_id: SubjectId, evidence: Any, working: Any) -> Appraisal:
+    # v1.5.4 port: the double still authors in canonical terms and
+    # ScriptedAppraiser performs the handle-space translation.
+    def appraise(self, request):
+        from sanuvia.adapters.reasoning.scripted_appraiser import ScriptedAppraiser
+        from sanuvia.application.ports.reasoning import AppraisalResponse
+        authored = self._authored(request.subject_id, request.existing)
+        if request.observation_id is None:
+            return AppraisalResponse()
+        # One translator for the life of the double, so the authored-id ->
+        # statement catalogue accumulates and a later supports= resolves.
+        if getattr(self, "_translator", None) is None:
+            self._translator = ScriptedAppraiser({})
+        self._translator.set(request.observation_id, authored)
+        return self._translator.appraise(request)
+
+    def _authored(self, subject_id: Any, existing: Any) -> Appraisal:
+        """Authored in canonical terms; existing lineages are matched by
+        statement, because durable ids are engine-issued (v1.5.4 §2 C)."""
         hid = HypothesisId(f"H_{subject_id}")
-        if any(w.hypothesis_id == hid for w in working):
+        statement = f"explanation for {subject_id}"
+        if any(v.statement == statement for v in existing):
             return Appraisal(supports=(hid,))
-        return Appraisal(proposals=(ProposedHypothesis(hid, f"explanation for {subject_id}", 0.8, ()),))
+        return Appraisal(proposals=(ProposedHypothesis(hid, statement, 0.8, ()),))
+
 
 
 def _service() -> ReasoningService:
@@ -269,13 +288,20 @@ def test_two_subjects_same_space_are_isolated() -> None:
 
     a = view.understanding(A, space_id=SHARED_1)
     b = view.understanding(B, space_id=SHARED_1)
-    assert {h.hypothesis_id for h in a.hypotheses} == {HypothesisId("H_subject-A")}
-    assert {h.hypothesis_id for h in b.hypotheses} == {HypothesisId("H_subject-B")}
+    # Durable identity is engine-owned (locked §3.3), so the authored ids are
+    # no longer what the engine reports. Isolation is asserted on the ids the
+    # engine actually issued: one lineage each, and NO id in common. That is a
+    # stronger statement than the authored-id comparison it replaces -- it
+    # fails if the two subjects share any lineage at all, whatever it is named.
+    a_ids = {h.hypothesis_id for h in a.hypotheses}
+    b_ids = {h.hypothesis_id for h in b.hypotheses}
+    assert len(a_ids) == 1 and len(b_ids) == 1
+    assert a_ids.isdisjoint(b_ids)
     # A's hypotheses/predictions never appear for B.
     assert all(h.subject_id == A for h in a.hypotheses)
     assert all(p.subject_id == B for p in b.predictions)
     # The WorldModel for B contains no hypothesis owned by A.
-    assert HypothesisId("H_subject-A") not in {h.hypothesis_id for h in b.hypotheses}
+    assert not (a_ids & b_ids)
 
 
 def test_same_subject_two_spaces_are_isolated() -> None:

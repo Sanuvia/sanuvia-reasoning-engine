@@ -21,6 +21,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sanuvia.adapters.reasoning import ScriptedAppraiser
+from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    resolver_for_script,
+)
 from sanuvia.adapters.support import ManualClock, SequentialIdGenerator
 from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api import EvidenceInput, ReasoningService
@@ -50,10 +53,17 @@ def _build_service() -> ReasoningService:
         ),
         EvidenceRecordId("evidence-2"): Appraisal(supports=(H_REASSURE,)),
     }
+    # IDENTITY DECISIONS ARE AUTHORED BY THE SCRIPT. This demo holds two
+    # competing readings for one subject, stated by authoring a separate
+    # hypothesis id for each. Under a governed voice-label attribution they
+    # share one retrieval bound, so the fixture-authored resolver double
+    # supplies the authored decision at §2 G case 4. It performs no matching
+    # and is a demo/test component, never a real-model or Run 003 path.
     deps = build_in_memory_dependencies(
         appraiser=ScriptedAppraiser(script),
         clock=ManualClock(),
         ids=SequentialIdGenerator(),
+        identity_resolver=resolver_for_script(script),
     )
     return ReasoningService(deps)
 

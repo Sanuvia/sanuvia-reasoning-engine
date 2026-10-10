@@ -1,0 +1,55 @@
+"""Prompts and schemas are immutable, identified artifacts with drift detection."""
+
+from __future__ import annotations
+
+from sanuvia_phase1 import prompts
+
+# Recorded artifact hashes — a change here means a prompt/schema was rewritten.
+_EXPECTED_PROMPT = {
+    "extraction.observations.v2": "08d015d89737a539f359a47b3147fe20893557977e73cd7fa91df11a68e32844",
+    "appraisal.support-contradict-propose.v3": "d5879923204f93ef8156bded29d7331f3070de389a7795283a72b7e7f50bc93c",
+    "identity.r1.bounded.v1": "45d0675753216e1439230776ffbf2150f82c760f04dd276b87344276415398d6",
+    "baseline.reasoning.v1": "3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc",
+}
+_EXPECTED_SCHEMA = {
+    "schema.extraction.v2": "ae54b5b1d4329ce17de857e6d43a16a157e2784d653d72c9bc1be7f1acfcbfab",
+    "schema.appraisal.v3": "f8567cd05b764d0b4cc139e14216736db252b6874fd1c4f3020b878099d12459",
+    "schema.identity.v1": "31e731bed3c0917e15b6f669a8f9329f2adef046fe8673a6e3d24e7a178217e8",
+    "schema.baseline.v1": "efa45b71e5043f3921048215677c04f140db7f3597b903b9b27a046582fbc11e",
+}
+
+
+def test_all_prompt_ids_present() -> None:
+    assert set(prompts.PROMPTS) == set(_EXPECTED_PROMPT)
+
+
+def test_all_schema_ids_present() -> None:
+    assert set(prompts.SCHEMAS) == set(_EXPECTED_SCHEMA)
+
+
+def test_prompt_hashes_are_stable() -> None:
+    for pid, expected in _EXPECTED_PROMPT.items():
+        assert prompts.prompt(pid).content_sha256 == expected
+
+
+def test_schema_hashes_are_stable() -> None:
+    for sid, expected in _EXPECTED_SCHEMA.items():
+        assert prompts.schema(sid).content_sha256 == expected
+
+
+def test_integrity_check_passes_when_no_drift() -> None:
+    assert prompts.verify_prompt_integrity() == []
+
+
+def test_baseline_prompt_is_shared_between_baselines() -> None:
+    # Fairness: both baselines use the SAME prompt id (only their context differs).
+    assert prompts.BASELINE_PROMPT_ID == "baseline.reasoning.v1"
+
+
+def test_unknown_id_raises() -> None:
+    import pytest
+
+    with pytest.raises(KeyError):
+        prompts.prompt("nope")
+    with pytest.raises(KeyError):
+        prompts.schema("nope")

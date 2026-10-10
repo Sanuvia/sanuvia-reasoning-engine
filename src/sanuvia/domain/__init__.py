@@ -10,20 +10,41 @@ Every object traces to a frozen FR-* requirement; see each module's docstring.
 from __future__ import annotations
 
 from .cognitive import AcquisitionStrategy, CognitiveState
-from .dependency import DependencyEdge, DependencyRelation
+from .dependency import DependencyEdge, DependencyRelation, canonical_divergence_pair
 from .errors import (
+    BreachKind,
     DomainError,
     EvidenceInferenceConflation,
+    GovernedOutcome,
+    GovernedRejection,
     InvariantViolation,
+    ModelBoundary,
     NotYetSpecified,
 )
 from .evidence import (
+    APPRAISABLE_ROLES,
     EvidenceClass,
     EvidenceRecord,
+    EvidenceRole,
+    EvidenceSourceKind,
+    EvidenceStanding,
+    EvidenceSubjectKind,
     InferenceRecord,
     Provenance,
+    SourceObservationRef,
 )
-from .hypothesis import Hypothesis
+from .hypothesis import (
+    GOVERNED_VOICES,
+    VOICE_PARTICIPANT_ACCOUNT,
+    VOICE_SANUVIA_WORKING_READING,
+    ClaimClass,
+    CommitmentSignature,
+    Hypothesis,
+    HypothesisLineage,
+    Stance,
+    StatementVersion,
+    inverts,
+)
 from .identifiers import (
     ActorId,
     AnomalyResolutionId,
@@ -31,18 +52,27 @@ from .identifiers import (
     EvidenceRecordId,
     HypothesisId,
     HypothesisRecordId,
+    IdentityAdjudicationId,
     InferenceRecordId,
     InquiryId,
     ObjectRef,
+    ParticipantId,
     PredictionId,
     ProvenanceRecordId,
     ReasoningSystemId,
     RecognitionEventId,
     RevisionEventId,
     SpaceId,
+    StatementVersionId,
     SubjectId,
     SystemModellingContextId,
     WorldModelVersionId,
+)
+from .identity import (
+    AdjudicationStatus,
+    IdentityAdjudication,
+    IdentityDecision,
+    IdentityOutcome,
 )
 from .inquiry import Inquiry, InquiryStatus
 from .scope import (
@@ -51,6 +81,7 @@ from .scope import (
     SpaceKind,
     personal_space_id,
     shared_space_id,
+    space_kind_of,
 )
 from .prediction import FutureTrajectory, Prediction, TrajectoryKind
 from .recognition import RecognitionEvent, RecognitionKind
@@ -95,6 +126,7 @@ __all__ = [
     "SpaceKind",
     "personal_space_id",
     "shared_space_id",
+    "space_kind_of",
     "EvidenceRecordId",
     "InferenceRecordId",
     "WorldModelVersionId",
@@ -151,4 +183,31 @@ __all__ = [
     # cognitive
     "CognitiveState",
     "AcquisitionStrategy",
+    "APPRAISABLE_ROLES",
+    "BreachKind",
+    "GOVERNED_VOICES",
+    "VOICE_PARTICIPANT_ACCOUNT",
+    "VOICE_SANUVIA_WORKING_READING",
+    "ClaimClass",
+    "CommitmentSignature",
+    "EvidenceRole",
+    "EvidenceSourceKind",
+    "EvidenceStanding",
+    "EvidenceSubjectKind",
+    "GovernedOutcome",
+    "GovernedRejection",
+    "HypothesisLineage",
+    "IdentityAdjudicationId",
+    "ModelBoundary",
+    "ParticipantId",
+    "SourceObservationRef",
+    "Stance",
+    "StatementVersion",
+    "StatementVersionId",
+    "canonical_divergence_pair",
+    "inverts",
+    "AdjudicationStatus",
+    "IdentityAdjudication",
+    "IdentityDecision",
+    "IdentityOutcome",
 ]

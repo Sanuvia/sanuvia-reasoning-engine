@@ -1,0 +1,67 @@
+# Protected Run 001 / Run 002 evidence — SHA-256 manifest
+# Generated (UTC): 2026-10-05T10:03:21Z
+# Repository:      /Users/elite/Documents/sanuvia
+# Branch:          phase1-semantic-state-v1.5.4
+# Purpose: establish that the untracked protected evidence is present and
+# unmodified. A 'git status' capture can only show these paths are unstaged;
+# it cannot attest to their bytes. This manifest can be re-run and compared.
+# READ-ONLY: nothing here stages, modifies, renames, deletes or regenerates.
+
+## Per-file SHA-256 (sorted, relative to sanuvia-phase1/)
+
+f94c9e3c3295ed414f33168ec12c88262ecee5020a901f55175d600ed5f25399  local_run001/__pycache__/llama_server_backend.cpython-314.pyc
+96809f0b27642a9750c33a0b09c72cc651e4c1a8acdd8cab51f4c47a5ca6604a  local_run001/evidence/raw_calls.jsonl
+b28aa5cd2e9f8dd3f912377ecfb1947e72117e1dfe2afeb97424f8fcaaed2380  local_run001/evidence/run001_evidence.json
+4b267066ab13f2ef642d62cc59027411838fa6eb548eb1ac8aa6325d45236e64  local_run001/llama_server_backend.py
+e424dda13aaf427e5f28d563441e5f1784ca711d0a0af2f074227da8580faa7b  local_run001/run.log
+9f3743dfbd911014cc401f99e9126fd0ac766dc1b2f01615d8785010a5f54287  local_run001/run001_harness.py
+454852ca5c777fc0510434c180b359120647efb824305e36bf8092ddbaa01474  local_run002/README_FOR_REVIEW.txt
+611af725fdc9243b97eff20c5840e5cd1634b5074ff2744e5e71697e2090cc96  local_run002/_superseded/RUN002_AMENDMENT.md
+e2cffd49cff9ef1b5ac95970950da7b2e53936cc09da0ac5d7d9de0658a7b66f  local_run002/_superseded/gate1_output_contract.py.superseded
+90bd47cc2847734a4821e7ce1e5160d21f3275001e0f7ae938bd22e8dd93a3f2  local_run002/_superseded/server8129.log
+71602640eee07b1303d74ab6a2f0d9a0bcfe3e098159fe6adc1187a66f4678be  local_run002/evidence_case001/raw_calls.jsonl
+0c40dd0cb579a6eb397e12bca2ac6d7453a15aadcfa9db8aa3b81b3f8b45c236  local_run002/evidence_case001/run002_case001_evidence.json
+9f8d23cd4d5cb559021689f20040994a486b36180b572201efef6a3a24779a24  local_run002/evidence_preseal/BYTE_IDENTITY.json
+dee3d0ef6ee70b91e1f04e2f7ba64655e461a2ebd6f32e1c0dc0829b269768ab  local_run002/evidence_preseal/CONSISTENCY_CHECK.json
+f327ab3e1c119b83d7ff02051ef27303a8f8070efdf15baa941265684444e0d8  local_run002/evidence_preseal/CONSISTENCY_CHECK.py
+87b25e6a08ebf9d4b5a7a6965c8788082bdf1eae33c249a9d34c4b4a9ecfdc96  local_run002/evidence_preseal/INTEGRITY_REPORT.md
+0be425d8b38421bf98d21c08b9001ac4e5e9469af1106c6a4b1a65b338007182  local_run002/evidence_preseal/SHA256SUMS.txt
+0c40dd0cb579a6eb397e12bca2ac6d7453a15aadcfa9db8aa3b81b3f8b45c236  local_run002/evidence_preseal/case001/case001_evidence.json
+71602640eee07b1303d74ab6a2f0d9a0bcfe3e098159fe6adc1187a66f4678be  local_run002/evidence_preseal/case001/case001_raw_calls.jsonl
+0ae669918d1d98116e570179589b3ffa5cf42502e971951472d2235c34740443  local_run002/evidence_preseal/case001/run002_case001_harness.py
+a8488eedbe1e88a34b3c40797c020b0e5655c8e778acc92aaa1c77d8d0f828cd  local_run002/evidence_preseal/code/bounded_correction_backend.diff
+7495ae32f35af356f3292508ecb3ecc5dfbc6781ae99e5e4c7a03c8a349fd6fd  local_run002/evidence_preseal/code/full_tracked_diff.diff
+6e79242131d06292fd975c45f20117f19ff199557cb8d1d1bc408e9d29980e50  local_run002/evidence_preseal/code/gate1_runner_repointed.diff
+48c8fb0619e245bf7248702811d6d8cb133a6572c70c15435417fda81f07f2c4  local_run002/evidence_preseal/config/execution_configuration.json
+994280a5559e6ff110739f0fce08a56cf8d91325dfd0b30763e27b1e00401bb1  local_run002/evidence_preseal/gate1/gate1_all_calls.jsonl
+659deb15056800071fea33fb4546a33a6818e281a49f213374b4044c6504bc3d  local_run002/evidence_preseal/gate1/gate1_backend_provenance.jsonl
+21de3bc35fe4d7d94f18981567458ef3d7bf4d1a7b7f0cf509358e830eb575fe  local_run002/evidence_preseal/gate1/gate1_baseline_raw.json
+706cb99cc3b0f11f8954568b8b59fbdd11cdf90cc7ab417bbf649fbfb4bbc292  local_run002/evidence_preseal/gate1/gate1_extraction_raw.json
+e8f5bc86ad712c09b1c39028b46d2758ddadb51a21bc885b74ae53ea3366eb0b  local_run002/evidence_preseal/gate2/full_suite_regression.txt
+6041155311839386f8dd541d06e98e06bcf0d7340db39545a3a230d65b985e70  local_run002/evidence_preseal/gate2/gate2_invariant_through_real_path.py
+6d41c69ca9fefb9d3681f03a72bd2a9fd598e94a6cd428e08733ff5844b4e939  local_run002/evidence_preseal/gate2/gate2_invariant_through_real_path.txt
+f481f3b7fe6d793cdbc8d4714a49c480fc82fc2ce662c542a8a37843614c4578  local_run002/evidence_preseal/gate2/gate2_pytest.txt
+fcd984fc4eaf67e46b1a6308584eb2ec8cfd730139c87497561a826603aa80d4  local_run002/evidence_preseal/governance/GOVERNANCE_RECORD_SHA256.txt
+afa780d16cace79464514a5b4b5113d4a240c1986a9962264650777d310cc1d6  local_run002/evidence_preseal/governance/phase1-run002-governance-record.md
+e0b23bec92b4788e65fa6129457eba1f626de026f83362ee3d97710bd5554438  local_run002/run002_final_evidence_v0.7.tar.gz
+158fe6e464d40f7fd7c5d591997993035e5cb1fcfe7a333d26850772570c7fef  local_run002/run002_final_evidence_v0.7.tar.gz.sha256
+
+## Sealed-archive cross-check (independent of this manifest)
+
+run002_final_evidence_v0.7.tar.gz.sha256 records:
+  e0b23bec92b4788e65fa6129457eba1f626de026f83362ee3d97710bd5554438
+recomputed from the archive on disk:
+  e0b23bec92b4788e65fa6129457eba1f626de026f83362ee3d97710bd5554438
+  shasum -c result: OK
+
+The sealed Run 002 evidence archive verifies against the hash sealed
+alongside it. That is independent of any attestation in this repository:
+the archive's bytes are unchanged since it was sealed.
+
+## Tracked Run 002 blobs vs base 9883e6c (git-verifiable)
+
+  llama_server_backend_run002.py     base=f3c7835e1a440e718cc717ca5e33243e5603a112 head=f3c7835e1a440e718cc717ca5e33243e5603a112 IDENTICAL
+  run002_case001_harness.py          base=ff8f5cd5e2acce724e3ecbe0a8097fe796986f6b head=ff8f5cd5e2acce724e3ecbe0a8097fe796986f6b IDENTICAL
+  run002_gate1.py                    base=4cc3ae994bb222b4e1e4202a01d09ab5f007ed2f head=4cc3ae994bb222b4e1e4202a01d09ab5f007ed2f IDENTICAL
+
+git diff --name-only 9883e6c HEAD -- local_run001 local_run002 -> 0 files

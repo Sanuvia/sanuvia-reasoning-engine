@@ -10,6 +10,7 @@ root (a later increment / the exit-test harness), never inside the engine.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from sanuvia.application.ports import (
     AnomalyResolutionStore,
@@ -18,7 +19,9 @@ from sanuvia.application.ports import (
     DependencyGraphStore,
     EvidenceAppraiser,
     EvidenceStore,
+    HypothesisLineageStore,
     HypothesisRepository,
+    IdentityAdjudicationStore,
     IdGenerator,
     InquiryRepository,
     PredictionRepository,
@@ -26,11 +29,15 @@ from sanuvia.application.ports import (
     RecognitionRepository,
     RevisionCommitPolicy,
     RevisionLedgerStore,
+    StatementVersionStore,
     WorldModelRepository,
 )
 from sanuvia.domain import ReasoningSystemId
 
 from .config import ReasoningConfig
+
+if TYPE_CHECKING:
+    from .identity import IdentityResolver
 
 
 @dataclass(frozen=True)
@@ -56,5 +63,20 @@ class ReasoningDependencies:
     appraiser: EvidenceAppraiser
     cognitive_state: CognitiveStateProvider
     commit_policy: RevisionCommitPolicy
+    # Semantic-state persistence ports (Technical Design v1.5.4 §5.1, F-9).
+    # Optional so store bundles that predate the semantic-state boundary -- the
+    # SQLite adapter, the HTTP test-case store -- keep working unchanged.
+    lineages: HypothesisLineageStore | None = None
+    statement_versions: StatementVersionStore | None = None
+    identity_adjudications: IdentityAdjudicationStore | None = None
+    #: Optional IdentityResolver (§2 G resolution-order case 4). ``None`` on
+    #: every real path: R1 is Slice 2. The Scripted harness, the review dataset
+    #: runner and the exit-test fixture inject the fixture-authored test double
+    #: so authored scenarios with several distinct commitments per subject can
+    #: be expressed; it is guarded out of every Run 003 configuration.
+    identity_resolver: "IdentityResolver | None" = None
+    #: The whole bundle, so the service can open a UnitOfWork over every store
+    #: by enumeration rather than a fixed list (§5.1, N-1).
+    store_bundle: object | None = None
     # tunable policy
     config: ReasoningConfig = ReasoningConfig()

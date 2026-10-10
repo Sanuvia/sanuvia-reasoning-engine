@@ -11,6 +11,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from sanuvia.adapters.reasoning import ScriptedAppraiser
+from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    resolver_for_script,
+)
+
 from sanuvia.adapters.support import ManualClock, SequentialIdGenerator
 from sanuvia.adapters.persistence.sqlite_store import SqliteReasoningStore
 from sanuvia.adapters.wiring import (
@@ -24,10 +28,17 @@ from sanuvia.exit_test.scenario import SUBJECT, appraisal_script, evidence_input
 
 
 def _run(build: Callable[..., ReasoningDependencies]) -> tuple[object, ...]:
+    script = appraisal_script()
     deps = build(
-        appraiser=ScriptedAppraiser(appraisal_script()),
+        appraiser=ScriptedAppraiser(script),
         clock=ManualClock(),
         ids=SequentialIdGenerator(),
+        # Identity decisions are AUTHORED BY THE SCRIPT: this scenario holds
+        # several distinct commitments for one subject, stated by authoring a
+        # separate hypothesis id for each. Attribution is the governed voice
+        # label, so they share one retrieval bound and the fixture-authored
+        # resolver double supplies the authored decision (§2 G case 4).
+        identity_resolver=resolver_for_script(script),
     )
     service = ReasoningService(deps)
     results = [service.record_interaction(SUBJECT, [i]) for i in evidence_inputs()]
@@ -43,11 +54,13 @@ def test_sqlite_persists_across_connections(tmp_path) -> None:  # type: ignore[n
 
     # Write the whole scenario through one connection.
     store = SqliteReasoningStore(path)
+    script = appraisal_script()
     deps = build_sqlite_dependencies(
         store=store,
-        appraiser=ScriptedAppraiser(appraisal_script()),
+        appraiser=ScriptedAppraiser(script),
         clock=ManualClock(),
         ids=SequentialIdGenerator(),
+        identity_resolver=resolver_for_script(script),
     )
     service = ReasoningService(deps)
     for item in evidence_inputs():
@@ -59,7 +72,8 @@ def test_sqlite_persists_across_connections(tmp_path) -> None:  # type: ignore[n
     reopened = SqliteReasoningStore(path)
     reopened_deps = build_sqlite_dependencies(
         store=reopened,
-        appraiser=ScriptedAppraiser(appraisal_script()),
+        appraiser=ScriptedAppraiser(script),
+        identity_resolver=resolver_for_script(script),
     )
     after = ReasoningService(reopened_deps).view().understanding(SUBJECT)
 

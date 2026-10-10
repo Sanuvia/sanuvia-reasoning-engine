@@ -40,6 +40,23 @@ a contribution-provenance identifier, not an isolation boundary."""
 ReasoningSystemId = NewType("ReasoningSystemId", str)
 """A key referenced across schemas, not a stored object (per ownership map)."""
 
+ParticipantId = NewType("ParticipantId", str)
+"""A person or party an account can be *from* or *about* (Technical Design v1.5.4
+§2 E, D-02).
+
+Deliberately distinct from the three identifiers above, because neither has the
+right extension:
+
+* :data:`ActorId` is *who contributed* an observation, so a third party who is
+  discussed but never contributes has none.
+* :data:`SubjectId` is a modelled subject and isolation partition, so a third
+  party who is not modelled has none.
+
+A ParticipantId may *coincide* with either — the same string may name a person
+who is both a modelled subject and a contributor — but no code may derive one
+from the other.
+"""
+
 # --- Evidence Management ------------------------------------------------------
 EvidenceRecordId = NewType("EvidenceRecordId", str)  # FR-EM-001
 InferenceRecordId = NewType("InferenceRecordId", str)  # FR-EM-005
@@ -52,6 +69,8 @@ SystemModellingContextId = NewType("SystemModellingContextId", str)  # FR-PU-005
 # --- Reasoning ----------------------------------------------------------------
 HypothesisId = NewType("HypothesisId", str)  # FR-RS-001 (lineage identity)
 HypothesisRecordId = NewType("HypothesisRecordId", str)  # immutable version id
+StatementVersionId = NewType("StatementVersionId", str)  # immutable statement version (§2 I)
+IdentityAdjudicationId = NewType("IdentityAdjudicationId", str)  # parked candidate (§2 D)
 PredictionId = NewType("PredictionId", str)  # FR-RS-004
 
 # --- Inquiry ------------------------------------------------------------------

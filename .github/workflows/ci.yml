@@ -68,3 +68,49 @@ jobs:
 
       - name: Deployment smoke (shell, end-to-end)
         run: bash scripts/smoke.sh
+
+  # Phase 1 (Controlled Reasoning Demonstrator) — additive, consumes the frozen
+  # Phase 0 package via its public API. No network: the real model adapters are
+  # injected/offline in tests, so nothing here reaches a provider.
+  phase1:
+    name: phase1 (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    env:
+      PYTHONHASHSEED: "0"
+    steps:
+      - name: Checkout (clean)
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Phase 1 imports the frozen Phase 0 package; install it (editable) plus the
+      # shared dev tooling (pytest + mypy) once from the repo root.
+      - name: Install Phase 0 (editable) + dev tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      # 1. Phase 1 test suite (includes deterministic replay + import isolation).
+      - name: Phase 1 tests
+        working-directory: "sanuvia-phase1"
+        run: python -m pytest -q
+
+      # 2. Phase 1 strict type checking.
+      - name: Phase 1 mypy --strict
+        working-directory: "sanuvia-phase1"
+        run: python -m mypy src tests fixtures
+
+      # 3. Call out the determinism + isolation guarantees explicitly.
+      - name: Phase 1 deterministic replay + import isolation
+        working-directory: "sanuvia-phase1"
+        run: |
+          python -m pytest -q \
+            tests/phase1/test_demonstrator_replay.py \
+            tests/phase1/test_case_001_transcript_equivalence.py
