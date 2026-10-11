@@ -278,10 +278,9 @@ class SystemModellingContextStore(Protocol):
     def get(self, subject_id: SubjectId) -> SystemModellingContext | None: ...
 
 
-# --- Snapshot capability (Technical Design v1.5.4 §5.3, F-9) ------------------
+# --- Semantic state (Technical Design v1.5.4 §2 G-I) -------------------------
 
 
-@runtime_checkable
 @runtime_checkable
 class HypothesisLineageStore(Protocol):
     """The immutable half of a commitment signature (§2 H), written once at
@@ -335,6 +334,10 @@ class IdentityAdjudicationStore(Protocol):
     ) -> Sequence[IdentityAdjudication]: ...
 
 
+# --- Snapshot capability (Technical Design v1.5.4 §5.3, F-9) ------------------
+
+
+@runtime_checkable
 class SnapshotableStore(Protocol):
     """A store that can hand out an opaque restore token.
 
