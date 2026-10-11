@@ -1,7 +1,8 @@
 # Phase 1 — Run 003 Integration Readiness
 
-**Branch:** `phase1-run003-integration`
+**Branch:** `phase1-run003-integration`, then `phase1-qwen-prompt-boundary`
 **Base:** `9037322a76b716753373c6c0049b73bf7dda51da` (merge of PR #3 into `main`)
+**Integration merged at:** `8e680c2d64493675c9a7dabe70c1dfba888a3604` (PR #4)
 **Date:** 2026-10-11
 **Status:** reviewable integration package. Not an implementation freeze, not a
 Case 002 release, not a Run 003 authorization, not a deployment.
@@ -170,7 +171,127 @@ directly; it fails on the pre-fix file and passes after.
 
 ---
 
-## 6. Remaining prerequisites for Run 003
+## 6. Qwen prompt boundary (follow-up to PR #4)
+
+PR #4 landed the vocabulary but left it stranded at the last step:
+`compose_extraction_prompt` assembled the Qwen prompt from `system`,
+`transcript_text` and `instruction`, and **dropped
+`ExtractionRequest.participants`**.
+
+The v3 system prompt tells the model that `subject` "is one of the participant
+labels given for this request". None were given. So the model was asked to name
+a label it had never been shown, and every subject it proposed was refused by
+the vocabulary for being unoffered — the boundary could only fail, in a way that
+read as a model failure rather than a composition bug.
+
+`compose_extraction_prompt` now renders a `PARTICIPANT LABELS:` block exactly as
+`compose_appraisal_prompt` already did, so one reader sees one shape at both
+boundaries. Only the labels cross: the canonical roster never reaches that
+function, and validating a returned label still happens inside the application
+boundary in `ParticipantVocabulary.resolve`.
+
+**The registry hashes are unaffected.** The pinned hash covers the extraction
+*system prompt*, which did not change; composition is a separate assembly step.
+`verify_prompt_integrity()` reports no drift.
+
+Regressed through the real `QwenClient` path over a fake backend, asserting on
+the string `QwenBackend.generate` actually receives — not on the request object,
+which was correct all along. Reverting the one-function fix fails 3 of the 11
+new tests.
+
+## 7. Configuration and approval status
+
+### 7.1 Correction to this document
+
+An earlier revision listed *"Approve the provider/model for extraction,
+appraisal and (if used) identity resolution — still unresolved"*. That was
+**wrong** for extraction, appraisal and the baselines, and is corrected here.
+Those boundaries are approved and FROZEN; what is unresolved is narrower and is
+stated in 7.4.
+
+### 7.2 Approved and pinned
+
+`is_real_run_permitted()` is `True`, with **zero** blocking governance items and
+one non-blocking pending item (`eval_hardware`, recorded at run time). The
+following are FROZEN, sourced to *"Phase 1 Run-001 governance approval
+(2026-08-26)"* with the artifact identity verified on 2026-08-31:
+
+| Item | Pinned value |
+|---|---|
+| `provider_local_only` | `local_qwen` (local only, no cloud, no API key) |
+| `model_family` | `Qwen3-4B` |
+| `model_artifact_version` | `Qwen/Qwen3-4B-GGUF@bc640142c66e1fdd12af0bd68f40445458f3869b :: Qwen3-4B-Q4_K_M.gguf` (2 497 280 256 bytes) |
+| `artifact_sha256` | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` |
+| `serving_runtime_backend` | llama.cpp (GGUF) |
+| `llama_cpp_build` | build 10721 (commit `8e53fcefd`), macos-x64 prebuilt release |
+| `quantization` | `Q4_K_M` |
+| generation | temperature `0.0`, seed `0` (fixed), max-out `512`, context `8192`, stop `none`, retries `0` |
+
+Freeze record `7.0-extraction-schema-v3-participant-labels`, hash
+`16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c`.
+
+### 7.3 Prompt and schema versions (verified from the live registry)
+
+| Boundary | Prompt id | Prompt SHA-256 | Schema id | Schema SHA-256 |
+|---|---|---|---|---|
+| Evidence extraction | `extraction.observations.v3` | `05e1a9d408d720fa87fc663d8a0a17ff7fe757f5323e74047b86c0bac74ce1a3` | `schema.extraction.v3` | `18b9b9968492e773237745d52c5d8a6ea09b5ccebe8f4007760e7baaf3320519` |
+| Evidence appraisal | `appraisal.support-contradict-propose.v3` | `d5879923204f93ef8156bded29d7331f3070de389a7795283a72b7e7f50bc93c` | `schema.appraisal.v3` | `f8567cd05b764d0b4cc139e14216736db252b6874fd1c4f3020b878099d12459` |
+| Both baselines (shared) | `baseline.reasoning.v1` | `3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc` | `schema.baseline.v1` | — |
+| Identity resolution (R1) | `identity.r1.bounded.v1` | `45d0675753216e1439230776ffbf2150f82c760f04dd276b87344276415398d6` | `schema.identity.v1` | — |
+
+`verify_prompt_integrity()` reports no drift.
+
+### 7.4 Unresolved — for Lillian, not assumed here
+
+1. **Does the 2026-08-26 Run-001 approval extend to Run 003 under the v3
+   extraction prompt/schema?** The approval predates the v3 bump. The model,
+   runtime and generation parameters are unchanged; *what the model is asked
+   for* is not. This is a scope question the source records do not answer, so it
+   is recorded as open rather than read either way.
+2. **The R1 identity-resolution boundary carries no approval.** It postdates the
+   Run-001 approval, has no governance item, and `qwen_real_run_config()` emits
+   no `identity_resolution` spec. If R1 runs in Run 003 it needs its own
+   provider/model/prompt/schema approval. If it does not, §2 G parks non-exact
+   candidates and nothing further is required.
+
+### 7.5 Is the REAL configuration complete?
+
+**No — two gaps, neither of them code.**
+
+| Check | Status |
+|---|---|
+| Governance blocking items | none |
+| Provider / model / runtime / parameters | pinned and frozen |
+| Prompt & schema integrity | no drift |
+| **Authorized participant roster** | **absent** — `qwen_real_run_config()` defaults `participants` to empty by design |
+| **Local model artifact** | **absent on this machine** |
+
+Preflight run on 2026-10-11 against `qwen_real_run_config()` as it stands:
+
+```
+OVERALL: BLOCKED
+  BLOCKED  no_scripted_doubles_in_real   RealRunConfig.participants is empty
+  BLOCKED  model_installed_available     runtime(s) ['llama-cli','llama-server'] present
+                                         but no model artifact configured/found
+  BLOCKED  model_version_identifiable    model not available, version not identifiable
+  BLOCKED  artifact_sha256_recorded      no installed artifact to hash (not invented)
+```
+
+With a roster supplied, `qwen_real_run_config(participants=("pA","pB"))`, the
+configuration check clears and only the three environment checks remain:
+
+```
+OVERALL: BLOCKED
+  BLOCKED  model_installed_available     (as above)
+  BLOCKED  model_version_identifiable    (as above)
+  BLOCKED  artifact_sha256_recorded      (as above)
+```
+
+Those three are environment, not governance: this machine has the llama.cpp
+runtime but no `$SANUVIA_QWEN_MODEL_PATH` artifact. Nothing is invented to fill
+them.
+
+## 8. Remaining prerequisites for Run 003
 
 Integration-side work is complete. What remains is **configuration and
 governance**, not implementation:
@@ -183,11 +304,16 @@ governance**, not implementation:
 2. **Decide whether R1 runs.** `None` parks non-exact candidates and is valid.
    If a resolver is configured it needs its `RealRunConfig.identity_resolution`
    spec, which is governance-pinned like every other boundary.
-3. **Approve the provider/model for extraction, appraisal and (if used)
-   identity resolution.** Still unresolved; no provider is auto-selected
-   anywhere, and both `*_from_env` factories refuse by design.
-4. **Re-run `preflight-real` against the stated configuration** and confirm
-   `OVERALL: PASS`, including the local artifact and runtime identities.
+3. **Install the approved model artifact on the run machine.** The artifact
+   identity and its SHA-256 are already frozen (7.2); the file is simply not
+   present here, so `$SANUVIA_QWEN_MODEL_PATH` has to point at it. No provider
+   is auto-selected anywhere and both `*_from_env` factories refuse by design.
+4. **Resolve the two approval-scope questions in 7.4** — whether the Run-001
+   approval carries to Run 003 under the v3 extraction prompt/schema, and
+   whether R1 is in scope at all. Neither is assumed here.
+5. **Re-run `preflight-real` against the stated configuration** and confirm
+   `OVERALL: PASS`, including the local artifact and runtime identities. As of
+   2026-10-11 it is `BLOCKED` on the roster and the three artifact checks (7.5).
 
 Case 002 remains sealed and was neither accessed nor inspected. No model
 inference was run; every test in this package uses fake clients.
