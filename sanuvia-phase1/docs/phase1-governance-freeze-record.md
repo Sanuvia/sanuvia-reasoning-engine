@@ -149,5 +149,45 @@ explicit, separate go-ahead.
   at run time).
 - **BLOCKING THE REAL RUN** — none.
 
-*No real Qwen run has occurred. Phase 0, Case 001, the prompts, schemas, conditions,
-generation parameters, C.4/C.5 interpretation, and semantic protocol are unchanged.*
+## What has changed since the Run 001 approval
+
+The blanket claim that "the prompts, schemas ... are unchanged" previously stood
+here. It is no longer true and has been removed rather than qualified.
+
+| | |
+|---|---|
+| **Changed** | the **extraction** prompt and schema, `v2 → v3`. `subject` is now a request-scoped participant label rather than a bare string (§2 B), so the model names only what the request offered it and the application maps the label back to a canonical id. |
+| | the **appraisal** prompt and schema, at `v3` since the v1.5.4 signature migration. |
+| **Unchanged** | Phase 0, Case 001, the three conditions, the baseline prompt/schema, the generation parameters, the model artifact and runtime identity, the C.4/C.5 interpretation, and the semantic protocol. |
+
+Both bumps are new ids, not edits in place, so Run 002's `...v2` references keep
+meaning what they meant. The pinned values are those in the table above and are
+derived from the live registry, not transcribed.
+
+| Boundary | Prompt id | Prompt SHA-256 | Schema id | Schema SHA-256 |
+|---|---|---|---|---|
+| Evidence extraction | `extraction.observations.v3` | `05e1a9d408d720fa87fc663d8a0a17ff7fe757f5323e74047b86c0bac74ce1a3` | `schema.extraction.v3` | `18b9b9968492e773237745d52c5d8a6ea09b5ccebe8f4007760e7baaf3320519` |
+| Evidence appraisal | `appraisal.support-contradict-propose.v3` | `d5879923204f93ef8156bded29d7331f3070de389a7795283a72b7e7f50bc93c` | `schema.appraisal.v3` | `f8567cd05b764d0b4cc139e14216736db252b6874fd1c4f3020b878099d12459` |
+
+`prompts.verify_prompt_integrity()` returns no drift against these values, and
+the preflight `prompt_integrity_no_drift` check passes.
+
+## Approval scope — unresolved for Lillian
+
+The provider, model, runtime and generation parameters above are **FROZEN**, and
+`is_real_run_permitted()` is `True` with zero blocking items. Their recorded
+source is *"Phase 1 Run-001 governance approval (2026-08-26)"*, with the
+artifact identity verified on 2026-08-31.
+
+Two questions that approval does not answer, and that are **not** assumed here:
+
+1. **Does the Run-001 approval extend to a Run 003 executed under the v3
+   extraction prompt/schema?** The approval predates the v3 bump. The model,
+   runtime and parameters are unchanged; what the model is asked for is not.
+2. **The R1 identity-resolution boundary has no approval at all.** It did not
+   exist at the time of the Run-001 approval, carries no governance item, and
+   `qwen_real_run_config()` emits no `identity_resolution` spec. If R1 runs in
+   Run 003 its provider, model, prompt and schema need their own approval. If
+   it does not run, §2 G parks non-exact candidates and nothing is needed.
+
+*No real Qwen run has occurred and no model inference has been run.*

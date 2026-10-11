@@ -121,7 +121,29 @@ class QwenBackend(Protocol):
 
 
 def compose_extraction_prompt(request: ExtractionRequest) -> str:
-    return f"{request.system}\n\nTEXT:\n{request.transcript_text}\n\n{request.instruction}"
+    """Assemble the extraction prompt, INCLUDING the request's participant labels.
+
+    The labels were previously dropped here. The v3 extraction system prompt
+    tells the model that ``subject`` "is one of the participant labels given for
+    this request" -- so without them the model was asked to name a label it had
+    never been shown, and every proposed subject was refused by the vocabulary
+    for being unoffered. The request carried them; composition discarded them.
+
+    Only the labels cross: ``ExtractionRequest.participants`` holds the
+    request-scoped ``{request_id}::P{n}`` strings minted in
+    ``ExternalEvidenceExtractor.extract``. The canonical roster never reaches
+    this function, so it cannot reach the prompt. Validating a returned label
+    and mapping it back to a ``ParticipantId`` stays where it was, inside the
+    application boundary (``participants.ParticipantVocabulary.resolve``).
+
+    Rendered exactly as ``compose_appraisal_prompt`` renders its own labels, so
+    one reader sees one shape at both boundaries.
+    """
+    participants = ", ".join(request.participants) or "(none)"
+    return (
+        f"{request.system}\n\nTEXT:\n{request.transcript_text}\n\n"
+        f"PARTICIPANT LABELS:\n{participants}\n\n{request.instruction}"
+    )
 
 
 def compose_appraisal_prompt(request: AppraisalPrompt) -> str:
