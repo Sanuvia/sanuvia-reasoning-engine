@@ -4,8 +4,8 @@
 **Companion:** [Experiment Manifest](phase1-experiment-manifest.md) ·
 [Semantic Evaluation Protocol](phase1-semantic-evaluation-protocol.md)
 **Machine-readable source of truth:** `sanuvia_phase1.governance` (`FREEZE_RECORD`)
-**Freeze record version:** `6.0-slice2-extractor-standing`
-**Freeze record hash:** `sha256:f79197af53a2ff04dc77dec84523f59f692f49e1b623f4b5f524880ba58930bf`
+**Freeze record version:** `7.0-extraction-schema-v3-participant-labels`
+**Freeze record hash:** `sha256:16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c`
 
 **Version history (audit trail — never overwritten):**
 | Version | freeze_record_sha256 |
@@ -16,6 +16,7 @@
 | `4.0-appraisal-schema-v2` | `8cf8dd7d25588dc892211b6fdf7f8e8f74e83a718c3308e372b4af6c06dc925a` |
 | `5.0-appraisal-schema-v3-signature` | `d3e6c79f0475dd46cfd5e5629d95cc9be650eb7d28efb24ac37300280743905c` |
 | `6.0-slice2-extractor-standing` | `f79197af53a2ff04dc77dec84523f59f692f49e1b623f4b5f524880ba58930bf` |
+| `7.0-extraction-schema-v3-participant-labels` | `16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c` |
 
 This record pins the frozen Phase 1 protocol for the first real run. As of
 `3.0-run001-verified`, the exact model artifact identity, its locally-computed
@@ -70,8 +71,8 @@ identity hash): `/Users/elite/models/qwen3-4b-q4_k_m/Qwen3-4B-Q4_K_M.gguf`.
 ### Prompt / schema versions (pinned by content hash)
 | Key | Frozen value |
 |---|---|
-| `extractor_prompt_version` | `extraction.observations.v2@sha256:a45066…97d1` |
-| `extractor_schema_version` | `schema.extraction.v2@sha256:a9cabe…c094` |
+| `extractor_prompt_version` | `extraction.observations.v3@sha256:05e1a9…e1a3` |
+| `extractor_schema_version` | `schema.extraction.v3@sha256:18b9b9…0519` |
 | `appraiser_prompt_version` | `appraisal.support-contradict-propose.v3@sha256:d58799…c93c` |
 | `appraiser_schema_version` | `schema.appraisal.v3@sha256:f8567c…2459` |
 | `stateless_prompt_version` | `baseline.reasoning.v1@sha256:355797…43bc` |

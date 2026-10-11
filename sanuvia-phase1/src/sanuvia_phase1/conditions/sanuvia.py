@@ -13,6 +13,7 @@ from sanuvia.adapters.persistence.in_memory import InMemoryReasoningStore
 from sanuvia.domain import GovernedRejection
 from sanuvia.adapters.reasoning import ScriptedAppraiser
 from sanuvia.adapters.reasoning.scripted_identity_resolver import (
+    ScriptedIdentityResolver,
     resolver_for_script,
 )
 from sanuvia.adapters.support import ManualClock, SequentialIdGenerator
@@ -20,11 +21,13 @@ from sanuvia.adapters.wiring import build_in_memory_dependencies
 from sanuvia.application.api import ReasoningService
 from sanuvia.application.ports.reasoning import EvidenceAppraiser
 from sanuvia.application.reasoning.core_loop import InteractionResult
+from sanuvia.application.reasoning.identity import IdentityResolver
 from sanuvia.domain import ObjectRef
 from sanuvia.exit_test.session_state import SessionState, from_interactions
 
 from ..capture import from_interaction_result, from_rejected_plan
 from ..case import Case, CaseInteraction
+from ..failures import ConfigurationError
 from ..trajectory import DependencyEdgeView, TrajectoryRecord
 
 
@@ -39,9 +42,38 @@ class SanuviaPersistentCondition:
 
     name = "sanuvia_persistent"
 
-    def __init__(self, case: Case, appraiser: EvidenceAppraiser | None = None) -> None:
+    def __init__(
+        self,
+        case: Case,
+        appraiser: EvidenceAppraiser | None = None,
+        *,
+        identity_resolver: IdentityResolver | None = None,
+    ) -> None:
+        """``identity_resolver`` is the R1 boundary (§2 G case 4), REAL only.
+
+        The two branches stay paired (G-1). The scripted branch authors its own
+        identity decisions through the fixture double and may not be handed a
+        real resolver; the real branch may be handed one, and may never receive
+        the fixture double. Both violations are refused here, at condition
+        initialization, rather than at ``start()`` -- a mis-wired condition must
+        not be constructible and then fail later next to the engine.
+        """
+        if identity_resolver is not None:
+            if appraiser is None:
+                raise ConfigurationError(
+                    "an identity resolver was supplied without a real appraiser: "
+                    "the scripted branch authors its identity decisions through "
+                    "the fixture-authored double and must not be given one"
+                )
+            if isinstance(identity_resolver, ScriptedIdentityResolver):
+                raise ConfigurationError(
+                    "a ScriptedIdentityResolver was supplied to the real branch: "
+                    "a real run must not decide identity from fixture-authored "
+                    "data (G-1)"
+                )
         self._case = case
         self._appraiser = appraiser
+        self._identity_resolver = identity_resolver
         self._service: ReasoningService | None = None
         self._store: InMemoryReasoningStore | None = None
         self._results: list[InteractionResult] = []
@@ -63,12 +95,18 @@ class SanuviaPersistentCondition:
         # and reach §2 G resolution-order case 4; the fixture-authored double
         # returns the case's own authored decision. It compares nothing.
         #
-        # The guard is STRUCTURAL: the resolver is bound to the same condition
-        # that selects the scripted appraiser, so a real injected appraiser --
-        # the only thing a REAL/Run 003 configuration may use -- never gets one.
-        # A real run therefore parks non-exact candidates, which is the honest
-        # deterministic-arm behaviour until R1 lands.
-        resolver = resolver_for_script(script) if scripted else None
+        # The guard is STRUCTURAL: the fixture double is bound to the same
+        # branch that selects the scripted appraiser, so a real injected
+        # appraiser -- the only thing a REAL/Run 003 configuration may use --
+        # can never receive it.
+        #
+        # The real branch takes the resolver the caller configured. ``None``
+        # remains a valid real configuration and is NOT a degraded one: §2 G
+        # parks a non-exact candidate as AMBIGUOUS_REVIEW_REQUIRED rather than
+        # guessing, which is the honest deterministic-arm behaviour.
+        resolver: IdentityResolver | None = (
+            resolver_for_script(script) if scripted else self._identity_resolver
+        )
         deps = build_in_memory_dependencies(
             store=store,
             appraiser=appraiser,

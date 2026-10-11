@@ -3,7 +3,9 @@
 The division R2 authorises:
 
 * the extractor PROPOSES ``role``, ``subject`` and ``subject_kind`` -- the
-  parts that cannot be supplied from context;
+  parts that cannot be supplied from context. ``subject`` is a REQUEST-SCOPED
+  PARTICIPANT LABEL, so the model names only what the request offered it and
+  the application maps the label back to a canonical id (§2 B);
 * the application SUPPLIES the contextual facts: who spoke, and therefore
   ``source_kind`` / ``source_id``, plus the permitted participant set;
 * the application VALIDATES the proposal, and an invalid one rejects the whole
@@ -37,14 +39,32 @@ from sanuvia.domain import (
 
 from sanuvia_phase1.evidence_extractors.external import ExternalEvidenceExtractor
 from sanuvia_phase1.failures import MalformedOutputError
+from sanuvia_phase1.participants import build_participant_vocabulary
 from sanuvia_phase1.transcript import TranscriptInteraction
 
 PERMITTED = ("pA", "pB")
 
+#: The vocabulary the request under test mints: transcript ``t-1``, interaction
+#: 1. Derived rather than hard-coded, so these tests assert the mapping instead
+#: of restating a literal the implementation could drift away from.
+VOCABULARY = build_participant_vocabulary("t-1:1", PERMITTED)
+
+
+def _label(participant_id: str) -> str:
+    label = VOCABULARY.label_for(participant_id)
+    assert label is not None, participant_id
+    return label
+
+
+#: Distinguishes "caller said nothing" from an explicit ``subject: null``.
+_UNSET = object()
+
 
 def _reply(role: str | None = "event_observation", *, subject_kind: str = "participant",
-           subject: str | None = "pB", omit_standing: bool = False,
+           subject: object = _UNSET, omit_standing: bool = False,
            extra: dict[str, object] | None = None) -> str:
+    if subject is _UNSET:
+        subject = _label("pB")
     item = {
         "observation": "the partner left the room",
         "evidence_class": "behavioural",
@@ -143,12 +163,62 @@ def test_an_invalid_subject_kind_rejects_the_interaction() -> None:
     assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
 
 
-def test_a_subject_outside_the_permitted_set_rejects_the_interaction() -> None:
-    """The permitted identifier set is the application's, not the model's."""
+def test_a_subject_outside_the_vocabulary_rejects_the_interaction() -> None:
+    """The permitted label set is the application's, not the model's."""
     with pytest.raises(GovernedRejection) as exc:
         _extract(_reply(subject="pZ"))
     assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
-    assert "permitted participant" in str(exc.value)
+    assert "was not supplied in request" in str(exc.value)
+
+
+def test_a_canonical_participant_id_is_refused_even_though_it_is_authorised() -> None:
+    """The point of the vocabulary, stated as a test.
+
+    ``pB`` IS an authorized participant. It is still refused, because the model
+    was never given it and a model-supplied string must never become a
+    canonical reference by happening to match one. Before the vocabulary this
+    reply was ACCEPTED, and ``pZ`` was refused only because no participant
+    happened to be called that -- a membership accident, not a rule.
+    """
+    with pytest.raises(GovernedRejection) as exc:
+        _extract(_reply(subject="pB"))
+
+    assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
+    assert "pB" in PERMITTED, "the id is authorised; it is the LABEL that is not"
+
+
+def test_a_label_from_another_request_does_not_alias() -> None:
+    """Request-scoped means request-scoped (§2 B): interaction 2's label is not
+    interaction 1's, even for the same participant."""
+    other = build_participant_vocabulary("t-1:2", PERMITTED)
+
+    with pytest.raises(GovernedRejection) as exc:
+        _extract(_reply(subject=other.label_for("pB")))
+
+    assert exc.value.outcome is GovernedOutcome.EVIDENCE_ROLE_VIOLATION
+
+
+def test_the_model_is_given_the_labels_and_no_canonical_id() -> None:
+    """Outbound: labels only. A model that cannot see a ParticipantId cannot
+    assign one."""
+    seen: list[object] = []
+
+    def _client(request: object) -> str:
+        seen.append(request)
+        return _reply()
+
+    extractor = ExternalEvidenceExtractor(
+        client=_client, permitted_participants=PERMITTED
+    )
+    extractor.extract(
+        TranscriptInteraction(1, "seq-1", "she left the room", speaker="pA"), "t-1"
+    )
+
+    (request,) = seen
+    assert request.participants == VOCABULARY.labels  # type: ignore[attr-defined]
+    rendered = f"{request}"
+    for canonical in PERMITTED:
+        assert f"'{canonical}'" not in rendered, "a canonical id reached the prompt"
 
 
 def test_a_participant_subject_kind_without_a_subject_is_rejected() -> None:

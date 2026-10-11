@@ -16,8 +16,11 @@ from sanuvia_phase1.qwen import qwen_real_run_config
 from sanuvia_phase1.transcript import Transcript, TranscriptInteraction
 
 # Immutability anchor — changing the version or any FROZEN key/value/blocking flag
-# changes this. Updated for freeze record v3.0-run001-verified (artifact verified).
-_EXPECTED_FREEZE_HASH = "f79197af53a2ff04dc77dec84523f59f692f49e1b623f4b5f524880ba58930bf"
+# changes this. Updated for freeze record v7.0-extraction-schema-v3-participant-labels:
+# the extraction schema moved ``subject`` to a request-scoped participant label,
+# which bumps the extraction prompt/schema ids the record pins. The prior pinned
+# hash is preserved in ``FREEZE_RECORD_HISTORY``, never overwritten.
+_EXPECTED_FREEZE_HASH = "16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c"
 
 # The verified artifact/digest are now frozen; no blocking items remain.
 _BLOCKING_KEYS: set[str] = set()

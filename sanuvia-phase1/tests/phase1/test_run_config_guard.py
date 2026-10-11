@@ -19,7 +19,7 @@ from fixtures.longitudinal.case_001_transcript import (
     CASE_001_TRANSCRIPT,
     case_001_scripted_extractor,
 )
-from fixtures.offline_real import offline_real_config
+from fixtures.offline_real import OFFLINE_PARTICIPANTS, offline_real_config
 
 from sanuvia.adapters.reasoning import ScriptedAppraiser
 
@@ -43,8 +43,12 @@ def _external_lm() -> ExternalLanguageModel:
     return ExternalLanguageModel(lambda _req: "{}")
 
 
-def _external_extractor() -> ExternalEvidenceExtractor:
-    return ExternalEvidenceExtractor(lambda _req: "{}")
+def _external_extractor(
+    participants: tuple[str, ...] = OFFLINE_PARTICIPANTS,
+) -> ExternalEvidenceExtractor:
+    return ExternalEvidenceExtractor(
+        lambda _req: "{}", permitted_participants=participants
+    )
 
 
 def _external_appraiser() -> ExternalEvidenceAppraiser:
@@ -211,4 +215,97 @@ def test_golden_pipeline_still_runs_with_scripted_components() -> None:
     assert tdr.mode == "golden"
     assert len(tdr.demonstration.records_by_condition["sanuvia_persistent"]) == len(
         CASE_001.interactions
+    )
+
+
+# --- REAL participant roster --------------------------------------------------
+#
+# The roster is required BEFORE execution. Without this check an unconfigured
+# REAL run starts, mints an empty request vocabulary, and refuses every extracted
+# subject one at a time -- which reads as a model failure rather than a missing
+# configuration.
+
+
+def test_real_rejects_a_missing_participant_roster() -> None:
+    with pytest.raises(ConfigurationError) as exc:
+        validate_run_configuration(
+            REAL,
+            extractor=_external_extractor(),
+            stateless_model=_external_lm(),
+            transcript_model=_external_lm(),
+            appraiser=_external_appraiser(),
+            config=offline_real_config(participants=()),
+        )
+    assert "RealRunConfig.participants is empty" in str(exc.value)
+
+
+def test_real_rejects_an_extractor_built_without_a_roster() -> None:
+    """The config stating a roster is not enough: the extractor that will do
+    the extracting has to have been built with it."""
+    with pytest.raises(ConfigurationError) as exc:
+        validate_run_configuration(
+            REAL,
+            extractor=_external_extractor(participants=()),
+            stateless_model=_external_lm(),
+            transcript_model=_external_lm(),
+            appraiser=_external_appraiser(),
+            config=offline_real_config(),
+        )
+    assert "empty participant roster" in str(exc.value)
+
+
+def test_real_rejects_a_roster_mismatch() -> None:
+    """Two rosters that disagree is worse than one that is missing: the run
+    would look configured while extracting under a different vocabulary."""
+    with pytest.raises(ConfigurationError) as exc:
+        validate_run_configuration(
+            REAL,
+            extractor=_external_extractor(participants=("pA", "pC")),
+            stateless_model=_external_lm(),
+            transcript_model=_external_lm(),
+            appraiser=_external_appraiser(),
+            config=offline_real_config(participants=("pA", "pB")),
+        )
+    assert "does not match" in str(exc.value)
+
+
+def test_real_accepts_a_roster_stated_in_a_different_order() -> None:
+    """Order is not part of the configuration: minting sorts."""
+    validate_run_configuration(
+        REAL,
+        extractor=_external_extractor(participants=("pB", "pA")),
+        stateless_model=_external_lm(),
+        transcript_model=_external_lm(),
+        appraiser=_external_appraiser(),
+        config=offline_real_config(participants=("pA", "pB")),
+    )
+
+
+def test_golden_rejects_a_real_identity_resolver() -> None:
+    """A golden run's identity decisions are fixture-authored."""
+    from sanuvia_phase1.identity_resolvers import ExternalIdentityResolver
+
+    with pytest.raises(ConfigurationError, match="identity resolver"):
+        validate_run_configuration(
+            GOLDEN,
+            extractor=_scripted_extractor(),
+            stateless_model=_scripted_lm(),
+            transcript_model=_scripted_lm(),
+            appraiser=ScriptedAppraiser({}),
+            config=None,
+            identity_resolver=ExternalIdentityResolver(lambda _p: "{}"),
+        )
+
+
+def test_real_accepts_no_identity_resolver() -> None:
+    """R1 is opt-in. ``None`` parks non-exact candidates (§2 G); it is a valid
+    REAL configuration, not a degraded one."""
+    validate_run_configuration(
+        REAL,
+        extractor=_external_extractor(),
+        stateless_model=_external_lm(),
+        transcript_model=_external_lm(),
+        appraiser=_external_appraiser(),
+        config=offline_real_config(),
+        identity_resolver=None,
     )

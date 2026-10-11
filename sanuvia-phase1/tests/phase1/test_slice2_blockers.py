@@ -43,6 +43,7 @@ from sanuvia_phase1.capture import from_rejected_plan
 from sanuvia_phase1.conditions import SanuviaPersistentCondition
 from sanuvia_phase1.evidence_extractors.external import ExternalEvidenceExtractor
 from sanuvia_phase1.identity_resolvers import RESOLVER_ID, ExternalIdentityResolver
+from sanuvia_phase1.participants import build_participant_vocabulary
 from sanuvia_phase1.identity_resolvers.external import PROMPT_VERSION, SCHEMA_VERSION
 from sanuvia_phase1.trajectory import InteractionOutcome
 from sanuvia_phase1.transcript import Transcript, TranscriptInteraction
@@ -258,12 +259,27 @@ def test_b2_the_appraisal_responses_are_kept_separate_from_the_resolver_reply() 
 # ===========================================================================
 
 
-def _observation(role: str) -> dict[str, object]:
+#: The authorized roster, and the request-scoped label for ``pB`` in each
+#: interaction. Derived, not hard-coded: the label carries the request id, so
+#: interaction 1 and interaction 2 name the same participant differently.
+_ROSTER = ("pA", "pB")
+
+
+def _subject_label(interaction_index: int) -> str:
+    label = build_participant_vocabulary(
+        f"t-1:{interaction_index}", _ROSTER
+    ).label_for("pB")
+    assert label is not None
+    return label
+
+
+def _observation(role: str, interaction_index: int) -> dict[str, object]:
     return {
         "observation": "she left the room", "evidence_class": "behavioural",
         "reliability": 0.8, "classification_confidence": 0.9,
         "provenance_confidence": 0.9, "text_span": None,
-        "role": role, "subject_kind": "participant", "subject": "pB",
+        "role": role, "subject_kind": "participant",
+        "subject": _subject_label(interaction_index),
     }
 
 
@@ -275,7 +291,7 @@ class _SecondTurnHasInvalidStanding:
     def __call__(self, _request: Any) -> str:
         self.calls += 1
         role = "event_observation" if self.calls == 1 else "resonance"
-        reply = json.dumps({"evidence": [_observation(role)]})
+        reply = json.dumps({"evidence": [_observation(role, self.calls)]})
         self.replies.append(reply)
         return reply
 
@@ -283,7 +299,7 @@ class _SecondTurnHasInvalidStanding:
 def _two_turn_case() -> tuple[Any, Any]:
     client = _SecondTurnHasInvalidStanding()
     extractor = ExternalEvidenceExtractor(
-        client=client, permitted_participants=("pA", "pB")
+        client=client, permitted_participants=_ROSTER
     )
     transcript = Transcript(
         "t-1", SubjectId("s-1"), shared_space_id("d"),

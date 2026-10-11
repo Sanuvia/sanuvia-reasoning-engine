@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from fixtures.offline_real import offline_real_config
+from fixtures.offline_real import OFFLINE_PARTICIPANTS, offline_real_config
 
 from sanuvia.domain import SubjectId, shared_space_id
 
@@ -42,7 +42,10 @@ def _fake_client(request: ExtractionRequest) -> str:
 
 
 def test_external_extractor_parses_injected_client() -> None:
-    extractor = ExternalEvidenceExtractor(_fake_client, extractor_id="fake-real")
+    extractor = ExternalEvidenceExtractor(
+        _fake_client, extractor_id="fake-real",
+        permitted_participants=OFFLINE_PARTICIPANTS,
+    )
     ti = TranscriptInteraction(1, "seq-1", "Person 1 said they feel stuck.")
     got = extractor.extract(ti, "t-real")
     assert len(got) == 1
@@ -59,7 +62,9 @@ def test_external_extractor_hold_makes_no_client_call() -> None:
         calls.append(request)
         return "{}"
 
-    extractor = ExternalEvidenceExtractor(counting)
+    extractor = ExternalEvidenceExtractor(
+        counting, permitted_participants=OFFLINE_PARTICIPANTS
+    )
     assert extractor.extract(TranscriptInteraction(1, "seq-1", "   "), "t") == ()
     assert calls == []  # a hold consults no model
 
@@ -108,7 +113,10 @@ def test_real_mode_end_to_end_wiring_with_fake_client() -> None:
     # appraisal script. The frozen engine still forms the hypothesis.
     tdr = pipeline.run_transcript_demonstration(
         transcript,
-        ExternalEvidenceExtractor(_fake_client, extractor_id="fake-real"),
+        ExternalEvidenceExtractor(
+        _fake_client, extractor_id="fake-real",
+        permitted_participants=OFFLINE_PARTICIPANTS,
+    ),
         {},
         {},
         ExternalLanguageModel(lambda _req: "{}"),
