@@ -3,7 +3,10 @@
 The division R2 authorises, enforced here:
 
 * the **extractor proposes** the parts that cannot be supplied from context --
-  ``role``, ``subject`` and ``subject_kind``;
+  ``role``, ``subject`` and ``subject_kind``. ``subject`` is a **request-scoped
+  participant label**, never a canonical identifier: the model names only what
+  this request offered it, and the mapping back to a ``ParticipantId`` happens
+  here, inside the application boundary (see ``participants``);
 * the **application supplies** the contextual facts -- the speaking
   participant, and therefore ``source_kind`` and ``source_id``. These are never
   asked of the model and never accepted from it;
@@ -19,8 +22,6 @@ or normalisation is performed, and **no segment-level partial commit occurs**.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from sanuvia.domain import (
     EvidenceRole,
     EvidenceSourceKind,
@@ -32,6 +33,7 @@ from sanuvia.domain import (
 )
 
 from .extraction import ProposedStanding
+from .participants import ParticipantVocabulary
 
 _ROLES = {role.value: role for role in EvidenceRole}
 _SUBJECT_KINDS = {kind.value: kind for kind in EvidenceSubjectKind}
@@ -50,9 +52,18 @@ def complete_standing(
     *,
     ref: str,
     speaker: str | None,
-    permitted_participants: Sequence[str],
+    vocabulary: ParticipantVocabulary,
 ) -> EvidenceStanding | None:
     """Validate a proposal and complete it with the contextual facts.
+
+    ``proposed.subject`` is a request-scoped participant label. It is resolved
+    through ``vocabulary`` -- the only place a model-supplied string may become
+    a canonical ``ParticipantId``, and only because this request offered it.
+
+    ``speaker`` is the opposite kind of fact: the application already knows it,
+    so it arrives as a canonical participant id and is checked for membership of
+    the authorized roster rather than resolved from a label. The model is never
+    asked who spoke and a reply stating it is refused by the validator (§2 E).
 
     Returns ``None`` when the extractor proposed nothing. That is deliberate:
     absent standing is left absent rather than defaulted to ordinary supporting
@@ -76,39 +87,41 @@ def complete_standing(
             ref,
         )
 
-    permitted = set(permitted_participants)
     needs_subject = subject_kind in (
         EvidenceSubjectKind.PARTICIPANT,
         EvidenceSubjectKind.THIRD_PARTY,
     )
-    if needs_subject:
-        if proposed.subject is None:
-            raise _reject(
-                f"subject_kind {subject_kind.value} requires a subject", ref
-            )
-        if proposed.subject not in permitted:
-            raise _reject(
-                f"subject {proposed.subject!r} is not a permitted participant "
-                f"identifier",
-                ref,
-            )
-    elif proposed.subject is not None and proposed.subject not in permitted:
+    if needs_subject and proposed.subject is None:
         raise _reject(
-            f"subject {proposed.subject!r} is not a permitted participant "
-            f"identifier",
-            ref,
+            f"subject_kind {subject_kind.value} requires a subject", ref
+        )
+
+    # The one inbound mapping: label -> canonical participant id. An unoffered
+    # label raises here and is never carried forward, so a reply naming a
+    # durable identifier is refused as a RULE rather than because no
+    # participant happens to be called that.
+    subject_id: ParticipantId | None = None
+    if proposed.subject is not None:
+        subject_id = ParticipantId(
+            vocabulary.resolve(proposed.subject, ref=ref, field="subject")
         )
 
     # Contextual half, supplied by the application. A turn with a recorded
     # speaker is a participant source; without one it is a system surface.
+    #
+    # SPEAKERLESS IS NOT A FAILURE AND NOT AN INFERENCE. No speaker is guessed
+    # from the text, from the roster, or from the subject. The record stands as
+    # SYSTEM_SURFACE, which ``EvidenceStanding.is_participant_account`` reads as
+    # false -- so such a record is never a divergence endpoint (§2 J.1 rules
+    # 2-3) and offers no divergence candidates.
     if speaker is not None:
-        if speaker not in permitted:
+        if speaker not in vocabulary.participants:
             raise _reject(
                 f"speaker {speaker!r} is not a permitted participant identifier",
                 ref,
             )
         source_kind = EvidenceSourceKind.PARTICIPANT
-        source_id = ParticipantId(speaker)
+        source_id: ParticipantId | None = ParticipantId(speaker)
     else:
         source_kind = EvidenceSourceKind.SYSTEM_SURFACE
         source_id = None
@@ -118,7 +131,5 @@ def complete_standing(
         subject_kind=subject_kind,
         role=role,
         source_id=source_id,
-        subject_id=(
-            ParticipantId(proposed.subject) if proposed.subject is not None else None
-        ),
+        subject_id=subject_id,
     )

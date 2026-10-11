@@ -25,17 +25,26 @@ from ..extraction import EvidenceExtractor, ExtractedEvidence, ObservationSpec, 
 from ..transcript import TranscriptInteraction
 from sanuvia.domain import GovernedRejection
 
+from ..participants import build_participant_vocabulary
 from ..standing import complete_standing
 from ..validation import validate_extraction
 
 
 @dataclass(frozen=True, slots=True)
 class ExtractionRequest:
-    """A prompt for a real evidence-extraction model."""
+    """A prompt for a real evidence-extraction model.
+
+    ``participants`` is the request-scoped participant vocabulary (§2 B): the
+    only participant references the model may see, and the only ones it may
+    name back. Without it the model has no way to know which labels are legal
+    and would invent identifiers that the application would then have to guess
+    about.
+    """
 
     system: str
     transcript_text: str
     instruction: str
+    participants: tuple[str, ...] = ()
 
 
 ExtractionClient = Callable[[ExtractionRequest], str]
@@ -51,15 +60,18 @@ SYSTEM = (
     '"provenance_confidence": number, "text_span": string|null, '
     '"role": "event_observation|account|response_or_resonance|meta_instruction", '
     '"subject_kind": "participant|dyad|third_party|none", '
-    '"subject": string|null}]}\n'
+    '"subject": participant_label|null}]}\n'
     "role says what the observation IS: event_observation for something that "
     "happened, account for a participant's own telling of it, "
     "response_or_resonance for a reaction to what the system said, "
     "meta_instruction for an instruction about the process itself. "
-    "subject says what the observation is ABOUT; give null when subject_kind is "
-    "dyad or none. Do not state who spoke -- that is supplied, not yours to "
-    "decide. Return an empty list if the text contains no extractable "
-    "observation. Do not output any prose outside the JSON object."
+    "subject says what the observation is ABOUT: it is one of the participant "
+    "labels given for this request, exactly as given, and null when "
+    "subject_kind is dyad or none. Use only the labels given; do not invent a "
+    "participant and do not use a name from the text. Do not state who spoke "
+    "-- that is supplied, not yours to decide. Return an empty list if the "
+    "text contains no extractable observation. Do not output any prose outside "
+    "the JSON object."
 )
 
 INSTRUCTION = "Extract the observations now."
@@ -78,19 +90,40 @@ class ExternalEvidenceExtractor:
     ) -> None:
         self._client = client
         self.extractor_id = extractor_id
-        #: The permitted participant identifier set. A CONTEXTUAL fact the
-        #: application supplies (§2 E, R2); it is never asked of the model, and
-        #: a proposed subject outside it is a governed failure, not a value to
-        #: repair.
+        #: The authorized participant roster. A CONTEXTUAL fact the application
+        #: supplies (§2 E, R2). The CANONICAL ids never leave this object: each
+        #: request mints request-scoped labels over them, and only the labels
+        #: are sent. A proposed subject outside the vocabulary is a governed
+        #: failure, not a value to repair.
         self._permitted = tuple(permitted_participants)
+
+    @property
+    def permitted_participants(self) -> tuple[str, ...]:
+        """The authorized roster, for the REAL-mode configuration guard.
+
+        Exposed read-only so ``validate_run_configuration`` can refuse an
+        unconfigured extractor BEFORE a run starts, rather than letting every
+        extracted subject be rejected one at a time with no statement of why.
+        """
+        return self._permitted
 
     def extract(
         self, interaction: TranscriptInteraction, transcript_id: str
     ) -> tuple[ExtractedEvidence, ...]:
         if not interaction.text.strip():
             return ()  # a hold: no raw text -> no evidence
+        # The request-scoped vocabulary (§2 B). Minted per interaction over the
+        # authorized roster, so the labels a reply may name are fixed before
+        # the call and a label from another interaction fails resolution rather
+        # than aliasing silently.
+        vocabulary = build_participant_vocabulary(
+            f"{transcript_id}:{interaction.index}", self._permitted
+        )
         request = ExtractionRequest(
-            system=SYSTEM, transcript_text=interaction.text, instruction=INSTRUCTION
+            system=SYSTEM,
+            transcript_text=interaction.text,
+            instruction=INSTRUCTION,
+            participants=vocabulary.labels,
         )
         # Strict validation: malformed output raises MalformedOutputError — it is
         # never coerced into empty evidence or defaulted confidences.
@@ -110,7 +143,7 @@ class ExternalEvidenceExtractor:
                     obs.standing,
                     ref=ref,
                     speaker=interaction.speaker,
-                    permitted_participants=self._permitted,
+                    vocabulary=vocabulary,
                 )
             except GovernedRejection as rejection:
                 # Q6: the COMPLETE extraction output is preserved on the
@@ -135,7 +168,7 @@ class ExternalEvidenceExtractor:
                 classification_confidence=obs.classification_confidence,
                 provenance_confidence=obs.provenance_confidence,
                 text_span=obs.text_span,
-                standing=obs.standing,
+                standing=obs.standing,  # the proposal, as returned
             )
             stamped = stamp(spec, interaction, transcript_id, self.extractor_id)
             out.append(dataclasses.replace(stamped, standing=standing))

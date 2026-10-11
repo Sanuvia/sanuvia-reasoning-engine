@@ -52,9 +52,17 @@ class SchemaSpec:
 
 # --- schema contracts (authored here; MUST match validation.py enforcement) ---
 
-# v2 (§2 E, R2 bounded extractor authority). Adds the semantic standing the
-# extractor may PROPOSE -- role, subject_kind, subject -- and nothing else.
-# source_kind/source_id are absent by design: who spoke is a contextual fact
+# v3 (§2 B applied to extraction). ``subject`` is a REQUEST-SCOPED PARTICIPANT
+# LABEL, not a bare string: the model names only what the request offered it,
+# and the mapping back to a canonical ParticipantId happens in the application
+# (``participants.ParticipantVocabulary``). v2 accepted any string and checked
+# it against the roster afterwards, which made a reply a durable identifier
+# whenever it happened to match.
+#
+# Bumped rather than edited in place, as the appraisal schema was, so Run 002's
+# ``schema.extraction.v2`` reference keeps meaning what it meant.
+#
+# source_kind/source_id remain absent by design: who spoke is a contextual fact
 # the application supplies and never accepts from the model.
 _EXTRACTION_SCHEMA = (
     '{"evidence": [{"observation": string, "evidence_class": '
@@ -63,7 +71,7 @@ _EXTRACTION_SCHEMA = (
     '"provenance_confidence": number[0..1], "text_span": string|null, '
     '"role": "event_observation|account|response_or_resonance|meta_instruction", '
     '"subject_kind": "participant|dyad|third_party|none", '
-    '"subject": string|null}]}'
+    '"subject": participant_label|null}]}'
 )
 
 # v3 (Technical Design v1.5.4 §2 C / §2 H). References are request-scoped
@@ -97,12 +105,12 @@ _BASELINE_SCHEMA = (
 
 # --- stable ids ---------------------------------------------------------------
 
-EXTRACTION_PROMPT_ID = "extraction.observations.v2"
+EXTRACTION_PROMPT_ID = "extraction.observations.v3"
 APPRAISAL_PROMPT_ID = "appraisal.support-contradict-propose.v3"
 IDENTITY_PROMPT_ID = "identity.r1.bounded.v1"
 BASELINE_PROMPT_ID = "baseline.reasoning.v1"  # shared by both baselines
 
-EXTRACTION_SCHEMA_ID = "schema.extraction.v2"
+EXTRACTION_SCHEMA_ID = "schema.extraction.v3"
 APPRAISAL_SCHEMA_ID = "schema.appraisal.v3"
 IDENTITY_SCHEMA_ID = "schema.identity.v1"
 BASELINE_SCHEMA_ID = "schema.baseline.v1"  # shared by both baselines
@@ -131,7 +139,7 @@ SCHEMAS: dict[str, SchemaSpec] = {
 # Recorded hashes — the drift guard. If a prompt text is edited, its live hash no
 # longer matches, and both `verify_prompt_integrity()` and the preflight fail.
 EXPECTED_PROMPT_SHA256: dict[str, str] = {
-    EXTRACTION_PROMPT_ID: "08d015d89737a539f359a47b3147fe20893557977e73cd7fa91df11a68e32844",
+    EXTRACTION_PROMPT_ID: "05e1a9d408d720fa87fc663d8a0a17ff7fe757f5323e74047b86c0bac74ce1a3",
     APPRAISAL_PROMPT_ID: "d5879923204f93ef8156bded29d7331f3070de389a7795283a72b7e7f50bc93c",
     IDENTITY_PROMPT_ID: "45d0675753216e1439230776ffbf2150f82c760f04dd276b87344276415398d6",
     BASELINE_PROMPT_ID: "3557977b65552a1a19b3cff3a53f58b93c0efb6e802b821abe0b063cf03943bc",

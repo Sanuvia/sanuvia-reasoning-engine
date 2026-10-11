@@ -24,7 +24,7 @@ import os
 import re
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -234,9 +234,22 @@ class QwenClient:
         return client
 
     def as_extractor(
-        self, extractor_id: str = "qwen-local-extractor.v1"
+        self,
+        extractor_id: str = "qwen-local-extractor.v1",
+        *,
+        permitted_participants: Sequence[str] = (),
     ) -> ExternalEvidenceExtractor:
-        return ExternalEvidenceExtractor(self.extraction_client(), extractor_id=extractor_id)
+        """The extraction boundary, built over the authorized roster.
+
+        ``permitted_participants`` must be the same roster as
+        ``RealRunConfig.participants``; the REAL guard refuses a mismatch, so
+        the two cannot drift apart silently.
+        """
+        return ExternalEvidenceExtractor(
+            self.extraction_client(),
+            extractor_id=extractor_id,
+            permitted_participants=permitted_participants,
+        )
 
     def as_appraiser(self) -> ExternalEvidenceAppraiser:
         return ExternalEvidenceAppraiser(self.appraisal_client())
@@ -267,13 +280,21 @@ def qwen_real_run_config(
     max_output_tokens: int = 512,
     context_window: int = 8192,
     stop_sequences: str = "none",
+    participants: Sequence[str] = (),
 ) -> RealRunConfig:
     """An explicit REAL config for the local-Qwen evaluation.
 
     Defaults are conservative and deterministic (temperature 0.0, seed 0), but every
     experimental parameter is stated, not implicit. Fields a runtime cannot yet
     supply (exact model version, artifact digest) are :class:`Maybe`, recorded as
-    unavailable rather than invented."""
+    unavailable rather than invented.
+
+    ``participants`` is the authorized participant roster, and it defaults to
+    EMPTY on purpose. Who is authorized is a property of the case under
+    evaluation, not of the model configuration, so this function will not
+    invent one -- and an empty roster is refused by the REAL guard, which makes
+    ``preflight-real`` report it as a stated BLOCKED prerequisite instead of
+    letting a run start and reject every extracted subject in turn."""
     version = model_version if model_version is not None else Maybe.not_captured()
     artifact = artifact_id if artifact_id is not None else Maybe.not_captured()
     seed_field = Maybe.available(str(seed)) if seed is not None else Maybe.not_provided_by_provider()
@@ -303,6 +324,7 @@ def qwen_real_run_config(
         )
 
     return RealRunConfig(
+        participants=tuple(participants),
         extraction=_spec(
             "evidence_extraction", prompts.EXTRACTION_PROMPT_ID, prompts.EXTRACTION_SCHEMA_ID
         ),

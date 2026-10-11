@@ -9,8 +9,16 @@ and the configuration guard without choosing a provider.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from sanuvia_phase1.failures import Maybe
 from sanuvia_phase1.runconfig import ModelSpec, RealRunConfig
+
+#: The authorized participant roster these offline tests run under. Stated here
+#: so every REAL-mode test uses one roster, and so the extractor's roster and
+#: the config's roster come from the same place -- a mismatch between them is
+#: itself a ConfigurationError, which is a thing worth being able to test.
+OFFLINE_PARTICIPANTS: tuple[str, ...] = ("pA", "pB")
 
 
 def _spec(role: str) -> ModelSpec:
@@ -28,9 +36,19 @@ def _spec(role: str) -> ModelSpec:
     )
 
 
-def offline_real_config() -> RealRunConfig:
-    """A complete, explicit REAL config for offline tests (no vendor, no network)."""
+def offline_real_config(
+    participants: Sequence[str] = OFFLINE_PARTICIPANTS,
+    *,
+    identity_resolution: bool = False,
+) -> RealRunConfig:
+    """A complete, explicit REAL config for offline tests (no vendor, no network).
+
+    ``identity_resolution`` adds the R1 boundary spec, which REAL requires
+    whenever an identity resolver is actually supplied.
+    """
     return RealRunConfig(
+        participants=tuple(participants),
+        identity_resolution=_spec("identity_resolution") if identity_resolution else None,
         extraction=_spec("evidence_extraction"),
         appraisal=_spec("evidence_appraisal"),
         stateless_baseline=_spec("stateless_baseline"),

@@ -103,10 +103,17 @@ def _check_schemas(config: RealRunConfig) -> Check:
 def _check_no_scripted_doubles(config: RealRunConfig) -> Check:
     # Run the REAL guard against representative external (non-scripted) adapters.
     # The no-op clients are never called; only component *types* + config matter.
+    #
+    # The representative extractor is built from the config's own roster, not
+    # from an empty default. An extractor built empty would pass a guard that
+    # the real run's extractor then fails, which is the opposite of what a
+    # preflight is for.
     try:
         validate_run_configuration(
             REAL,
-            extractor=ExternalEvidenceExtractor(lambda _r: ""),
+            extractor=ExternalEvidenceExtractor(
+                lambda _r: "", permitted_participants=config.participants
+            ),
             stateless_model=ExternalLanguageModel(lambda _r: ""),
             transcript_model=ExternalLanguageModel(lambda _r: ""),
             appraiser=ExternalEvidenceAppraiser(lambda _r: ""),

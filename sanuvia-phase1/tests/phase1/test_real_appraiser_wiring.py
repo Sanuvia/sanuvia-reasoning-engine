@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from fixtures.offline_real import offline_real_config
+from fixtures.offline_real import OFFLINE_PARTICIPANTS, offline_real_config
 
 from sanuvia.domain import SubjectId, shared_space_id
 
@@ -101,7 +101,10 @@ def test_real_appraiser_end_to_end_forms_hypothesis_via_frozen_engine() -> None:
     stateless, transcript_model = _baselines()
     tdr = pipeline.run_transcript_demonstration(
         _transcript(),
-        ExternalEvidenceExtractor(_extract_client, extractor_id="fake-real"),
+        ExternalEvidenceExtractor(
+            _extract_client, extractor_id="fake-real",
+            permitted_participants=OFFLINE_PARTICIPANTS,
+        ),
         {},   # appraisal_script unused: a real appraiser is injected
         {},   # hypothesis_catalogue not needed for a real appraiser
         stateless,
@@ -140,7 +143,9 @@ def test_malformed_proposal_is_rejected_not_silently_skipped() -> None:
     with pytest.raises(MalformedOutputError):
         pipeline.run_transcript_demonstration(
             _transcript(),
-            ExternalEvidenceExtractor(_extract_client),
+            ExternalEvidenceExtractor(
+                _extract_client, permitted_participants=OFFLINE_PARTICIPANTS
+            ),
             {},
             {},
             stateless,

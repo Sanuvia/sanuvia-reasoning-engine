@@ -49,12 +49,18 @@ class DispatchingBackend:
         )
 
 
+#: The authorized roster this end-to-end run is configured with. Case 001 is a
+#: single-subject transcript with no recorded speakers, so no record becomes a
+#: participant account; the roster is still required before REAL may start.
+_PARTICIPANTS = ("pA", "pB")
+
+
 def _run() -> tuple[RunManifestBuilder, DispatchingBackend]:
     backend = DispatchingBackend()
     builder = RunManifestBuilder(
         run_id="qwen-e2e", created_at="2026-01-01T00:00:00Z", git_commit_sha="sha",
         phase1_version="0.1.0", mode="real", transcript=CASE_001_TRANSCRIPT,
-        model_specs=qwen_real_run_config().specs(),
+        model_specs=qwen_real_run_config(participants=_PARTICIPANTS).specs(),
     )
     client = QwenClient(
         backend,
@@ -63,7 +69,7 @@ def _run() -> tuple[RunManifestBuilder, DispatchingBackend]:
     )
     pipeline.run_transcript_demonstration(
         CASE_001_TRANSCRIPT,
-        client.as_extractor(),
+        client.as_extractor(permitted_participants=_PARTICIPANTS),
         {},
         {},
         client.as_stateless_model(),
@@ -71,7 +77,7 @@ def _run() -> tuple[RunManifestBuilder, DispatchingBackend]:
         case_id="qwen-e2e",
         mode=pipeline.REAL,
         appraiser=client.as_appraiser(),
-        config=qwen_real_run_config(),
+        config=qwen_real_run_config(participants=_PARTICIPANTS),
         on_interaction_start=client.begin_interaction,
     )
     return builder, backend

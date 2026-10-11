@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from sanuvia.application.ports.reasoning import Appraisal, EvidenceAppraiser
 from sanuvia.domain import EvidenceClass, EvidenceRecordId
@@ -42,6 +43,9 @@ from sanuvia.domain import GovernedRejection
 from .extraction import EvidenceExtractor, EvidenceProvenance, ExtractionResult
 from .ports import LanguageModel
 from .runconfig import GOLDEN, REAL, RealRunConfig, validate_run_configuration
+
+if TYPE_CHECKING:
+    from sanuvia.application.reasoning.identity import IdentityResolver
 from .transcript import Transcript
 from .trajectory import TrajectoryRecord
 
@@ -209,6 +213,7 @@ def run_transcript_demonstration(
     mode: str,
     appraiser: EvidenceAppraiser | None = None,
     config: RealRunConfig | None = None,
+    identity_resolver: "IdentityResolver | None" = None,
     on_interaction_start: Callable[[int, str], None] | None = None,
 ) -> TranscriptDemonstrationReport:
     """Drive all three conditions from one transcript and return a mode-tagged report.
@@ -217,6 +222,11 @@ def run_transcript_demonstration(
     (golden default) uses the case's ``ScriptedAppraiser``; real mode injects a
     real ``EvidenceAppraiser`` (e.g. ``ExternalEvidenceAppraiser``). The frozen
     engine still owns all model revision and persistence.
+
+    ``identity_resolver`` is the bounded R1 boundary (§2 G case 4). It is REAL
+    only and opt-in: ``None`` parks non-exact candidates rather than guessing,
+    which is a valid real configuration. The guard refuses a fixture-authored
+    double here and again at the condition.
 
     ``config`` is required for ``mode=REAL`` and forbidden for ``mode=GOLDEN``.
     The mode↔components consistency is checked BEFORE any execution: a GOLDEN run
@@ -230,6 +240,7 @@ def run_transcript_demonstration(
         transcript_model=transcript_model,
         appraiser=appraiser,
         config=config,
+        identity_resolver=identity_resolver,
     )
     extracted = build_extracted_case(
         transcript, extractor, appraisal_script, hypothesis_catalogue,
@@ -242,7 +253,9 @@ def run_transcript_demonstration(
         return interaction
 
     # Sanuvia reasons over EXTRACTED structured evidence (persistent World Model).
-    sanuvia = SanuviaPersistentCondition(extracted.case, appraiser)
+    sanuvia = SanuviaPersistentCondition(
+        extracted.case, appraiser, identity_resolver=identity_resolver
+    )
     sanuvia.start()
     san_records = tuple(sanuvia.step(_mark(i)) for i in extracted.case.interactions)
     sanuvia.finish()

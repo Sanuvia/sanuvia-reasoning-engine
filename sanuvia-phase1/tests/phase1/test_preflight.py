@@ -8,11 +8,21 @@ from sanuvia_phase1 import preflight
 from sanuvia_phase1.failures import Maybe
 from sanuvia_phase1.preflight import BLOCKED, PASS, run_real_preflight
 from sanuvia_phase1.qwen import QwenAvailability, qwen_real_run_config
+from sanuvia_phase1.runconfig import RealRunConfig
 
 _FROZEN_ARTIFACT_SHA256 = (
     "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
 )
 _FROZEN_LLAMA_CPP_BUILD = "build 10721 (commit 8e53fcefd)"
+
+
+#: The authorized participant roster. REAL refuses an empty one, so every
+#: preflight that expects the config checks to PASS must state it.
+_PARTICIPANTS = ("pA", "pB")
+
+
+def _configured() -> RealRunConfig:
+    return qwen_real_run_config(participants=_PARTICIPANTS)
 
 
 def _check(result: preflight.PreflightResult, name: str) -> preflight.Check:
@@ -39,7 +49,7 @@ def _available() -> QwenAvailability:
 
 
 def test_blocked_without_a_local_model() -> None:
-    result = run_real_preflight(qwen_real_run_config(), availability=_unavailable())
+    result = run_real_preflight(_configured(), availability=_unavailable())
     assert result.overall == BLOCKED
     assert _check(result, "model_installed_available").status == BLOCKED
     assert _check(result, "model_version_identifiable").status == BLOCKED
@@ -58,6 +68,7 @@ def test_model_checks_flip_when_available_and_versioned() -> None:
         model_version=Maybe.available("qwen3-4b-q4_k_m@abc123"),
         artifact_id=Maybe.available("/models/qwen3-4b.gguf"),
         backend_id="llama_cpp",
+        participants=_PARTICIPANTS,
     )
     result = run_real_preflight(config, availability=_available())
     assert _check(result, "model_installed_available").status == PASS
@@ -69,7 +80,7 @@ def test_model_checks_flip_when_available_and_versioned() -> None:
 
 
 def test_incomplete_config_blocks() -> None:
-    cfg = qwen_real_run_config()
+    cfg = _configured()
     holey = dataclasses.replace(
         cfg, extraction=dataclasses.replace(cfg.extraction, provider="")
     )
@@ -82,7 +93,7 @@ def test_wrong_artifact_sha_blocks() -> None:
     availability = dataclasses.replace(
         _available(), artifact_sha256=Maybe.available("a" * 64)
     )
-    result = run_real_preflight(qwen_real_run_config(), availability=availability)
+    result = run_real_preflight(_configured(), availability=availability)
     check = _check(result, "artifact_sha256_recorded")
     assert check.status == BLOCKED
     assert "mismatch" in check.detail
@@ -94,7 +105,7 @@ def test_wrong_llama_cpp_build_blocks() -> None:
         _available(),
         llama_cpp_build=Maybe.available("build 10720 (commit deadbeef)"),
     )
-    result = run_real_preflight(qwen_real_run_config(), availability=availability)
+    result = run_real_preflight(_configured(), availability=availability)
     check = _check(result, "llama_cpp_build_matches_frozen")
     assert check.status == BLOCKED
     assert "mismatch" in check.detail
@@ -102,12 +113,35 @@ def test_wrong_llama_cpp_build_blocks() -> None:
 
 
 def test_render_explains_what_is_missing() -> None:
-    text = run_real_preflight(qwen_real_run_config(), availability=_unavailable()).render()
+    text = run_real_preflight(_configured(), availability=_unavailable()).render()
     assert "OVERALL: BLOCKED" in text
     assert "model_installed_available" in text
     assert "Nothing was downloaded or executed" in text
 
 
 def test_import_isolation_is_checked() -> None:
-    result = run_real_preflight(qwen_real_run_config(), availability=_available())
+    result = run_real_preflight(_configured(), availability=_available())
     assert _check(result, "phase0_import_frozen").status == PASS
+
+
+def test_preflight_blocks_when_the_participant_roster_is_unconfigured() -> None:
+    """The REAL-mode prerequisite, stated by the preflight rather than
+    discovered mid-run.
+
+    ``qwen_real_run_config()`` deliberately defaults to an empty roster: who is
+    authorized is a property of the case, not of the model configuration, so
+    the config will not invent one. The preflight's job is to say so plainly.
+    """
+    result = run_real_preflight(qwen_real_run_config(), availability=_available())
+
+    check = _check(result, "no_scripted_doubles_in_real")
+    assert check.status == BLOCKED
+    assert "participants" in check.detail
+    assert result.overall == BLOCKED
+
+
+def test_preflight_passes_the_same_config_once_the_roster_is_stated() -> None:
+    """The converse, so the check above is attributable to the roster alone."""
+    result = run_real_preflight(_configured(), availability=_available())
+
+    assert _check(result, "no_scripted_doubles_in_real").status == PASS
