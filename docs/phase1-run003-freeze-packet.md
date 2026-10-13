@@ -9,8 +9,9 @@
 
 Everything below is divided into **verified** (observed on the machine, from the
 repository), **proposed** (constructed from the existing contract, awaiting
-approval) and **pending** (decisions only Lillian can make). Nothing is carried
-over from memory; every hash was recomputed for this document.
+approval) and **pending** (decisions only the project owner can make). Nothing
+is carried over from memory; every hash in this document was recomputed, with
+the single stated exception of the supplied seal-manifest hash in §5.1.
 
 ---
 
@@ -54,8 +55,8 @@ Read from the live registry at the pinned commit, not transcribed.
 | Identity resolution (R1) | `schema.identity.v1` | `31e731bed3c0917e15b6f669a8f9329f2adef046fe8673a6e3d24e7a178217e8` |
 | Both baselines (shared) | `schema.baseline.v1` | `efa45b71e5043f3921048215677c04f140db7f3597b903b9b27a046582fbc11e` |
 
-Extraction and appraisal at v3 are the versions Lillian approved for Run 003.
-The R1 pair is **registered and hashed but not approved** — see §5.
+Extraction and appraisal at v3 are the versions approved for Run 003.
+The R1 pair is **registered and hashed but not approved** — see §6.5.
 
 ---
 
@@ -126,23 +127,61 @@ Every line below was executed on this machine for this packet.
 
 ---
 
-## 5. Participant roster — configuration contract
+## 5. Authorised Case 002 configuration — SUPPLIED
 
-**Lillian supplies the authorised roster separately. It is not invented here and
-is not derived from Case 001, which is a single-subject, speakerless transcript
-and establishes no roster.** Case 002 was not opened.
+The project owner supplied the configuration below. It is **configuration
+metadata**, recorded here exactly as provided.
 
-### 5.1 Format
+> **It was not derived from the Case 002 package.** That package was not
+> accessed, listed, read, inspected, copied, hashed or processed at any point in
+> preparing this packet. Nothing below was obtained by looking at it.
 
-A tuple of canonical participant identifier strings, supplied in **two places
-that must agree**:
+### 5.1 Authorised values
 
-```python
-config    = qwen_real_run_config(participants=("<id1>", "<id2>", ...))
-extractor = client.as_extractor(permitted_participants=("<id1>", "<id2>", ...))
+| Key | Authorised value |
+|---|---|
+| `subject_id` | `relationship-1` |
+| `space_kind` | `SHARED` |
+| Executable participant roster | `participant-1`, `participant-2` |
+| Divergence-eligible pair | `participant-1`, `participant-2` |
+| Facilitator | **excluded** from the REAL input and from the participant roster |
+| Reviewer | **excluded** from the REAL input and from the participant roster |
+
+**Seal-manifest SHA-256**, recorded exactly as supplied:
+
+```
+6dbcc2f5edecdabcf62488d7009cae2d26b8d4a2f0d9d86df44a7323bea644e6
 ```
 
-### 5.2 Validation rules, as implemented
+> This value is **transcribed, not verified.** Verifying it would mean hashing
+> the sealed package, which is precisely what this packet must not do. It is
+> recorded so the seal can be checked later by whoever is authorised to open the
+> package. Every other hash in this document was recomputed; this one was not,
+> and that distinction is deliberate.
+
+### 5.2 How the authorised values enter the configuration
+
+```python
+ROSTER = ("participant-1", "participant-2")
+
+config    = qwen_real_run_config(participants=ROSTER, ...)
+extractor = client.as_extractor(permitted_participants=ROSTER)
+```
+
+`space_kind=SHARED` follows from the space identifier rather than being set
+separately — verified: `shared_space_id("relationship-1")` yields
+`space:shared:relationship-1`, and `space_kind_of(...)` returns `SHARED`. A
+shared space is what §2 J.1 rule 7 requires before any divergence candidate may
+be offered, so the divergence-eligible pair above is consistent with the space
+kind rather than an independent assertion.
+
+**The facilitator and reviewer are excluded by construction, not by filtering.**
+They are absent from the roster, so no request-scoped label is ever minted for
+them; a model naming one is refused by `ParticipantVocabulary.resolve` as an
+unoffered label, and they can never be a validated `source_id` or `subject_id`.
+The exclusion therefore needs no separate enforcement path.
+
+### 5.3 Validation rules, as implemented
 
 `runconfig.validate_run_configuration` refuses a REAL run, before anything
 executes, when:
@@ -157,34 +196,40 @@ executes, when:
 Order is **not** part of the configuration: minting sorts and deduplicates, so a
 roster stated in a different order is accepted.
 
-### 5.3 Label generation, verified with placeholders
+### 5.4 Label generation under the authorised roster — VERIFIED
 
-Exercised with placeholder identifiers only — no real participant identifier was
-used, and Case 002 was not opened:
+Minted from the authorised roster. The transcript id is left as a placeholder
+because it belongs to the sealed package and was not looked up:
 
 ```
-input roster (unsorted, duplicated): ('<P2>', '<P1>', '<P1>')
-minted labels                      : ('t-demo:1::P1', 't-demo:1::P2')
-canonical order after sort+dedupe  : ('<P1>', '<P2>')
-label format                       : {request_id}::P{n}
-resolve('t-demo:1::P1')            -> '<P1>'
-resolve('t-demo:1::P9')            -> GovernedRejection(EVIDENCE_ROLE_VIOLATION)
+interaction 1: {'<transcript-id>:1::P1': 'participant-1',
+                '<transcript-id>:1::P2': 'participant-2'}
+interaction 2: {'<transcript-id>:2::P1': 'participant-1',
+                '<transcript-id>:2::P2': 'participant-2'}
 ```
 
-Only labels reach the model; the canonical roster never enters a prompt. The
-mapping back to a canonical identifier happens inside the application boundary in
-`ParticipantVocabulary.resolve`.
+Request-scoped, so interaction 2's labels are not interaction 1's even for the
+same participant. Only labels reach the model; `participant-1` and
+`participant-2` never enter a prompt. The mapping back to a canonical identifier
+happens inside the application boundary in `ParticipantVocabulary.resolve`, and
+an unoffered label raises `GovernedRejection(EVIDENCE_ROLE_VIOLATION)`.
 
-### 5.4 Checks that cannot complete until the roster is supplied
+### 5.5 Roster-dependent checks — now CLEARED
 
-| Check | State without a roster |
+These were blocked while the roster was outstanding. With the authorised roster
+supplied they are evaluated and pass:
+
+| Check | State |
 |---|---|
-| `no_scripted_doubles_in_real` | **BLOCKED** — `RealRunConfig.participants is empty` |
-| `preflight-real` overall | **BLOCKED** — by the above alone |
-| extractor/config roster agreement | not evaluable |
-| end-to-end extraction against the real transcript | not runnable |
+| `no_scripted_doubles_in_real` | **PASS** — REAL guard accepts the configuration |
+| `preflight-real` overall | **PASS** — 17/17 (§7) |
+| extractor/config roster agreement | **PASS** — same roster on both sides, accepted |
 
-Every other preflight check is roster-independent and passes — see §7.
+One roster-dependent item remains outstanding, and it is not a preflight check:
+
+| Item | State |
+|---|---|
+| end-to-end extraction against the real transcript | **not run** — that is Run 003, and the transcript is in the sealed package |
 
 ---
 
@@ -264,7 +309,8 @@ appraiser; a configured resolver with no `identity_resolution` spec.
 > **The proposed R1 provider/model/prompt/schema is NOT approved.** The
 > 2026-08-26 Run-001 governance approval predates R1; R1 carries no governance
 > item, and `qwen_real_run_config()` emits no `identity_resolution` spec by
-> default. Running R1 in Run 003 requires Lillian's explicit approval of §6.1.
+> default. Running R1 in Run 003 requires the project owner's explicit approval
+> of §6.1.
 >
 > **Not running R1 is equally a decision that has not been taken.** With
 > `identity_resolver=None`, §2 G parks a non-exact candidate as
@@ -279,25 +325,34 @@ appraiser; a configured resolver with no `identity_resolution` spec.
 Run on the machine in §4, with `SANUVIA_QWEN_MODEL_PATH` exported. Case 002 was
 not opened and no provider was contacted.
 
-### 7.1 `preflight-real`, three configurations
+### 7.1 `preflight-real` under the authorised roster
 
-| Configuration | Overall | Blocked checks |
+Re-run with the authorised roster `("participant-1", "participant-2")` on both
+the config and the extractor. Earlier placeholder runs are superseded.
+
+| Configuration | Overall | Result |
 |---|---|---|
-| A. `qwen_real_run_config()` as shipped | **BLOCKED** | `no_scripted_doubles_in_real` (roster empty); `model_version_identifiable` |
-| B. + placeholder roster | **BLOCKED** | `model_version_identifiable` only |
-| C. + roster + `model_version` + `artifact_id` + proposed R1 spec | **PASS** | none — **17/17** |
+| Authorised roster, **without** R1 (`identity_resolver=None`) | **PASS** | 17/17 |
+| Authorised roster, **with** the proposed R1 spec | **PASS** | 17/17 |
 
-Configuration C is the proposed Run 003 configuration. The 17 checks that pass
-include `governance_freeze_complete`, `prompt_integrity_no_drift`,
-`approved_model_and_quantisation`, `approved_generation_config`,
-`llama_cpp_build_matches_frozen`, `artifact_sha256_recorded`,
+Both pass, which is itself the point: preflight does **not** discriminate
+between the two R1 options, so a green preflight is not evidence that either has
+been chosen. §6.5 remains the governing statement.
+
+The REAL guard was also exercised directly with the authorised roster on both
+the config and the extractor, and accepted it.
+
+The 17 passing checks include `governance_freeze_complete`,
+`prompt_integrity_no_drift`, `approved_model_and_quantisation`,
+`approved_generation_config`, `llama_cpp_build_matches_frozen`,
+`artifact_sha256_recorded`, `no_scripted_doubles_in_real`,
 `no_network_dependency`, `phase0_import_frozen` and `phase0_git_untouched`.
 
-> **Read C correctly.** It used a **placeholder** roster. Preflight validates
-> that a roster is present and internally consistent; it cannot validate *who*
-> is on it. C demonstrates that the configuration *shape* is complete — it does
-> **not** mean Run 003 is ready to execute. The real roster and the R1 decision
-> are still required.
+> **What a PASS here does and does not mean.** It means the configuration is
+> complete and internally consistent, the artifact and runtime match their
+> frozen identities, and no scripted double or network dependency is present. It
+> does **not** mean Run 003 is authorised to execute, that R1 has been decided,
+> or that the implementation is frozen. Those are the decisions in §8.
 
 `model_version_identifiable` clears only once the config records the exact model
 version; passing the frozen `model_artifact_version` satisfies it. That value is
@@ -327,36 +382,49 @@ Nothing failed, was skipped, or went unexecuted.
 | Actual model load and token generation | Run 003 itself; not done in preparation | execute Run 003 once authorised |
 | llama.cpp **binary** checksum | no governance item pins it; only the build string is frozen | add a governance item if binary-level pinning is wanted |
 | `eval_hardware` | pending governance, explicitly **non-blocking**; recorded at run time | record during Run 003 |
-| Roster contents | supplied separately by Lillian | §5 |
+| Roster contents | supplied by the project owner | §5 — now supplied |
 
 ---
 
-## 8. Outstanding decisions required from Lillian
+## 8. Outstanding decisions required from the project owner
 
-1. **Supply the authorised participant roster** (§5). Until then
-   `preflight-real` is BLOCKED and extraction cannot run against a real
-   transcript.
-2. **Approve or decline the proposed R1 configuration** in §6.1 — and if
+**Settled by the current authorisation:**
+
+- The participant roster is supplied (§5) and every roster-dependent preflight
+  check now passes.
+
+**Still open:**
+
+1. **Approve or decline the proposed R1 configuration** in §6.1 — and if
    declined, confirm that Run 003 runs with `identity_resolver=None` and parks
-   non-exact candidates. Both are decisions; neither is a default.
-3. **Confirm the model-version transcription.** Configuration C records
+   non-exact candidates. Both are decisions; neither is a default. **The roster
+   authorisation does not bear on this**: it authorised participants, not an
+   identity-resolution provider, and preflight passes either way.
+2. **Confirm the model-version transcription.** The run configuration records
    `model_version` from the frozen `model_artifact_version`. Confirm that
    transcribing the frozen value into the run config is intended, since it is
    what clears `model_version_identifiable`.
-4. **Confirm `SANUVIA_QWEN_MODEL_PATH`** should point at
+3. **Confirm `SANUVIA_QWEN_MODEL_PATH`** should point at
    `/Users/elite/models/qwen3-4b-q4_k_m/Qwen3-4B-Q4_K_M.gguf` for Run 003. The
    file at that path verifies against the frozen SHA-256; the variable is
    currently unset.
-5. **Declare the implementation freeze**, if and when the above are settled.
+4. **Declare the implementation freeze**, if and when the above are settled.
    This packet does not declare it.
 
 ---
 
 ## 9. Withheld and not executed — confirmed
 
-- **Case 002 was not opened.** No Case 002 file was read, listed or inspected;
-  no Case 002 content appears in this document. No Case 002 material is tracked
-  in the repository. Every example above uses placeholder identifiers.
+- **The Case 002 package was not opened.** It was not accessed, listed, read,
+  inspected, copied, hashed or processed. No Case 002 *content* appears in this
+  document, and no Case 002 material is tracked in the repository.
+- **The configuration in §5 is supplied metadata, not an inspection result.**
+  `subject_id`, `space_kind`, the roster, the divergence-eligible pair, the
+  facilitator/reviewer exclusions and the seal-manifest hash were all provided by
+  the project owner. None of them was derived from the package. The
+  seal-manifest hash is **transcribed and not verified**, because verifying it
+  would require hashing the sealed package.
+- **No fixtures were authored** and nothing was pre-registered.
 - **Run 003 has not been executed.** No weights were loaded, no token was
   generated, and no model inference was run at any boundary.
 - **No external provider was contacted.** Every test in this verification uses a
