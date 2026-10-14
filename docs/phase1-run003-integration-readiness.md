@@ -241,7 +241,7 @@ Freeze record `7.0-extraction-schema-v3-participant-labels`, hash
 
 `verify_prompt_integrity()` reports no drift.
 
-### 7.4 Unresolved — for Lillian, not assumed here
+### 7.4 Unresolved — for the project owner, not assumed here
 
 1. **Does the 2026-08-26 Run-001 approval extend to Run 003 under the v3
    extraction prompt/schema?** The approval predates the v3 bump. The model,

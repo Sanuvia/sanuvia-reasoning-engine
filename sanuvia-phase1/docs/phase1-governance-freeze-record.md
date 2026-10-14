@@ -172,7 +172,7 @@ derived from the live registry, not transcribed.
 `prompts.verify_prompt_integrity()` returns no drift against these values, and
 the preflight `prompt_integrity_no_drift` check passes.
 
-## Approval scope — unresolved for Lillian
+## Approval scope — unresolved, for the project owner
 
 The provider, model, runtime and generation parameters above are **FROZEN**, and
 `is_real_run_permitted()` is `True` with zero blocking items. Their recorded
