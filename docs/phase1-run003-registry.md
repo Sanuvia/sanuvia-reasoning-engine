@@ -290,6 +290,36 @@ generates no token. No Case 002 content was involved in it.
 
 ---
 
+## 8.3 Residual public exposure — source-media fingerprints
+
+An earlier revision of this branch carried the six source-media SHA-256
+fingerprints in an intermediate commit. The branch was rewritten to a single
+clean commit and force-pushed on 2026-10-15; the branch history and all public
+files are now free of them.
+
+**The rewrite does not undo the exposure.** Verified after the rewrite: the
+orphaned commit is **still served by the host's API when addressed by its SHA**.
+A force-push to a pull-request branch leaves the superseded commit referenced by
+the PR timeline, so it is retained rather than collected.
+
+Rewriting history also cannot reach clones, forks, caches, CI logs, proxies or
+any reference already taken.
+
+**The fingerprints must be treated as having been publicly exposed** between the
+original push and the rewrite. They cannot be rotated — they are hashes of fixed
+media — so the residual risk is permanent: anyone who captured them, and who
+also holds a candidate recording, can confirm it is the source material.
+
+Remediation still open:
+
+1. Ask the host to purge the unreachable objects; a force-push alone does not.
+2. Treat the values as compromised in any threat model that assumed they were
+   private.
+3. Keep them out of every future public artifact — §2.1 now cites reference ids
+   only.
+
+---
+
 ## 9. Open items and blockers
 
 | # | Item | State |
@@ -299,7 +329,8 @@ generates no token. No Case 002 content was involved in it.
 | 3 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is not case-naive (§8.1); a genuinely unexposed party is required |
 | 4 | **Source checksum verification** | not possible — source media never received (§2.1) |
 | 5 | **Withheld from any repository** | anonymisation map and post-result formulations, pending owner decision |
-| 6 | **Run 003 authorisation** | separate decision; not implied by anything here |
+| 6 | **Residual fingerprint exposure** | rewrite complete; orphaned object still host-reachable by SHA — purge request outstanding (§8.3) |
+| 7 | **Run 003 authorisation** | separate decision; not implied by anything here |
 
 ## 10. Not authorised and not done
 
