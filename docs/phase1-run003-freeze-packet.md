@@ -21,7 +21,14 @@ the single stated exception of the supplied seal-manifest hash in §5.1.
 |---|---|
 | Repository | `Sanuvia/sanuvia-reasoning-engine` |
 | **Pinned commit** | `2444bf1f2afedd23d26fcbc564131e5b4e707d2c` |
-| Merge commit on `main` | `0c0634c5ea9d971d149fd11abdedbd827f2b2e89` (PR #5) |
+| **Frozen executable implementation** | `0c0634c5ea9d971d149fd11abdedbd827f2b2e89` (PR #5) |
+| **This packet merged at** | `9160df01af5ad4190156f3a79f20b700e1e9b697` (PR #6, 2026-10-14) |
+
+Since the freeze at `0c0634c`, `git diff` against `main` over `src/`,
+`sanuvia-phase1/src/`, `sanuvia-phase1/fixtures/` and all `*.py` is **empty**:
+the executable implementation is unchanged, and the only differences are the
+three governance/readiness documents. No frozen commit was amended or
+rewritten.
 | Relationship | `2444bf1` is an **ancestor of `main`**; `git diff 2444bf1 origin/main` is **empty** — identical trees |
 | Working tree | clean of tracked modifications; 7 protected untracked evidence paths present and unmodified |
 
@@ -56,7 +63,7 @@ Read from the live registry at the pinned commit, not transcribed.
 | Both baselines (shared) | `schema.baseline.v1` | `efa45b71e5043f3921048215677c04f140db7f3597b903b9b27a046582fbc11e` |
 
 Extraction and appraisal at v3 are the versions approved for Run 003.
-The R1 pair is **registered and hashed but not approved** — see §6.5.
+The R1 pair is registered, hashed and **approved** — see §6.5.
 
 ---
 
@@ -233,7 +240,7 @@ One roster-dependent item remains outstanding, and it is not a preflight check:
 
 ---
 
-## 6. Proposed R1 identity-resolution configuration — PROPOSED, NOT APPROVED
+## 6. R1 identity-resolution configuration — APPROVED (configuration only)
 
 R1 is **not** silently omitted, and `None` is **not** treated as a decision
 already taken. A concrete configuration is proposed below so the decision can be
@@ -304,19 +311,20 @@ appraiser; a configured resolver with no `identity_resolution` spec.
 `tests/phase1/test_real_resolver_wiring.py` (22) and
 `test_resolver_wiring_guard.py` (6) pass.
 
-### 6.5 Approval status — PENDING
+### 6.5 Approval status — APPROVED 2026-10-14
 
-> **The proposed R1 provider/model/prompt/schema is NOT approved.** The
-> 2026-08-26 Run-001 governance approval predates R1; R1 carries no governance
-> item, and `qwen_real_run_config()` emits no `identity_resolution` spec by
-> default. Running R1 in Run 003 requires the project owner's explicit approval
-> of §6.1.
+> **The R1 configuration in §6.1 is approved** by the project owner: provider
+> `local_qwen`, model `qwen3-4b`, prompt `identity.r1.bounded.v1`, schema
+> `schema.identity.v1`. The recorded prompt hash, schema hash and frozen
+> generation settings are carried over unchanged — nothing was regenerated or
+> substituted.
 >
-> **Not running R1 is equally a decision that has not been taken.** With
-> `identity_resolver=None`, §2 G parks a non-exact candidate as
-> `AMBIGUOUS_REVIEW_REQUIRED` rather than guessing. That is a valid REAL
-> configuration — but it changes what Run 003 can observe, so it is recorded
-> here as a choice, not a default.
+> Verified on the run machine under this approved configuration:
+> `RealRunConfig.specs()` returns **5** boundaries, `_incomplete()` is empty,
+> and `preflight-real` returns **OVERALL: PASS, 17/17** (§7.1).
+>
+> **This approval covers configuration only.** It is not authorisation to run
+> inference, execute Run 003, or deploy.
 
 ---
 
@@ -325,19 +333,25 @@ appraiser; a configured resolver with no `identity_resolution` spec.
 Run on the machine in §4, with `SANUVIA_QWEN_MODEL_PATH` exported. Case 002 was
 not opened and no provider was contacted.
 
-### 7.1 `preflight-real` under the authorised roster
+### 7.1 `preflight-real` under the approved configuration — 2026-10-14
 
-Re-run with the authorised roster `("participant-1", "participant-2")` on both
-the config and the extractor. Earlier placeholder runs are superseded.
+Run on the machine in §4 with the authorised roster
+`("participant-1", "participant-2")` on both the config and the extractor, the
+**approved** R1 spec (§6.1), the frozen `model_artifact_version`, and
+`SANUVIA_QWEN_MODEL_PATH` set to the verified artifact. Earlier placeholder and
+pre-approval runs are superseded.
 
-| Configuration | Overall | Result |
-|---|---|---|
-| Authorised roster, **without** R1 (`identity_resolver=None`) | **PASS** | 17/17 |
-| Authorised roster, **with** the proposed R1 spec | **PASS** | 17/17 |
+```
+RealRunConfig: 5 boundaries, _incomplete() empty
+preflight-real OVERALL: PASS — 17/17
+```
 
-Both pass, which is itself the point: preflight does **not** discriminate
-between the two R1 options, so a green preflight is not evidence that either has
-been chosen. §6.5 remains the governing statement.
+**No inference was performed.** `preflight-real` inspects configuration,
+registry hashes, the artifact on disk and the runtime binary. It does not load
+weights, does not generate a token, and never touches case content.
+
+The REAL guard was also exercised directly with the authorised roster on both
+the config and the extractor, and accepted it.
 
 The REAL guard was also exercised directly with the authorised roster on both
 the config and the extractor, and accepted it.
@@ -382,34 +396,35 @@ Nothing failed, was skipped, or went unexecuted.
 | Actual model load and token generation | Run 003 itself; not done in preparation | execute Run 003 once authorised |
 | llama.cpp **binary** checksum | no governance item pins it; only the build string is frozen | add a governance item if binary-level pinning is wanted |
 | `eval_hardware` | pending governance, explicitly **non-blocking**; recorded at run time | record during Run 003 |
-| Roster contents | supplied by the project owner | §5 — now supplied |
+| Roster contents | supplied by the project owner | §5 — supplied and applied |
 
 ---
 
-## 8. Outstanding decisions required from the project owner
+## 8. Authorisation state
 
-**Settled by the current authorisation:**
+### 8.1 Settled
 
-- The participant roster is supplied (§5) and every roster-dependent preflight
-  check now passes.
+| Item | State |
+|---|---|
+| Participant roster | **supplied** (§5); every roster-dependent check passes |
+| R1 configuration | **approved** 2026-10-14 (§6.5) — configuration only |
+| Model artifact | **verified on the run machine**, SHA-256 recomputed, matches frozen |
+| `SANUVIA_QWEN_MODEL_PATH` | `/Users/elite/models/qwen3-4b-q4_k_m/Qwen3-4B-Q4_K_M.gguf` — confirmed |
+| Model-version transcription | frozen `model_artifact_version` recorded in the run config |
+| Executable implementation | **frozen** at `0c0634c`, unchanged |
 
-**Still open:**
+### 8.2 Current authorisation — fixture authoring and pre-registration only
 
-1. **Approve or decline the proposed R1 configuration** in §6.1 — and if
-   declined, confirm that Run 003 runs with `identity_resolver=None` and parks
-   non-exact candidates. Both are decisions; neither is a default. **The roster
-   authorisation does not bear on this**: it authorised participants, not an
-   identity-resolution provider, and preflight passes either way.
-2. **Confirm the model-version transcription.** The run configuration records
-   `model_version` from the frozen `model_artifact_version`. Confirm that
-   transcribing the frozen value into the run config is intended, since it is
-   what clears `model_version_identifiable`.
-3. **Confirm `SANUVIA_QWEN_MODEL_PATH`** should point at
-   `/Users/elite/models/qwen3-4b-q4_k_m/Qwen3-4B-Q4_K_M.gguf` for Run 003. The
-   file at that path verifies against the frozen SHA-256; the variable is
-   currently unset.
-4. **Declare the implementation freeze**, if and when the above are settled.
-   This packet does not declare it.
+> Case 002 has been released **for fixture authoring and pre-registration
+> only**. That release is **not** authorisation to run inference, execute
+> Run 003, or deploy. Those remain separate decisions, to be taken by the
+> project owner after reviewing the completed pre-registration packet.
+
+### 8.3 Blocked
+
+Case 002 fixture authoring and pre-registration **could not be completed**: the
+released source package is not present on this machine or in the repository.
+See §10.
 
 ---
 
@@ -431,8 +446,82 @@ Nothing failed, was skipped, or went unexecuted.
   fake in-process backend. `provider=local_qwen` for every boundary, and the
   `no_network_dependency` check passes.
 - **Nothing was deployed.**
-- **No implementation freeze is declared** by this packet, and no Case 002
-  release or Run 003 authorisation is implied by it.
+- **No Run 003 authorisation is implied** by this packet or by the Case 002
+  release, which covers fixture authoring and pre-registration only.
 - **Protected evidence is unchanged**: 36/36 manifest files byte-identical, the
   sealed Run 002 archive verifies, and all 7 untracked evidence paths remain
   untracked and unmodified.
+
+### 9.1 Exposure record
+
+Required by the pre-registration protocol, and recorded as fact rather than as
+a claim of non-exposure:
+
+| Party | Exposure to the Case 002 package |
+|---|---|
+| Project owner | authorised holder; released the package for fixture authoring and pre-registration |
+| Implementation author | **authorised** to receive the package for fixture authoring and pre-registration. As of this packet the package has **not reached the run machine**, so no exposure has yet occurred here (§10) |
+| Assistant / tooling | **EXPOSED as of 2026-10-14.** The full sealed package — executable transcript, reference and provenance, seal manifest and Stage 2 protocol — was supplied directly into the working session for fixture authoring |
+| Any model or inference API | **not exposed.** No Case 002 content was sent to any model and no inference was run. The exposure above is to the authoring assistant, not to an inference boundary |
+
+### Consequence for independence
+
+The sealed package states that the assistant *"remains case-naive only while this
+package and all source/reference material are withheld"*, and lists its exposure
+as `none`. **That condition no longer holds.** The assistant that authored the
+fixture is case-exposed and therefore **cannot serve as a case-naive evaluator
+for Case 002.** An independent evaluation needs a party to whom the package has
+genuinely never been shown.
+
+The package's own rule — *"any later exposure must be added to the execution
+record before evaluation claims are made"* — is satisfied by this entry. It is
+recorded as fact, not minimised: no evaluation claim resting on assistant
+case-naivety can be made for Case 002 from this point.
+
+---
+
+## 10. Blocked: Case 002 fixture authoring and pre-registration
+
+Fixture authoring and pre-registration were authorised but **could not be
+carried out**, for one reason:
+
+> **The released Case 002 source package is not present on this machine or in
+> the repository.**
+
+Searched, without opening anything: the repository (tracked and untracked), and
+the usual release locations under the home directory. Nothing matching Case 002,
+a sealed package, or a seal manifest was found. The seal-manifest SHA-256
+recorded in §5.1 was supplied as metadata and remains the only artifact of the
+package held here.
+
+### 10.1 Why this was not worked around
+
+The fixture requires the transcript's exact wording, its canonical sequence
+order, all 10 sequences, and the deliberately empty sequence 3. None of that can
+be derived, reconstructed or approximated from the configuration metadata in
+§5.1, which contains no transcript content by design.
+
+Authoring a fixture from invented content would produce an executable artifact
+that looks authoritative, hashes cleanly, registers correctly and passes every
+isolation test — while containing material no participant ever said. It would
+corrupt the experiment in a way the surrounding governance is specifically built
+to prevent, and the pre-registration hashes would then certify fabricated input.
+No placeholder or stub fixture was created either, for the same reason: an empty
+shell in the fixture directory could later be mistaken for an authored one.
+
+### 10.2 What is ready and waiting
+
+Everything that does not depend on transcript content is complete and verified:
+the merge (§1), the frozen-implementation check (§1), the approved R1
+configuration (§6), the roster and label vocabulary (§5), the run-machine
+artifact and runtime verification (§3, §4), and the actual-machine non-inference
+preflight at **17/17 PASS** under the approved configuration (§7.1).
+
+### 10.3 What is needed
+
+The released Case 002 package on this machine, with its path. Once it is
+present, the remaining work is: author the executable fixture; create the
+isolated reference/provenance module; add the seven isolation tests; verify the
+supplied source checksums against the actual source files; compute the fixture
+and manifest hashes from the committed files; and write the Run 003 registry
+entry. None of it requires inference.
