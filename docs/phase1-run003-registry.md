@@ -2,10 +2,9 @@
 
 **Case:** `case-002-relationship-anxiety-and-contribution`
 **Prepared:** 2026-10-14
-**State:** INCOMPLETE — private repository created, **transfer blocked** on an
-organisation-permission restriction (§3.2). The three Case 002 artifacts are
-**not committed anywhere**, so their committed-byte hashes do not yet exist.
-Pre-registration is **not** closed.
+**State:** private custody **complete** and committed-byte hashes **verified**
+(§3). Remaining: grant the second authorised holder access, nominate an
+unexposed evaluator, and the host object-purge request.
 
 > **Authorisation.** Fixture authoring and pre-registration only. Inference,
 > Run 003 execution and deployment are **not** authorised and are separate
@@ -71,72 +70,69 @@ package documents — so there is nothing here to hash the supplied values
 against. No claim of verification is made, and none should be inferred from
 their presence in the sealed package.
 
-## 3. Private custody — repository created, TRANSFER BLOCKED
+## 3. Private custody — COMPLETE
 
-### 3.1 Repository
+### 3.1 Repository and commit
 
 | | |
 |---|---|
-| Repository | `Sanuvia/sanuvia-case-002-custody` |
-| Visibility | **private** (verified `private=true`, `visibility=private`) |
-| Forks | 0 |
-| Contents | **empty** — no commit, 0 KB |
-| Commit SHA | **none** — nothing has been committed |
+| Repository | `elite-ship-it/sanuvia-case-002-custody` |
+| Visibility | **private** — verified `private=true`, `visibility=private`, 0 forks |
+| Owner type | user account |
+| **Commit SHA** | `75bb3fabbd865d2b19cfb394c35fea4eef6e1b03` |
+| Branch | `main` |
 
-Created under the authorisation to establish private custody. It was created
-**empty on purpose**, so the access list could be verified before any protected
-artifact moved. That verification failed, so nothing moved.
-
-### 3.2 Effective access — does NOT meet the restriction
+### 3.2 Effective access — verified before transfer
 
 | Account | Permission | Source |
 |---|---|---|
-| `elite-ship-it` | admin | direct collaborator |
-| org owner | admin | organisation ownership |
-| **third org member** | **read** | **organisation default repository permission** |
+| `elite-ship-it` | admin | direct |
 
-A third organisation member holds **read** access. The requirement is access
-restricted to two named people, so the restriction is **not met**.
+**Exactly one account.** No organisation inheritance, no team grant, no outside
+collaborator, no fork.
 
-The access is **not** a direct grant. Only `elite-ship-it` appears under
-`affiliation=direct`; the other two inherit from organisation membership. It
-therefore cannot be removed at repository level — it is governed by the
-organisation's default repository permission, which only an organisation owner
-can change. The account performing this work is an organisation **member**, not
-an owner.
+Custody was moved to a user account precisely because an organisation
+repository inherits access from organisation membership: a third member held
+read access to the organisation-hosted attempt, and only an organisation owner
+can change that. A user-account repository grants access only to its owner and
+to accounts explicitly invited, so the inherited-read problem does not arise.
 
-This is an organisation-permission restriction, so the transfer was stopped
-rather than worked around. **No artifact was transferred, copied or committed.**
+The empty organisation repository created during that attempt never received an
+artifact and holds no content.
 
-### 3.3 Committed-byte hashes — cannot exist yet
+**Outstanding:** the second authorised holder has **not** been granted access.
+Adding them requires their GitHub username, which was not guessed. Current
+access is therefore a strict subset of the authorisation — no unauthorised
+party can read the material, but the second authorised holder cannot yet either.
 
-| Artifact | SHA-256 |
+### 3.3 Committed-byte hashes — VERIFIED
+
+Extracted from the commit and hashed, not read from a working copy:
+
+```
+git show HEAD:<path> | shasum -a 256
+```
+
+| Artifact | Committed-byte SHA-256 |
 |---|---|
-| executable fixture | **not committed** |
-| isolated reference module | **not committed** |
-| fixture tests | **not committed** |
+| `fixtures/longitudinal/case_002.py` | `9bf5350c71c2e7a887a02f0ada72ce93dd40f4a730134f8e5f7ee2f14c5aace7` |
+| `reference/case_002_reference.py` | `ef6294033faeeb61d0973cabddde48beda2cc7dd89758e17cc2d1539718ab4e8` |
+| `tests/phase1/test_case_002_fixture.py` | `ebd1f4725ccccfee7a768d9386f3eb4a7c4c8be5949dcca58f45ec52ab908a54` |
 
-A committed-byte hash requires a commit. Working-tree hashes were deliberately
-**not** substituted: they would certify bytes that may differ from what a run
-loads, and labelling them as committed-byte hashes would be false.
+Three-way agreement confirmed — committed object, on-disk copy and authored
+source produce identical digests for each file, so nothing was transformed on
+commit (line endings included). The custody working tree is clean, so it equals
+the commit.
 
-Once access is corrected and the artifacts are committed, hash the committed
-bytes:
+These are **artifact** hashes. They are not, and must never be presented as,
+the source-package anchors in §2.1.
 
-```
-git show HEAD:fixtures/longitudinal/case_002.py       | shasum -a 256
-git show HEAD:reference/case_002_reference.py         | shasum -a 256
-git show HEAD:tests/phase1/test_case_002_fixture.py   | shasum -a 256
-```
+### 3.4 What the commit contains
 
-### 3.4 Remediation options — for the organisation owner
-
-1. Set the organisation default repository permission to **None**, so repository
-   access becomes explicit. Affects every organisation repository.
-2. Grant the custody repository to the two named accounts explicitly, after 1.
-3. Host custody **outside the organisation**, where no membership inheritance
-   applies. A different destination, needing its own authorisation.
-4. Explicitly accept the third member's read access, recorded as a decision.
+Five files: the three artifacts, a `.gitignore`, and a README stating the
+custody boundary. The anonymisation map, post-result reference formulations,
+source media, source excerpts and the six source-media fingerprints are **not**
+present.
 
 ## 4. Governed identity
 
@@ -357,16 +353,18 @@ Remediation still open:
 
 ## 9. Open items and blockers
 
+**Cleared:** private custody established, artifacts committed, committed-byte
+hashes verified (§3).
+
 | # | Item | State |
 |---|---|---|
-| 1 | **Third-party read access to the custody repository** | **BLOCKER.** Inherited from the organisation default repository permission; only an organisation owner can change it (§3.2, §3.4) |
-| 2 | **Artifact transfer and private commit** | blocked by 1 — stopped rather than worked around |
-| 3 | **Three committed-byte hashes** | blocked by 2 — a committed-byte hash needs a commit, and working-tree hashes were not substituted |
-| 4 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is disqualified (§8.1); a genuinely unexposed party is required |
-| 5 | **Orphaned public object** | rewrite complete, but the superseded commit is still host-reachable by SHA; purge request outstanding (§8.3) |
-| 6 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
-| 7 | **Map and post-result formulations** | outside both repositories, pending owner decision |
-| 8 | **Run 003 authorisation** | separate decision; not implied by anything here |
+| 1 | **Second authorised holder has no access** | needs their GitHub username — not guessed. Current access is a strict subset of the authorisation |
+| 2 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is disqualified (§8.1); a genuinely unexposed party is required |
+| 3 | **Orphaned public object** | branch rewritten, but the superseded commit is still host-reachable by SHA; purge request outstanding (§8.3) |
+| 4 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
+| 5 | **Map and post-result formulations** | outside both repositories, pending owner decision |
+| 6 | **Empty organisation repository** | `Sanuvia/sanuvia-case-002-custody` — created during the blocked attempt, never received an artifact. Delete or repurpose at the owner's discretion |
+| 7 | **Run 003 authorisation** | separate decision; not implied by anything here |
 
 ## 10. Not authorised and not done
 
