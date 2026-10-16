@@ -9,3 +9,4 @@ dist/
 *.sqlite
 *.db
 .env
+docs/github-support-request-object-purge.md

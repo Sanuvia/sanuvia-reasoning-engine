@@ -132,16 +132,43 @@ custody boundary. The anonymisation map, post-result reference formulations,
 source media, transcript excerpts and the six source-media fingerprints are
 **not** present.
 
-### 3.5 Duplicate custody copy — needs disposition
+### 3.5 Duplicate custody copy — deletion AUTHORISED, BLOCKED
 
 An earlier attempt placed the same three artifacts in a **user-account** private
-repository, commit `75bb3fabbd865d2b19cfb394c35fea4eef6e1b03`, while the
-organisation repository's inherited read access was still unresolved. The
-artifact hashes are identical, so the two copies are byte-equivalent.
+repository while the organisation repository's inherited read access was still
+unresolved. Deletion is authorised.
 
-That copy is now redundant and **doubles the custody surface**. Recommended:
-delete it and keep the organisation repository as the single custodial source.
-Recorded rather than deleted unilaterally.
+**Pre-deletion verification — all checks passed:**
+
+| Check | Result |
+|---|---|
+| Canonical repository private | yes, 0 forks, not archived |
+| Canonical HEAD matches the authorised SHA | yes |
+| All three artifacts present in canonical | yes |
+| Committed-byte hashes match authorised values | **all three** |
+| Unique files in the duplicate | **none** |
+| Extra branches, tags, forks, issues | **none** |
+| Protected artifacts byte-identical across both | **all three** |
+
+The only difference between the two is the README's boilerplate wording. The
+canonical version is strictly more precise — it names transcript excerpts and
+the six source-media fingerprints explicitly, records 0 forks, and states
+"custody and pre-registration" rather than "custody". Nothing unique is lost.
+
+**Deletion could not be executed.** The authenticated token lacks the
+`delete_repo` scope:
+
+```
+HTTP 403: Must have admin rights to Repository.
+This API operation needs the "delete_repo" scope.
+```
+
+Granting it changes the authentication configuration, which was not done without
+authorisation. Not bypassed.
+
+**Consequence:** two byte-equivalent private custody copies currently exist. The
+duplicate remains an open item, and the custody surface is doubled until it is
+removed.
 
 ## 4. Governed identity
 
@@ -304,7 +331,7 @@ states the opposite, and an evaluation claim resting on the stale entry would be
 invalid. An independent evaluation requires a party to whom none of the above
 has been shown.
 
-## 8.2 Verification actually run — 2026-10-16
+## 8.2 Verification actually run — 2026-10-16 (re-verified 16:16)
 
 Every line below was executed on the authoring machine for this revision. No
 result is carried over from an earlier run.
@@ -319,7 +346,7 @@ result is carried over from an earlier run.
 | Isolation, raw text | text scan for dynamic access | **0 violations** |
 | Empty hold | `seq-3` inspection | 1 interaction, `text=''`, `speaker=None` |
 | Speakers present | transcript scan | `participant-1`, `participant-2`, `None` (hold only) |
-| `preflight-real` | approved config, roster, artifact path | **PASS 17/17** at `2026-10-16T15:45:49` |
+| `preflight-real` | approved config, roster, artifact path | **PASS 17/17** at `2026-10-16T16:16:31` |
 
 The isolation check was previously validated against a deliberately planted
 violation, confirming it fails when it should rather than passing vacuously.
@@ -332,45 +359,43 @@ generates no token. No Case 002 content was involved in it.
 
 ## 8.3 Residual public exposure — source-media fingerprints
 
-An earlier revision of this branch carried the six source-media SHA-256
+An earlier revision of the public branch carried the six source-media SHA-256
 fingerprints in an intermediate commit. The branch was rewritten to a single
-clean commit and force-pushed on 2026-10-15; the branch history and all public
-files are now free of them.
+clean commit and force-pushed; branch history and all public files are now free
+of them.
 
 **The rewrite does not undo the exposure.** Verified after the rewrite: the
-orphaned commit is **still served by the host's API when addressed by its SHA**.
-A force-push to a pull-request branch leaves the superseded commit referenced by
-the PR timeline, so it is retained rather than collected.
+superseded commit is **still served by the host when addressed by its SHA**,
+because a force-push to a pull-request branch leaves it referenced by the pull
+request's timeline. Rewriting also cannot reach clones, forks, caches, CI logs,
+proxies or search indexes.
 
-Rewriting history also cannot reach clones, forks, caches, CI logs, proxies or
-any reference already taken.
+The values **cannot be rotated** — they are digests of fixed media — so the
+residual risk is permanent. They must be treated as **having been publicly
+exposed** for the window between the original push and the rewrite.
 
-**The fingerprints must be treated as having been publicly exposed** between the
-original push and the rewrite. They cannot be rotated — they are hashes of fixed
-media — so the residual risk is permanent: anyone who captured them, and who
-also holds a candidate recording, can confirm it is the source material.
+**A host purge request is drafted and not yet submitted.** It is held with the
+project owner and is deliberately **not** committed to this public repository:
+it has to name the commit to be purged, and publishing that here would signpost
+exactly where the values sit.
 
-Remediation still open:
-
-1. Ask the host to purge the unreachable objects; a force-push alone does not.
-2. Treat the values as compromised in any threat model that assumed they were
-   private.
-3. Keep them out of every future public artifact — §2.1 now cites reference ids
-   only.
-
----
+**Recording rule:** this item stays **OUTSTANDING** until the host confirms
+removal in writing, with the confirmation reference recorded alongside it. An
+unconfirmed purge must never be recorded as complete. A successful purge would
+end ongoing availability from the host; it would not undo the exposure.
 
 ## 9. Open items and blockers
 
-**Cleared:** private custody established in the organisation repository, access
-verified across inherited and team paths, artifacts committed, committed-byte
-hashes verified, and both authorised holders hold admin (§3).
+**Cleared:** canonical private custody verified in the organisation repository —
+visibility, HEAD, effective access and contents all confirmed, and the three
+committed-byte hashes **recomputed from the committed objects in a fresh clone**
+and matched against the authorised values (§3).
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is disqualified (§8.1); a genuinely unexposed party is required |
-| 2 | **Orphaned public object** | branch rewritten, but the superseded commit is still host-reachable by SHA; purge request outstanding (§8.3) |
-| 3 | **Duplicate custody copy** | a user-account private repository holds byte-equivalent copies; recommended for deletion (§3.5) |
+| 1 | **Independent evaluator** | **BLOCKER for evaluation.** Claude and the overview / Product Agent workspace are exposed and disqualified (§8.1). A genuinely unexposed party is required |
+| 2 | **Host object purge** | **OUTSTANDING.** Request drafted, not submitted; not resolvable by force-push. May only be marked resolved on written host confirmation (§8.3) |
+| 3 | **Duplicate custody copy** | **BLOCKED.** Deletion authorised and fully pre-verified, but the token lacks `delete_repo`. Custody surface is doubled until removed (§3.5) |
 | 4 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
 | 5 | **Map and post-result formulations** | outside both repositories, pending owner decision |
 | 6 | **Run 003 authorisation** | separate decision; not implied by anything here |
