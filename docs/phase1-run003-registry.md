@@ -83,26 +83,63 @@ their presence in the sealed package.
 | **Commit SHA** | `6c0cded0282d67a3ee62a67cb92acd1e5c47e80e` |
 | Branch | `main` |
 
-### 3.2 Effective access — verified before transfer
+### 3.2 Effective access — verified
 
 Checked across every path, including inherited organisation and team access:
 
 | Principal | Permission | Source |
 |---|---|---|
-| authorised holder A | admin | direct collaborator |
+| authorised holder A | admin | **direct** collaborator on this repository |
 | authorised holder B | admin | organisation ownership |
-| one further organisation member | read | organisation default permission |
+| one further organisation member | read | **not direct** — organisation-level |
 
 | Path | Result |
 |---|---|
+| Direct grants on this repository | **one** — authorised holder A only |
 | Team grants | **none** |
 | Outside collaborators | **none** |
 | Forks | **0** |
 
-Both authorised holders hold admin. The third principal's inherited **read**
-access was **accepted explicitly by the project owner** as a member of the
-organisation, and is recorded here as an accepted decision rather than an
-unresolved finding.
+Both authorised holders hold admin.
+
+### 3.2.1 The third principal — correction to an earlier entry
+
+An earlier revision of this record described the third principal's read access
+as *"accepted explicitly by the project owner."* **That overstated the
+evidence and is withdrawn.**
+
+What the record actually supports:
+
+| Question | Answer |
+|---|---|
+| Which account? | identified; held privately and deliberately not named in this public file |
+| Direct grant on the custody repository? | **no** — only authorised holder A is a direct collaborator |
+| Source of access | organisation-level, not a repository grant made during custody setup |
+| Written authorisation from the project owner? | **none located** |
+| What exists instead | an informal remark from the implementation author that the account is an organisation member |
+
+That remark came from the implementation author, not the project owner, and it
+asserts **membership**, not authorisation for Case 002 access. Membership is not
+consent, and inheritance is not consent. Neither is treated as authorisation
+here.
+
+**Status: UNAUTHORISED-BUT-PRESENT.** The access exists and is not supported by
+a located authorisation.
+
+### 3.2.2 Removing it
+
+Not possible with the permissions held. The grant is organisation-level, so it
+cannot be revoked on the repository; the organisation's
+`default_repository_permission` could not even be read with the current token,
+which returns `null` for a non-owner. The same read level appears on another
+organisation repository, consistent with an organisation-wide base permission
+rather than anything specific to custody.
+
+**Requires an organisation owner** to either change the organisation-wide
+default repository permission — which would affect every organisation
+repository — or remove the account's organisation membership. Neither was
+attempted: the authority required is not held, and organisation-wide permissions
+were not altered.
 
 ### 3.3 Committed-byte hashes — VERIFIED
 
@@ -132,28 +169,21 @@ custody boundary. The anonymisation map, post-result reference formulations,
 source media, transcript excerpts and the six source-media fingerprints are
 **not** present.
 
-### 3.5 Duplicate custody copy — deletion AUTHORISED, BLOCKED
+### 3.5 Duplicate custody copy — deletion authorised, BLOCKED on token scope
 
-An earlier attempt placed the same three artifacts in a **user-account** private
-repository while the organisation repository's inherited read access was still
-unresolved. Deletion is authorised.
+A redundant user-account private repository holds byte-equivalent copies of the
+same three artifacts. Deletion is authorised.
 
-**Pre-deletion verification — all checks passed:**
+**Pre-deletion verification, re-run 2026-10-16 against fresh clones of both:**
 
 | Check | Result |
 |---|---|
-| Canonical repository private | yes, 0 forks, not archived |
+| Canonical private, 0 forks, not archived | yes |
 | Canonical HEAD matches the authorised SHA | yes |
-| All three artifacts present in canonical | yes |
-| Committed-byte hashes match authorised values | **all three** |
-| Unique files in the duplicate | **none** |
+| All three protected artifacts byte-equivalent across both | **yes** |
+| Files unique to the duplicate | **none** |
 | Extra branches, tags, forks, issues | **none** |
-| Protected artifacts byte-identical across both | **all three** |
-
-The only difference between the two is the README's boilerplate wording. The
-canonical version is strictly more precise — it names transcript excerpts and
-the six source-media fingerprints explicitly, records 0 forks, and states
-"custody and pre-registration" rather than "custody". Nothing unique is lost.
+| Backup branch and bundle preserved | yes — bundle recreated after temp cleanup |
 
 **Deletion could not be executed.** The authenticated token lacks the
 `delete_repo` scope:
@@ -163,12 +193,19 @@ HTTP 403: Must have admin rights to Repository.
 This API operation needs the "delete_repo" scope.
 ```
 
-Granting it changes the authentication configuration, which was not done without
-authorisation. Not bypassed.
+Granting it requires an interactive browser authorisation flow, which is not
+available in this environment and would change the authentication
+configuration. Web-interface deletion is likewise unavailable here. Not
+bypassed.
 
-**Consequence:** two byte-equivalent private custody copies currently exist. The
-duplicate remains an open item, and the custody surface is doubled until it is
-removed.
+**Consequence:** two byte-equivalent private custody copies exist, and the
+custody surface stays doubled until the duplicate is removed. One command pair
+closes it, from an interactive shell:
+
+```
+gh auth refresh -h github.com -s delete_repo
+gh repo delete <user-account>/<custody-repo> --yes
+```
 
 ## 4. Governed identity
 
@@ -295,41 +332,49 @@ historical transcript.
 
 ---
 
-## 8. Exposure register
+## 8. Exposure register — per workspace
 
-| Party | Case-naive? | Exposure |
+Exposure is recorded **per workspace**, not per product. An earlier revision
+recorded it per product and concluded that "Claude" was disqualified. That
+conflated distinct workspaces and is corrected here.
+
+| Workspace / party | Case-naive? | Evidence |
 |---|---|---|
 | Project owner | no | authorised holder; released the package |
-| Implementation author | no | **authorised**; package received for fixture authoring |
-| Authoring assistant | **no** | **EXPOSED 2026-10-14** — full package supplied into the authoring session |
-| Overview / Product Agent workspace | **no** | declared exposed at seal in the sealed package |
-| Claude | **no — see 8.1** | **EXPOSED 2026-10-14** |
-| Any model / inference API | yes | **not exposed**; no Case 002 content was sent to a model |
+| Implementation author | no | authorised; received the package for fixture authoring |
+| **Author's development workspace** | **no — EXPOSED** | received the full package on 2026-10-14; see §8.1 |
+| Overview / Product Agent workspace | no | declared exposed at seal in the sealed package |
+| **Independent review workspace** | **unknown — no evidence of exposure** | see §8.1.1 |
+| Any model / inference API | yes | no Case 002 content was sent to a model |
 
-### 8.1 Claude is not case-naive — correction
+### 8.1 Author's development workspace — exposed
 
-The sealed package records Claude's exposure as `none` and names Claude as a
-candidate independent evaluator *"if the source remains withheld."* **The source
-did not remain withheld.**
+On 2026-10-14 this workspace received, in full: the executable transcript, the
+reference and provenance document **including the anonymisation map and the
+post-result reference formulations**, the seal manifest, and the Stage 2
+interaction protocol. That is the complete prohibited set.
 
-The authoring assistant in this work and "Claude" are the **same party**, not
-two. On 2026-10-14 that party received, in full:
+The sealed package records this party's exposure as `none` and names it as a
+candidate independent evaluator *"if the source remains withheld."* The source
+did not remain withheld, so **this workspace cannot act as the independent
+case-naive evaluator**, and no independent-evaluation claim may rest on work
+produced in it.
 
-- the executable transcript (all 10 sequences, verbatim);
-- the reference and provenance document — **including the anonymisation map and
-  the post-result reference formulations**;
-- the seal manifest;
-- the Stage 2 interaction protocol.
+### 8.1.1 Independent review workspace — status unknown, not assumed
 
-That is the complete prohibited set: transcript, source-derived material and
-reference answers. The condition attached to Claude's evaluator role therefore
-fails, and **Claude cannot serve as the independent case-naive evaluator for
-Case 002.**
+A separate review workspace is **not** recorded as exposed here.
 
-This is recorded as a correction rather than a caveat because the sealed package
-states the opposite, and an evaluation claim resting on the stale entry would be
-invalid. An independent evaluation requires a party to whom none of the above
-has been shown.
+No evidence was found either way. Exposure of the authoring workspace says
+nothing about a separate workspace, and treating them as one party was the error
+in the earlier revision. A workspace is disqualified only on evidence that the
+protected material actually reached it — not by sharing a product name with an
+exposed one.
+
+**To close this**, the holder of that workspace should confirm whether any of
+the transcript, source material, anonymisation map, reference formulations, seal
+manifest or Stage 2 protocol ever reached it. Until that confirmation exists,
+its status is **unknown**, and an independent-evaluation claim should not rest
+on it either — unknown is not the same as clear.
 
 ## 8.2 Verification actually run — 2026-10-16 (re-verified 16:16)
 
@@ -386,24 +431,22 @@ end ongoing availability from the host; it would not undo the exposure.
 
 ## 9. Open items and blockers
 
-**Cleared:** canonical private custody verified in the organisation repository —
-visibility, HEAD, effective access and contents all confirmed, and the three
-committed-byte hashes **recomputed from the committed objects in a fresh clone**
-and matched against the authorised values (§3).
+**Cleared:** fixture authored; canonical private custody verified — visibility,
+HEAD, effective access and contents confirmed, and the three committed-byte
+hashes recomputed from the committed objects in a fresh clone (§3).
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Independent evaluator** | **BLOCKER for evaluation.** Claude and the overview / Product Agent workspace are exposed and disqualified (§8.1). A genuinely unexposed party is required |
-| 2 | **Host object purge** | **OUTSTANDING.** Request drafted, not submitted; not resolvable by force-push. May only be marked resolved on written host confirmation (§8.3) |
-| 3 | **Duplicate custody copy** | **BLOCKED.** Deletion authorised and fully pre-verified, but the token lacks `delete_repo`. Custody surface is doubled until removed (§3.5) |
-| 4 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
-| 5 | **Map and post-result formulations** | outside both repositories, pending owner decision |
-| 6 | **Run 003 authorisation** | separate decision; not implied by anything here |
+| 1 | **Inherited read grant on custody** | **UNAUTHORISED-BUT-PRESENT.** No written authorisation located; removal needs an organisation owner (§3.2.1, §3.2.2) |
+| 2 | **Host object purge** | **OUTSTANDING.** Request prepared, **not submitted** — submission needs the host's web support form, unavailable here. May only be marked resolved on written host confirmation (§8.3) |
+| 3 | **Duplicate repository deletion** | **BLOCKED.** Authorised and fully pre-verified; token lacks `delete_repo` (§3.5) |
+| 4 | **Independent evaluator** | author's workspace **disqualified**; review workspace status **unknown**, needs confirmation (§8.1, §8.1.1) |
+| 5 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
+| 6 | **Map and post-result formulations** | outside both repositories, pending owner decision |
+| 7 | **Run 003 authorisation** | separate decision; not implied by anything here |
 
 ### Accepted decisions, not blockers
 
-- One further organisation member holds inherited **read** access to the custody
-  repository, accepted explicitly by the project owner (§3.2).
 - The 10-sequence-to-39-interaction mapping is approved, with sequence 3
   remaining one empty hold (§5).
 

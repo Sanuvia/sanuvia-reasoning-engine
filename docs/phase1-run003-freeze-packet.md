@@ -480,48 +480,42 @@ case-naivety can be made for Case 002 from this point.
 
 ---
 
-## 10. Blocked: Case 002 fixture authoring and pre-registration
+## 10. Case 002 fixture authoring and private custody — COMPLETE
 
-Fixture authoring and pre-registration were authorised but **could not be
-carried out**, for one reason:
+Supersedes the earlier statement in this section that fixture authoring was
+blocked for want of the source package. The package was subsequently released,
+the fixture was authored, and custody is established.
 
-> **The released Case 002 source package is not present on this machine or in
-> the repository.**
+| | |
+|---|---|
+| Canonical custody repository | private organisation repository |
+| Custody commit | `6c0cded0282d67a3ee62a67cb92acd1e5c47e80e` |
+| Visibility | private, 0 forks, not archived, no team or outside access |
 
-Searched, without opening anything: the repository (tracked and untracked), and
-the usual release locations under the home directory. Nothing matching Case 002,
-a sealed package, or a seal manifest was found. The seal-manifest SHA-256
-recorded in §5.1 was supplied as metadata and remains the only artifact of the
-package held here.
+**Committed-byte SHA-256**, recomputed from the committed objects in a fresh
+clone of the remote:
 
-### 10.1 Why this was not worked around
+| Artifact | SHA-256 |
+|---|---|
+| executable fixture | `9bf5350c71c2e7a887a02f0ada72ce93dd40f4a730134f8e5f7ee2f14c5aace7` |
+| isolated reference module | `ef6294033faeeb61d0973cabddde48beda2cc7dd89758e17cc2d1539718ab4e8` |
+| fixture tests | `ebd1f4725ccccfee7a768d9386f3eb4a7c4c8be5949dcca58f45ec52ab908a54` |
 
-The fixture requires the transcript's exact wording, its canonical sequence
-order, all 10 sequences, and the deliberately empty sequence 3. None of that can
-be derived, reconstructed or approximated from the configuration metadata in
-§5.1, which contains no transcript content by design.
+**Verification, run 2026-10-16 (preflight at 16:16:31):** 22 fixture/isolation
+tests passed; 399 Phase 1 tests passed; 365 root tests passed; Phase 1 strict
+typing clean over 89 files; round trip 74/74 turns identical; isolation checks
+passed across 117 modules with zero import-graph and zero raw-text violations;
+sequence 3 remains one empty hold; `preflight-real` **PASS 17/17** with no
+inference.
 
-Authoring a fixture from invented content would produce an executable artifact
-that looks authoritative, hashes cleanly, registers correctly and passes every
-isolation test — while containing material no participant ever said. It would
-corrupt the experiment in a way the surrounding governance is specifically built
-to prevent, and the pre-registration hashes would then certify fabricated input.
-No placeholder or stub fixture was created either, for the same reason: an empty
-shell in the fixture directory could later be mistaken for an authored one.
+The transcript, the anonymisation map, the post-result reference formulations,
+source media and the source-media fingerprints are **not** in this public
+repository.
 
-### 10.2 What is ready and waiting
+**Still unresolved**, and tracked in the pre-registration registry: the
+previously published source-media fingerprint incident and its pending host
+removal request; the identity and authorisation basis of an inherited read grant
+on the custody repository; the redundant duplicate repository; and the
+unverified source-media anchors.
 
-Everything that does not depend on transcript content is complete and verified:
-the merge (§1), the frozen-implementation check (§1), the approved R1
-configuration (§6), the roster and label vocabulary (§5), the run-machine
-artifact and runtime verification (§3, §4), and the actual-machine non-inference
-preflight at **17/17 PASS** under the approved configuration (§7.1).
-
-### 10.3 What is needed
-
-The released Case 002 package on this machine, with its path. Once it is
-present, the remaining work is: author the executable fixture; create the
-isolated reference/provenance module; add the seven isolation tests; verify the
-supplied source checksums against the actual source files; compute the fixture
-and manifest hashes from the committed files; and write the Run 003 registry
-entry. None of it requires inference.
+Run 003 execution, Stage 2 authoring and deployment remain separately gated.
