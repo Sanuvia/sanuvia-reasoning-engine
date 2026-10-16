@@ -169,43 +169,36 @@ custody boundary. The anonymisation map, post-result reference formulations,
 source media, transcript excerpts and the six source-media fingerprints are
 **not** present.
 
-### 3.5 Duplicate custody copy — deletion authorised, BLOCKED on token scope
+### 3.5 Duplicate custody copy — DELETED 2026-10-16
 
-A redundant user-account private repository holds byte-equivalent copies of the
-same three artifacts. Deletion is authorised.
+A redundant user-account private repository held byte-equivalent copies of the
+same three artifacts. It was deleted by the implementation author through the
+host's web interface, after the CLI route was refused for want of the
+`delete_repo` token scope.
 
-**Pre-deletion verification, re-run 2026-10-16 against fresh clones of both:**
+**Pre-deletion verification** (fresh clones of both): canonical private at the
+authorised HEAD; all three protected artifacts byte-equivalent; no files,
+branches, tags, forks or issues unique to the duplicate. The only difference was
+README boilerplate.
+
+**Post-deletion verification:**
 
 | Check | Result |
 |---|---|
-| Canonical private, 0 forks, not archived | yes |
-| Canonical HEAD matches the authorised SHA | yes |
-| All three protected artifacts byte-equivalent across both | **yes** |
-| Files unique to the duplicate | **none** |
-| Extra branches, tags, forks, issues | **none** |
-| Backup branch and bundle preserved | yes — bundle recreated after temp cleanup |
+| Duplicate repository | **gone** — host returns `404 Not Found` |
+| Private repositories remaining on that account | **none** |
+| Canonical repository | intact, private, 0 forks, not archived |
+| Canonical HEAD | unchanged at the authorised SHA |
+| Canonical tracked files | unchanged — three artifacts, `.gitignore`, README |
+| Committed-byte hashes, recomputed from a fresh clone | **all three unchanged** |
 
-**Deletion could not be executed.** The authenticated token lacks the
-`delete_repo` scope:
+**Custody surface is now single.** One private repository holds Case 002, and
+its committed bytes are unchanged by the deletion.
 
-```
-HTTP 403: Must have admin rights to Repository.
-This API operation needs the "delete_repo" scope.
-```
-
-Granting it requires an interactive browser authorisation flow, which is not
-available in this environment and would change the authentication
-configuration. Web-interface deletion is likewise unavailable here. Not
-bypassed.
-
-**Consequence:** two byte-equivalent private custody copies exist, and the
-custody surface stays doubled until the duplicate is removed. One command pair
-closes it, from an interactive shell:
-
-```
-gh auth refresh -h github.com -s delete_repo
-gh repo delete <user-account>/<custody-repo> --yes
-```
+Backups retained: local branch `backup/prereg-pre-rewrite-20261015` and a
+bundle. These cover the public pre-registration branch, not the custody
+artifacts; custody is held by the canonical repository and the authoring
+machine's working tree.
 
 ## 4. Governed identity
 
@@ -431,19 +424,19 @@ end ongoing availability from the host; it would not undo the exposure.
 
 ## 9. Open items and blockers
 
-**Cleared:** fixture authored; canonical private custody verified — visibility,
-HEAD, effective access and contents confirmed, and the three committed-byte
-hashes recomputed from the committed objects in a fresh clone (§3).
+**Cleared:** fixture authored; canonical private custody verified; the three
+committed-byte hashes recomputed from the committed objects in a fresh clone;
+and the redundant duplicate repository **deleted**, leaving a single custody
+surface (§3.5).
 
 | # | Item | State |
 |---|---|---|
 | 1 | **Inherited read grant on custody** | **UNAUTHORISED-BUT-PRESENT.** No written authorisation located; removal needs an organisation owner (§3.2.1, §3.2.2) |
-| 2 | **Host object purge** | **OUTSTANDING.** Request prepared, **not submitted** — submission needs the host's web support form, unavailable here. May only be marked resolved on written host confirmation (§8.3) |
-| 3 | **Duplicate repository deletion** | **BLOCKED.** Authorised and fully pre-verified; token lacks `delete_repo` (§3.5) |
-| 4 | **Independent evaluator** | author's workspace **disqualified**; review workspace status **unknown**, needs confirmation (§8.1, §8.1.1) |
-| 5 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
-| 6 | **Map and post-result formulations** | outside both repositories, pending owner decision |
-| 7 | **Run 003 authorisation** | separate decision; not implied by anything here |
+| 2 | **Host object purge** | **OUTSTANDING.** Request prepared, **not submitted** — needs the host's web support form. May only be marked resolved on written host confirmation (§8.3) |
+| 3 | **Independent evaluator** | author's workspace **disqualified**; review workspace status **unknown**, needs confirmation from its holder (§8.1, §8.1.1) |
+| 4 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
+| 5 | **Map and post-result formulations** | outside the repository, pending owner decision |
+| 6 | **Run 003 authorisation** | separate decision; not implied by anything here |
 
 ### Accepted decisions, not blockers
 
