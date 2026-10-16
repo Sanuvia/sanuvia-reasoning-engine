@@ -2,9 +2,10 @@
 
 **Case:** `case-002-relationship-anxiety-and-contribution`
 **Prepared:** 2026-10-14
-**State:** private custody **complete** and committed-byte hashes **verified**
-(§3). Remaining: grant the second authorised holder access, nominate an
-unexposed evaluator, and the host object-purge request.
+**State:** private custody **complete** in the organisation repository, with
+access verified and committed-byte hashes **verified** (§3). Remaining: nominate
+an unexposed evaluator, resolve the host object-purge request, and dispose of
+the duplicate custody copy.
 
 > **Authorisation.** Fixture authoring and pre-registration only. Inference,
 > Run 003 execution and deployment are **not** authorised and are separate
@@ -76,34 +77,32 @@ their presence in the sealed package.
 
 | | |
 |---|---|
-| Repository | `elite-ship-it/sanuvia-case-002-custody` |
-| Visibility | **private** — verified `private=true`, `visibility=private`, 0 forks |
-| Owner type | user account |
-| **Commit SHA** | `75bb3fabbd865d2b19cfb394c35fea4eef6e1b03` |
+| Repository | `Sanuvia/sanuvia-case-002-custody` |
+| Visibility | **private** — verified `private=true`, `visibility=private` |
+| Forks / archived | 0 / no |
+| **Commit SHA** | `6c0cded0282d67a3ee62a67cb92acd1e5c47e80e` |
 | Branch | `main` |
 
 ### 3.2 Effective access — verified before transfer
 
-| Account | Permission | Source |
+Checked across every path, including inherited organisation and team access:
+
+| Principal | Permission | Source |
 |---|---|---|
-| `elite-ship-it` | admin | direct |
+| authorised holder A | admin | direct collaborator |
+| authorised holder B | admin | organisation ownership |
+| one further organisation member | read | organisation default permission |
 
-**Exactly one account.** No organisation inheritance, no team grant, no outside
-collaborator, no fork.
+| Path | Result |
+|---|---|
+| Team grants | **none** |
+| Outside collaborators | **none** |
+| Forks | **0** |
 
-Custody was moved to a user account precisely because an organisation
-repository inherits access from organisation membership: a third member held
-read access to the organisation-hosted attempt, and only an organisation owner
-can change that. A user-account repository grants access only to its owner and
-to accounts explicitly invited, so the inherited-read problem does not arise.
-
-The empty organisation repository created during that attempt never received an
-artifact and holds no content.
-
-**Outstanding:** the second authorised holder has **not** been granted access.
-Adding them requires their GitHub username, which was not guessed. Current
-access is therefore a strict subset of the authorisation — no unauthorised
-party can read the material, but the second authorised holder cannot yet either.
+Both authorised holders hold admin. The third principal's inherited **read**
+access was **accepted explicitly by the project owner** as a member of the
+organisation, and is recorded here as an accepted decision rather than an
+unresolved finding.
 
 ### 3.3 Committed-byte hashes — VERIFIED
 
@@ -120,19 +119,29 @@ git show HEAD:<path> | shasum -a 256
 | `tests/phase1/test_case_002_fixture.py` | `ebd1f4725ccccfee7a768d9386f3eb4a7c4c8be5949dcca58f45ec52ab908a54` |
 
 Three-way agreement confirmed — committed object, on-disk copy and authored
-source produce identical digests for each file, so nothing was transformed on
-commit (line endings included). The custody working tree is clean, so it equals
+source give identical digests for each file, so nothing was transformed on
+commit, line endings included. The custody working tree is clean, so it equals
 the commit.
 
-These are **artifact** hashes. They are not, and must never be presented as,
-the source-package anchors in §2.1.
+These are **artifact** hashes and are not the source-package anchors in §2.1.
 
 ### 3.4 What the commit contains
 
 Five files: the three artifacts, a `.gitignore`, and a README stating the
 custody boundary. The anonymisation map, post-result reference formulations,
-source media, source excerpts and the six source-media fingerprints are **not**
-present.
+source media, transcript excerpts and the six source-media fingerprints are
+**not** present.
+
+### 3.5 Duplicate custody copy — needs disposition
+
+An earlier attempt placed the same three artifacts in a **user-account** private
+repository, commit `75bb3fabbd865d2b19cfb394c35fea4eef6e1b03`, while the
+organisation repository's inherited read access was still unresolved. The
+artifact hashes are identical, so the two copies are byte-equivalent.
+
+That copy is now redundant and **doubles the custody surface**. Recommended:
+delete it and keep the organisation repository as the single custodial source.
+Recorded rather than deleted unilaterally.
 
 ## 4. Governed identity
 
@@ -353,18 +362,25 @@ Remediation still open:
 
 ## 9. Open items and blockers
 
-**Cleared:** private custody established, artifacts committed, committed-byte
-hashes verified (§3).
+**Cleared:** private custody established in the organisation repository, access
+verified across inherited and team paths, artifacts committed, committed-byte
+hashes verified, and both authorised holders hold admin (§3).
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Second authorised holder has no access** | needs their GitHub username — not guessed. Current access is a strict subset of the authorisation |
-| 2 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is disqualified (§8.1); a genuinely unexposed party is required |
-| 3 | **Orphaned public object** | branch rewritten, but the superseded commit is still host-reachable by SHA; purge request outstanding (§8.3) |
+| 1 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is disqualified (§8.1); a genuinely unexposed party is required |
+| 2 | **Orphaned public object** | branch rewritten, but the superseded commit is still host-reachable by SHA; purge request outstanding (§8.3) |
+| 3 | **Duplicate custody copy** | a user-account private repository holds byte-equivalent copies; recommended for deletion (§3.5) |
 | 4 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
 | 5 | **Map and post-result formulations** | outside both repositories, pending owner decision |
-| 6 | **Empty organisation repository** | `Sanuvia/sanuvia-case-002-custody` — created during the blocked attempt, never received an artifact. Delete or repurpose at the owner's discretion |
-| 7 | **Run 003 authorisation** | separate decision; not implied by anything here |
+| 6 | **Run 003 authorisation** | separate decision; not implied by anything here |
+
+### Accepted decisions, not blockers
+
+- One further organisation member holds inherited **read** access to the custody
+  repository, accepted explicitly by the project owner (§3.2).
+- The 10-sequence-to-39-interaction mapping is approved, with sequence 3
+  remaining one empty hold (§5).
 
 ## 10. Not authorised and not done
 
