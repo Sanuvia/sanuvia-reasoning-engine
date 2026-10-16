@@ -2,9 +2,10 @@
 
 **Case:** `case-002-relationship-anxiety-and-contribution`
 **Prepared:** 2026-10-14
-**State:** INCOMPLETE — blocked on private custody. The three Case 002
-artifacts are **not committed anywhere**, so their committed-byte hashes do not
-yet exist (§3). Pre-registration is **not** closed.
+**State:** INCOMPLETE — private repository created, **transfer blocked** on an
+organisation-permission restriction (§3.2). The three Case 002 artifacts are
+**not committed anywhere**, so their committed-byte hashes do not yet exist.
+Pre-registration is **not** closed.
 
 > **Authorisation.** Fixture authoring and pre-registration only. Inference,
 > Run 003 execution and deployment are **not** authorised and are separate
@@ -70,38 +71,72 @@ package documents — so there is nothing here to hash the supplied values
 against. No claim of verification is made, and none should be inferred from
 their presence in the sealed package.
 
-## 3. Artifact hashes — BLOCKED ON PRIVATE CUSTODY
+## 3. Private custody — repository created, TRANSFER BLOCKED
+
+### 3.1 Repository
+
+| | |
+|---|---|
+| Repository | `Sanuvia/sanuvia-case-002-custody` |
+| Visibility | **private** (verified `private=true`, `visibility=private`) |
+| Forks | 0 |
+| Contents | **empty** — no commit, 0 KB |
+| Commit SHA | **none** — nothing has been committed |
+
+Created under the authorisation to establish private custody. It was created
+**empty on purpose**, so the access list could be verified before any protected
+artifact moved. That verification failed, so nothing moved.
+
+### 3.2 Effective access — does NOT meet the restriction
+
+| Account | Permission | Source |
+|---|---|---|
+| `elite-ship-it` | admin | direct collaborator |
+| org owner | admin | organisation ownership |
+| **third org member** | **read** | **organisation default repository permission** |
+
+A third organisation member holds **read** access. The requirement is access
+restricted to two named people, so the restriction is **not met**.
+
+The access is **not** a direct grant. Only `elite-ship-it` appears under
+`affiliation=direct`; the other two inherit from organisation membership. It
+therefore cannot be removed at repository level — it is governed by the
+organisation's default repository permission, which only an organisation owner
+can change. The account performing this work is an organisation **member**, not
+an owner.
+
+This is an organisation-permission restriction, so the transfer was stopped
+rather than worked around. **No artifact was transferred, copied or committed.**
+
+### 3.3 Committed-byte hashes — cannot exist yet
 
 | Artifact | SHA-256 |
 |---|---|
-| `fixtures/longitudinal/case_002.py` | **does not exist yet** |
-| `reference/case_002_reference.py` | **does not exist yet** |
-| `tests/phase1/test_case_002_fixture.py` | **does not exist yet** |
+| executable fixture | **not committed** |
+| isolated reference module | **not committed** |
+| fixture tests | **not committed** |
 
-Not "uncomputed" — **uncommittable**. A committed-byte hash requires a commit,
-and the artifacts have no repository to be committed to:
+A committed-byte hash requires a commit. Working-tree hashes were deliberately
+**not** substituted: they would certify bytes that may differ from what a run
+loads, and labelling them as committed-byte hashes would be false.
 
-- the only engine repository is **public**, and the fixture carries verbatim
-  private conversation, so it must not be committed there;
-- **no private Sanuvia repository exists.** The organisation holds two
-  repositories, both public, and the authenticated account has access to no
-  private repository anywhere.
-
-The artifacts remain **uncommitted on the authoring machine only**. They were
-not moved, copied or staged elsewhere.
-
-Once a private repository exists and the artifacts are committed there, hash the
-**committed bytes**:
+Once access is corrected and the artifacts are committed, hash the committed
+bytes:
 
 ```
-git -C <private-repo> show HEAD:fixtures/longitudinal/case_002.py | shasum -a 256
-git -C <private-repo> show HEAD:reference/case_002_reference.py   | shasum -a 256
-git -C <private-repo> show HEAD:tests/phase1/test_case_002_fixture.py | shasum -a 256
+git show HEAD:fixtures/longitudinal/case_002.py       | shasum -a 256
+git show HEAD:reference/case_002_reference.py         | shasum -a 256
+git show HEAD:tests/phase1/test_case_002_fixture.py   | shasum -a 256
 ```
 
-Reading the files from the working tree instead would certify bytes that may
-differ from what the run loads. These are **artifact** hashes and must never be
-conflated with the source-package anchors in §2.1.
+### 3.4 Remediation options — for the organisation owner
+
+1. Set the organisation default repository permission to **None**, so repository
+   access becomes explicit. Affects every organisation repository.
+2. Grant the custody repository to the two named accounts explicitly, after 1.
+3. Host custody **outside the organisation**, where no membership inheritance
+   applies. A different destination, needing its own authorisation.
+4. Explicitly accept the third member's read access, recorded as a decision.
 
 ## 4. Governed identity
 
@@ -264,7 +299,7 @@ states the opposite, and an evaluation claim resting on the stale entry would be
 invalid. An independent evaluation requires a party to whom none of the above
 has been shown.
 
-## 8.2 Verification actually run — 2026-10-15
+## 8.2 Verification actually run — 2026-10-16
 
 Every line below was executed on the authoring machine for this revision. No
 result is carried over from an earlier run.
@@ -279,7 +314,7 @@ result is carried over from an earlier run.
 | Isolation, raw text | text scan for dynamic access | **0 violations** |
 | Empty hold | `seq-3` inspection | 1 interaction, `text=''`, `speaker=None` |
 | Speakers present | transcript scan | `participant-1`, `participant-2`, `None` (hold only) |
-| `preflight-real` | approved config, roster, artifact path | **PASS 17/17** at `2026-10-15T16:00:52` |
+| `preflight-real` | approved config, roster, artifact path | **PASS 17/17** at `2026-10-16T15:45:49` |
 
 The isolation check was previously validated against a deliberately planted
 violation, confirming it fails when it should rather than passing vacuously.
@@ -324,13 +359,14 @@ Remediation still open:
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Private repository** | **BLOCKER.** None exists. Needed before the artifacts can be committed anywhere |
-| 2 | **Three artifact hashes** | blocked by 1 — a committed-byte hash needs a commit |
-| 3 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is not case-naive (§8.1); a genuinely unexposed party is required |
-| 4 | **Source checksum verification** | not possible — source media never received (§2.1) |
-| 5 | **Withheld from any repository** | anonymisation map and post-result formulations, pending owner decision |
-| 6 | **Residual fingerprint exposure** | rewrite complete; orphaned object still host-reachable by SHA — purge request outstanding (§8.3) |
-| 7 | **Run 003 authorisation** | separate decision; not implied by anything here |
+| 1 | **Third-party read access to the custody repository** | **BLOCKER.** Inherited from the organisation default repository permission; only an organisation owner can change it (§3.2, §3.4) |
+| 2 | **Artifact transfer and private commit** | blocked by 1 — stopped rather than worked around |
+| 3 | **Three committed-byte hashes** | blocked by 2 — a committed-byte hash needs a commit, and working-tree hashes were not substituted |
+| 4 | **Independent evaluator** | **BLOCKER for evaluation.** Claude is disqualified (§8.1); a genuinely unexposed party is required |
+| 5 | **Orphaned public object** | rewrite complete, but the superseded commit is still host-reachable by SHA; purge request outstanding (§8.3) |
+| 6 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
+| 7 | **Map and post-result formulations** | outside both repositories, pending owner decision |
+| 8 | **Run 003 authorisation** | separate decision; not implied by anything here |
 
 ## 10. Not authorised and not done
 
