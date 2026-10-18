@@ -489,7 +489,7 @@ the fixture was authored, and custody is established.
 | | |
 |---|---|
 | Canonical custody repository | private organisation repository |
-| Custody commit | `6c0cded0282d67a3ee62a67cb92acd1e5c47e80e` |
+| Custody commit | *held in the private annex* |
 | Visibility | private, 0 forks, not archived, no team or outside access |
 
 **Committed-byte SHA-256**, recomputed from the committed objects in a fresh

@@ -80,7 +80,7 @@ their presence in the sealed package.
 | Repository | `Sanuvia/sanuvia-case-002-custody` |
 | Visibility | **private** — verified `private=true`, `visibility=private` |
 | Forks / archived | 0 / no |
-| **Commit SHA** | `6c0cded0282d67a3ee62a67cb92acd1e5c47e80e` |
+| **Commit SHA** | *held in the private annex* — deliberately not in this public file |
 | Branch | `main` |
 
 ### 3.2 Effective access — verified
@@ -126,20 +126,42 @@ here.
 **Status: UNAUTHORISED-BUT-PRESENT.** The access exists and is not supported by
 a located authorisation.
 
-### 3.2.2 Removing it
+### 3.2.2 Removing it — repository-specific removal is NOT possible
 
-Not possible with the permissions held. The grant is organisation-level, so it
-cannot be revoked on the repository; the organisation's
-`default_repository_permission` could not even be read with the current token,
-which returns `null` for a non-owner. The same read level appears on another
-organisation repository, consistent with an organisation-wide base permission
-rather than anything specific to custody.
+The project owner has asked for the third principal's read access to be removed
+**on this repository only**, leaving their wider access unchanged.
 
-**Requires an organisation owner** to either change the organisation-wide
-default repository permission — which would affect every organisation
-repository — or remove the account's organisation membership. Neither was
-attempted: the authority required is not held, and organisation-wide permissions
-were not altered.
+**That cannot be done.** The access is not a repository grant, so there is
+nothing on the repository to revoke. The platform's organisation base permission
+applies to every organisation repository and **cannot be lowered for a single
+repository** — repository-level grants can only raise a member's permission
+above the base, never reduce it below.
+
+Evidence: only one account appears under `affiliation=direct` on this
+repository, and the same read level appears on another organisation repository,
+consistent with an organisation-wide base permission rather than anything
+specific to custody.
+
+**Minimum change required**, and its blast radius:
+
+| Option | Change | Affects |
+|---|---|---|
+| **1 — recommended** | Set the organisation base permission to **None**, then grant the two authorised holders explicitly on each repository that needs it | **Every** organisation repository. Members lose automatic access and need explicit grants |
+| 2 | Remove the account from the organisation | That account's access to **all** organisation repositories — contradicts the instruction to leave wider access unchanged |
+| 3 | Move custody to an owner outside the organisation | Custody only. Rejected earlier: the owner then lacks access unless invited |
+
+**Option 2 is excluded** by the owner's own constraint. **Option 1 is the only
+route** that removes this access while keeping the account in the organisation —
+but it is organisation-wide by nature, which is exactly what the instruction
+says not to change without an explicit decision.
+
+**Decision required from the project owner:** authorise setting the
+organisation base permission to **None** and re-granting explicitly, accepting
+that every organisation repository is affected; or accept the read access on
+custody and record a written authorisation for it.
+
+**Not attempted.** Organisation-wide permissions were not altered, and the
+authority to alter them is not held by the account used for this work.
 
 ### 3.3 Committed-byte hashes — VERIFIED
 
@@ -328,8 +350,10 @@ historical transcript.
 ## 8. Exposure register — per workspace
 
 Exposure is recorded **per workspace**, not per product. An earlier revision
-recorded it per product and concluded that "Claude" was disqualified. That
-conflated distinct workspaces and is corrected here.
+recorded it per product and concluded that the product as a whole was
+disqualified. That conflated distinct workspaces and is corrected here: the
+authoring workspace is exposed, and the project owner's separate independent
+review workspace is not.
 
 | Workspace / party | Case-naive? | Evidence |
 |---|---|---|
@@ -337,7 +361,7 @@ conflated distinct workspaces and is corrected here.
 | Implementation author | no | authorised; received the package for fixture authoring |
 | **Author's development workspace** | **no — EXPOSED** | received the full package on 2026-10-14; see §8.1 |
 | Overview / Product Agent workspace | no | declared exposed at seal in the sealed package |
-| **Independent review workspace** | **unknown — no evidence of exposure** | see §8.1.1 |
+| **Independent review workspace** | **yes — no exposure identified** | owner confirmed in writing, 2026-10-19; see §8.1.1 |
 | Any model / inference API | yes | no Case 002 content was sent to a model |
 
 ### 8.1 Author's development workspace — exposed
@@ -353,47 +377,60 @@ did not remain withheld, so **this workspace cannot act as the independent
 case-naive evaluator**, and no independent-evaluation claim may rest on work
 produced in it.
 
-### 8.1.1 Independent review workspace — status unknown, not assumed
+### 8.1.1 Independent review workspace — no exposure identified
 
-A separate review workspace is **not** recorded as exposed here.
+A separate independent review workspace, held by the project owner, is **not**
+exposed.
 
-No evidence was found either way. Exposure of the authoring workspace says
-nothing about a separate workspace, and treating them as one party was the error
-in the earlier revision. A workspace is disqualified only on evidence that the
-protected material actually reached it — not by sharing a product name with an
-exposed one.
+**Evidence:** the project owner has confirmed in writing (2026-10-19) that she
+has identified no Case 002 exposure in her independent review workspace.
 
-**To close this**, the holder of that workspace should confirm whether any of
-the transcript, source material, anonymisation map, reference formulations, seal
-manifest or Stage 2 protocol ever reached it. Until that confirmation exists,
-its status is **unknown**, and an independent-evaluation claim should not rest
-on it either — unknown is not the same as clear.
+This is a distinct workspace from the authoring workspace in §8.1. The two share
+a product name and nothing else: exposure of one says nothing about the other,
+and treating them as a single party was the error in an earlier revision of this
+record.
 
-## 8.2 Verification actually run — 2026-10-16 (re-verified 16:16)
+**No blanket disqualification applies.** It is **not** correct to state that all
+workspaces of this product are disqualified. The position is per workspace:
 
-Every line below was executed on the authoring machine for this revision. No
-result is carried over from an earlier run.
+| Workspace | Status |
+|---|---|
+| authoring (§8.1) | **exposed** — disqualified as independent evaluator |
+| independent review | **no exposure identified** by its holder |
 
-| Check | Command | Result |
+The owner's confirmation is the evidence of record. It rests on her own
+inspection of her workspace, which is the only party able to make that
+determination.
+
+## 8.2 Verification — freshly re-run 2026-10-19
+
+Every line below was executed on the authoring machine on 2026-10-19. These are
+fresh results, not carried forward.
+
+| Check | Result | Status |
 |---|---|---|
-| Fixture + isolation tests | `pytest tests/phase1/test_case_002_fixture.py` | **22 passed** |
-| Phase 1 suite | `pytest` | **399 passed** |
-| Phase 1 strict typing | `mypy src tests fixtures` | clean, **89** files |
-| Round trip | ungroup 39 interactions, compare to authored turns | **74 = 74, identical** |
-| Isolation, import graph | AST scan of executable modules | **117 scanned, 0 violations** |
-| Isolation, raw text | text scan for dynamic access | **0 violations** |
-| Empty hold | `seq-3` inspection | 1 interaction, `text=''`, `speaker=None` |
-| Speakers present | transcript scan | `participant-1`, `participant-2`, `None` (hold only) |
-| `preflight-real` | approved config, roster, artifact path | **PASS 17/17** at `2026-10-16T16:16:31` |
+| Fixture + isolation tests | 22 passed | fresh |
+| Phase 1 suite | 399 passed | fresh |
+| Root suite | 365 passed | fresh |
+| Phase 1 `mypy --strict` | clean, 89 files | fresh |
+| Root `mypy --strict` | clean, 69 files | fresh |
+| Round trip | **74/74 turns identical** | fresh |
+| Isolation, import graph | **117 modules, 0 violations** | fresh |
+| Isolation, raw text | **0 violations** | fresh |
+| Empty hold | sequence 3: one interaction, `text=''` | fresh |
+| `preflight-real` | **PASS 17/17** at `2026-10-19T01:45:12` | fresh |
 
-The isolation check was previously validated against a deliberately planted
-violation, confirming it fails when it should rather than passing vacuously.
+The three artifact hashes in §3.3 were **recomputed on 2026-10-19** and all
+three match the authorised values. They were taken from the canonical files on
+the authoring machine rather than from a clone of the custody repository,
+because authenticated access to private repositories was unavailable at the time
+(§9). Those files were previously verified byte-identical to the committed
+objects, and the digests are unchanged, so no discrepancy exists — but the
+source of this particular recomputation is stated rather than implied.
 
-**`preflight-real` performs no inference.** It inspects configuration, registry
-hashes, the artifact on disk and the runtime binary; it loads no weights and
-generates no token. No Case 002 content was involved in it.
-
----
+`preflight-real` performs **no inference**: it inspects configuration, registry
+hashes, the artifact on disk and the runtime binary. It loads no weights,
+generates no token, and touches no case content.
 
 ## 8.3 Residual public exposure — source-media fingerprints
 
@@ -424,24 +461,36 @@ end ongoing availability from the host; it would not undo the exposure.
 
 ## 9. Open items and blockers
 
-**Cleared:** fixture authored; canonical private custody verified; the three
-committed-byte hashes recomputed from the committed objects in a fresh clone;
-and the redundant duplicate repository **deleted**, leaving a single custody
-surface (§3.5).
+**Cleared:** fixture authored; canonical private custody established; the
+redundant duplicate repository deleted, leaving a single custody surface; the
+three artifact hashes recomputed and matching; the independent review workspace
+confirmed unexposed by its holder.
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Inherited read grant on custody** | **UNAUTHORISED-BUT-PRESENT.** No written authorisation located; removal needs an organisation owner (§3.2.1, §3.2.2) |
-| 2 | **Host object purge** | **OUTSTANDING.** Request prepared, **not submitted** — needs the host's web support form. May only be marked resolved on written host confirmation (§8.3) |
-| 3 | **Independent evaluator** | author's workspace **disqualified**; review workspace status **unknown**, needs confirmation from its holder (§8.1, §8.1.1) |
+| 1 | **Authenticated GitHub access unavailable** | **BLOCKER.** The CLI is logged out and git holds no credentials for private repositories or pushes. Blocks permission inspection, support submission, packet delivery by link, and publishing this record (§9.1) |
+| 2 | **Inherited read grant on custody** | repository-specific removal is **not possible**; the minimum change is organisation-wide and needs an explicit owner decision (§3.2.2) |
+| 3 | **Host object purge** | **PENDING.** Request prepared, **not submitted** — submission needs the host's web support form. No support reference exists. May only be recorded as removed on written host confirmation (§8.3) |
 | 4 | **Source-media anchors** | supplied and **UNVERIFIED** — the media was never received (§2.1) |
 | 5 | **Map and post-result formulations** | outside the repository, pending owner decision |
 | 6 | **Run 003 authorisation** | separate decision; not implied by anything here |
+
+### 9.1 Authenticated access blocker
+
+The GitHub CLI reports no logged-in host, and no token is present in the
+environment. Public repositories can still be read anonymously, which is why
+some read-only checks continue to work, but every authenticated operation fails.
+
+Restoring it is an interactive browser authorisation that also changes stored
+credentials, so it was **not** performed unilaterally. Until it is restored,
+items 1-3 above cannot progress.
 
 ### Accepted decisions, not blockers
 
 - The 10-sequence-to-39-interaction mapping is approved, with sequence 3
   remaining one empty hold (§5).
+- The independent review workspace is recorded as unexposed on the owner's
+  written confirmation (§8.1.1).
 
 ## 10. Not authorised and not done
 
