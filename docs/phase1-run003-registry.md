@@ -439,11 +439,12 @@ fingerprints in an intermediate commit. The branch was rewritten to a single
 clean commit and force-pushed; branch history and all public files are now free
 of them.
 
-**The rewrite does not undo the exposure.** Verified after the rewrite: the
-superseded commit is **still served by the host when addressed by its SHA**,
-because a force-push to a pull-request branch leaves it referenced by the pull
-request's timeline. Rewriting also cannot reach clones, forks, caches, CI logs,
-proxies or search indexes.
+**The rewrite does not undo the exposure.** Re-verified 2026-10-19: the
+superseded commit is **still served by the host when addressed by its SHA**, and
+**all six of the six distinct fingerprints remain present in its patch** — the
+full set, not a subset. A force-push to a pull-request branch leaves the commit
+referenced by the pull request's timeline. Rewriting also cannot reach clones,
+forks, caches, CI logs, proxies or search indexes.
 
 The values **cannot be rotated** — they are digests of fixed media — so the
 residual risk is permanent. They must be treated as **having been publicly
