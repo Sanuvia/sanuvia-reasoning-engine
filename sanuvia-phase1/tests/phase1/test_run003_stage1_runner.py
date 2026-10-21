@@ -109,6 +109,7 @@ def test_the_runner_wires_the_approved_roster_and_settings(tmp_path: pathlib.Pat
         base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
         llama_cpp_build="b", provenance_path=tmp_path / "p.jsonl",
         backend=_FakeBackend(), roster=ROSTER,
+        transcript=_synthetic_transcript(),
     )
     assert config.participants == ("participant-1", "participant-2")  # type: ignore[attr-defined]
     assert config.extraction.temperature == 0.0                      # type: ignore[attr-defined]
@@ -123,6 +124,7 @@ def test_r1_is_configured_with_its_own_model_spec(tmp_path: pathlib.Path) -> Non
         base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
         llama_cpp_build="b", provenance_path=tmp_path / "p.jsonl",
         backend=_FakeBackend(), roster=ROSTER,
+        transcript=_synthetic_transcript(),
     )
     spec = config.identity_resolution                                # type: ignore[attr-defined]
     assert spec is not None
@@ -137,6 +139,7 @@ def test_the_client_builds_a_real_bounded_resolver(tmp_path: pathlib.Path) -> No
         base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
         llama_cpp_build="b", provenance_path=tmp_path / "p.jsonl",
         backend=_FakeBackend(), roster=ROSTER,
+        transcript=_synthetic_transcript(),
     )
     resolver = client.as_identity_resolver()
 
