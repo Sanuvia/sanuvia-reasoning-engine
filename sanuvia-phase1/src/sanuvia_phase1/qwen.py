@@ -31,6 +31,10 @@ from typing import Protocol, runtime_checkable
 from . import prompts
 from .evidence_appraisers.external import AppraisalPrompt, ExternalEvidenceAppraiser
 from .evidence_extractors.external import ExtractionRequest, ExternalEvidenceExtractor
+from .identity_resolvers.external import (
+    ExternalIdentityResolver,
+    IdentityResolutionPrompt,
+)
 from .failures import BoundaryKind, Maybe, ModelError
 from .language_models.external import ExternalLanguageModel
 from .manifest import RunManifestBuilder, call_with_recording
@@ -165,6 +169,31 @@ def compose_appraisal_prompt(request: AppraisalPrompt) -> str:
     )
 
 
+def compose_identity_prompt(request: "IdentityResolutionPrompt") -> str:
+    """Assemble the R1 identity-resolution prompt (§2 G case 4).
+
+    Rendered in the same shape as the other composers: system, the bounded
+    inputs, then the instruction. The candidate's signature travels with it
+    because §2 G defines sameness over the commitment, not the sentence.
+
+    **Only resolution-scoped refs cross.** ``request.existing`` carries ``C1``,
+    ``C2``, … minted by ``ExternalIdentityResolver``; no ``HypothesisId``
+    reaches this function, so none can reach the prompt.
+    """
+    existing = (
+        "\n".join(f"- {c.ref}: {c.statement}" for c in request.existing)
+        or "(no existing commitments offered)"
+    )
+    scope = request.candidate_temporal_scope or "null"
+    return (
+        f"{request.system}\n\nCANDIDATE:\n{request.candidate_statement}\n\n"
+        f"CANDIDATE SIGNATURE:\nsubject={request.candidate_subject}; "
+        f"claim_class={request.candidate_claim_class}; "
+        f"stance={request.candidate_stance}; temporal_scope={scope}\n\n"
+        f"EXISTING COMMITMENTS:\n{existing}\n\n{request.instruction}"
+    )
+
+
 def compose_baseline_prompt(request: LmRequest) -> str:
     return f"{request.system}\n\nEVIDENCE:\n{request.context}\n\n{request.instruction}"
 
@@ -254,6 +283,33 @@ class QwenClient:
             )
 
         return client
+
+    def identity_client(self) -> Callable[["IdentityResolutionPrompt"], str]:
+        """The R1 boundary, recorded under its own ``BoundaryKind``.
+
+        Distinct from ``EVIDENCE_APPRAISAL`` because one interaction can cross
+        both, and the audit must say which boundary produced a given reply
+        (F-7 case d).
+        """
+
+        def client(request: "IdentityResolutionPrompt") -> str:
+            return self._generate_recorded(
+                BoundaryKind.IDENTITY_RESOLUTION,
+                "identity_resolution",
+                compose_identity_prompt(request),
+            )
+
+        return client
+
+    def as_identity_resolver(self) -> "ExternalIdentityResolver":
+        """The bounded R1 resolver over this client.
+
+        Opt-in: nothing constructs one unless a run asks for it, and §2 G parks
+        non-exact candidates when no resolver is configured.
+        """
+        from .identity_resolvers.external import ExternalIdentityResolver
+
+        return ExternalIdentityResolver(self.identity_client())
 
     def as_extractor(
         self,
