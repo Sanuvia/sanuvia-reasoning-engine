@@ -44,11 +44,16 @@ import subprocess
 import traceback
 from dataclasses import dataclass
 
+from sanuvia.domain import GovernedRejection
+
 from . import governance, pipeline, prompts
+from .extraction import EvidenceExtractor, ExtractedEvidence
+from .transcript import TranscriptInteraction
 from .failures import Maybe
 from .llama_server_backend import LlamaServerBackend
 from .manifest import RunManifestBuilder
 from .qwen import GenerationParams, QwenClient, qwen_real_run_config
+from .runconfig import ModelSpec
 
 def _load_case_002() -> tuple[object, str, tuple[str, ...]]:
     """Import the Case 002 fixture, which lives in PRIVATE custody.
@@ -97,6 +102,107 @@ class Pins:
     tests_sha256: str
 
 
+def _identity_spec(extraction: "ModelSpec") -> "ModelSpec":
+    """The R1 boundary spec, carrying the IDENTITY prompt and schema hashes.
+
+    Derived from the extraction spec so the provider, model and generation
+    settings stay identical across boundaries. But ``extra_params`` carries
+    ``prompt_sha256`` and ``schema_sha256``, and inheriting those unchanged
+    would record the **extraction** hashes against the identity boundary --
+    an audit that names the wrong artifact while looking complete.
+
+    They are recomputed from the registry here, and a test asserts agreement.
+    """
+    identity_prompt = prompts.prompt(prompts.IDENTITY_PROMPT_ID).content_sha256
+    identity_schema = prompts.schema(prompts.IDENTITY_SCHEMA_ID).content_sha256
+    extra = tuple(
+        (k, identity_prompt if k == "prompt_sha256"
+            else identity_schema if k == "schema_sha256"
+            else v)
+        for k, v in extraction.extra_params
+    )
+    return dataclasses.replace(
+        extraction,
+        role="identity_resolution",
+        prompt_id=prompts.IDENTITY_PROMPT_ID,
+        schema_id=prompts.IDENTITY_SCHEMA_ID,
+        extra_params=extra,
+    )
+
+
+class _RecordingExtractor:
+    """Pass-through extractor that keeps the structured audit as it is produced.
+
+    The pipeline returns one report at the end, so an appraisal or R1 failure
+    part-way through would discard the extraction audit along with everything
+    else -- even though extraction had already completed successfully for every
+    interaction it reached.
+
+    This records each interaction's result the moment the real extractor
+    returns it. It adds **no** model call: it delegates once and returns the
+    same object. A governed rejection is recorded too, then re-raised unchanged,
+    so Q6 behaviour is untouched.
+    """
+
+    def __init__(self, inner: EvidenceExtractor) -> None:
+        self._inner = inner
+        self.extractor_id = inner.extractor_id
+        self.records: list[dict[str, object]] = []
+
+    @property
+    def permitted_participants(self) -> tuple[str, ...]:
+        """Forwarded so the REAL guard sees the wrapped extractor's roster.
+
+        The guard refuses an extractor that exposes no roster, which is correct
+        -- it is what stops a REAL run starting with an empty request
+        vocabulary. A proxy that hid it would defeat that check, so it is
+        forwarded rather than redeclared.
+        """
+        return tuple(getattr(self._inner, "permitted_participants", ()))
+
+    def extract(
+        self, interaction: TranscriptInteraction, transcript_id: str
+    ) -> tuple[ExtractedEvidence, ...]:
+        try:
+            produced: tuple[ExtractedEvidence, ...] = self._inner.extract(
+                interaction, transcript_id
+            )
+        except GovernedRejection as rejection:
+            self.records.append({
+                "interaction_index": interaction.index,
+                "seq_label": interaction.seq_label,
+                "rejected": True,
+                "outcome": rejection.outcome.value,
+                "detail": str(rejection),
+            })
+            raise
+        self.records.append({
+            "interaction_index": interaction.index,
+            "seq_label": interaction.seq_label,
+            "rejected": False,
+            "evidence_count": len(produced),
+            "evidence": [_observation_audit(e) for e in produced],
+        })
+        return produced
+
+
+def _observation_audit(e: ExtractedEvidence) -> dict[str, object]:
+    """One extracted observation, with its governed standing."""
+    return {
+        "ref": e.ref,
+        "observation": e.observation,
+        "evidence_class": e.evidence_class.value,
+        "reliability": e.reliability,
+        "standing": None if e.standing is None else {
+            "role": e.standing.role.value,
+            "source_kind": e.standing.source_kind.value,
+            "subject_kind": e.standing.subject_kind.value,
+            "source_id": e.standing.source_id,
+            "subject_id": e.standing.subject_id,
+        },
+    }
+
+
 def _git_sha(repo_root: pathlib.Path) -> str:
     try:
         out = subprocess.run(
@@ -133,13 +239,7 @@ def build_runner(
     )
     # R1 is configured for this run, so its boundary needs its own ModelSpec.
     config = dataclasses.replace(
-        config,
-        identity_resolution=dataclasses.replace(
-            config.extraction,
-            role="identity_resolution",
-            prompt_id=prompts.IDENTITY_PROMPT_ID,
-            schema_id=prompts.IDENTITY_SCHEMA_ID,
-        ),
+        config, identity_resolution=_identity_spec(config.extraction)
     )
 
     used_transcript = (
@@ -201,32 +301,66 @@ def execute(
     evidence_dir.mkdir(parents=True)
     provenance_path = evidence_dir / "backend_calls.jsonl"
 
-    if transcript is None or roster is None or case_id is None:
-        fixture_transcript, fixture_case_id, fixture_roster = _load_case_002()
-        transcript = transcript if transcript is not None else fixture_transcript
-        roster = roster if roster is not None else fixture_roster
-        case_id = case_id if case_id is not None else fixture_case_id
+    # SETUP FAILURE MUST NOT LEAVE A CLAIM ON THE DIRECTORY.
+    #
+    # The directory exists before setup so the provenance log has somewhere to
+    # go. If setup then fails -- a bad config, an unreachable fixture -- the run
+    # never started, yet an empty directory would remain and the already-exists
+    # guard would refuse the *real* first attempt as though it were a repeat.
+    # Nothing was executed, so nothing is preserved by keeping it. It is removed
+    # only if still empty: a directory with content means work happened, and
+    # that content is evidence.
+    try:
+        if transcript is None or roster is None or case_id is None:
+            fixture_transcript, fixture_case_id, fixture_roster = _load_case_002()
+            transcript = transcript if transcript is not None else fixture_transcript
+            roster = roster if roster is not None else fixture_roster
+            case_id = case_id if case_id is not None else fixture_case_id
 
-    config, client, builder = build_runner(
-        base_url=base_url,
-        model_version=model_version,
-        artifact_id=artifact_id,
-        llama_cpp_build=llama_cpp_build,
-        provenance_path=provenance_path,
-        transcript=transcript,
-        backend=backend,
-        roster=roster,
-    )
+        config, client, builder = build_runner(
+            base_url=base_url,
+            model_version=model_version,
+            artifact_id=artifact_id,
+            llama_cpp_build=llama_cpp_build,
+            provenance_path=provenance_path,
+            transcript=transcript,
+            backend=backend,
+            roster=roster,
+        )
+    except BaseException:
+        if not any(evidence_dir.iterdir()):
+            evidence_dir.rmdir()
+        raise
     used_transcript = transcript
 
     status = "completed"
     abort_error: str | None = None
     abort_tb: str | None = None
     report = None
+    partial: dict[str, object] = {}
+
+    def _record_partial(stage: str, payload: object) -> None:
+        """Keep finished work reachable if a later stage fails.
+
+        ``run_transcript_demonstration`` returns one report at the end, so an
+        exception part-way through discards everything already produced. The
+        extraction pass completes before any condition runs, so its audit is
+        captured as soon as it exists rather than waiting for a return value
+        that may never come.
+        """
+        partial[stage] = payload
+
+    # Extraction is captured AS IT HAPPENS, through a recording proxy, not by a
+    # second pass. Running the extractor twice would double every extraction
+    # call against the model -- unacceptable on a single authorised attempt.
+    recording_extractor = _RecordingExtractor(
+        client.as_extractor(permitted_participants=roster)
+    )
+
     try:
         report = pipeline.run_transcript_demonstration(
             used_transcript,  # type: ignore[arg-type]
-            client.as_extractor(permitted_participants=roster),
+            recording_extractor,
             {},  # appraisal_script unused: a real appraiser is injected
             {},  # hypothesis_catalogue unused with a real appraiser
             client.as_stateless_model(),
@@ -245,6 +379,9 @@ def execute(
 
     manifest = builder.finalize()
     evidence: dict[str, object] = {
+        # Present whether the run completed or stopped: extraction that
+        # succeeded is preserved even when a later stage failed.
+        "extraction_audit": recording_extractor.records,
         "run_id": RUN_ID,
         "stage": "stage-1",
         "case_id": case_id,
@@ -312,3 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"status: {evidence['execution_status']}")
     return 0 if evidence["execution_status"] == "completed" else 1
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via main() in tests
+    raise SystemExit(main())

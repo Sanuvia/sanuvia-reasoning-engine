@@ -40,12 +40,21 @@ PINS = run003_stage1.Pins(
 )
 
 
+def _label_in(prompt: str) -> str | None:
+    """The first request-scoped participant label offered in a prompt."""
+    import re
+
+    m = re.search(r"\S+::P\d+", prompt)
+    return m.group(0) if m else None
+
+
 class _FakeBackend:
     """Records every prompt; answers with valid-shaped JSON. No network."""
 
     def __init__(self, *, fail_on: int | None = None) -> None:
         self.prompts: list[str] = []
         self.params: list[GenerationParams] = []
+        self.appraisals = 0
         self._fail_on = fail_on
 
     def describe(self) -> QwenRuntimeInfo:
@@ -60,13 +69,34 @@ class _FakeBackend:
         self.params.append(params)
         if self._fail_on is not None and len(self.prompts) >= self._fail_on:
             raise ModelError("synthetic backend failure")
-        if "PARTICIPANT LABELS" in prompt:          # extraction
-            return json.dumps({"evidence": []})
-        if "outcome" in prompt and "matched_ref" in prompt:   # identity resolution
+        # Dispatch order matters: the APPRAISAL prompt also contains
+        # "PARTICIPANT LABELS", so it must be matched on its own discriminator
+        # first. Getting this wrong fed extraction JSON to the appraiser, which
+        # then proposed nothing and every interaction merely held.
+        if "matched_ref" in prompt:                 # identity resolution (R1)
             return json.dumps({"outcome": "distinct_new", "matched_ref": None,
                                "rationale": "synthetic", "confidence": 0.5})
         if "CURRENT HYPOTHESES" in prompt:          # appraisal
-            return "{}"
+            self.appraisals += 1
+            subject = _label_in(prompt) or "p1"
+            statement = ("she withdraws when the evening runs late"
+                         if self.appraisals == 1
+                         else "she withdraws when the evening runs late, midweek")
+            return json.dumps({"supports": [], "contradicts": [], "proposals": [{
+                "local_ref": f"c{self.appraisals}", "statement": statement,
+                "signature": {"subject": subject, "claim_class": "behaviour_pattern",
+                              "stance": "open", "temporal_scope": None},
+            }]})
+        if "PARTICIPANT LABELS" in prompt:          # extraction
+            label = _label_in(prompt)
+            return json.dumps({"evidence": [{
+                "observation": "a synthetic observed event",
+                "evidence_class": "behavioural",
+                "reliability": 0.8, "classification_confidence": 0.9,
+                "provenance_confidence": 0.9, "text_span": None,
+                "role": "account", "subject_kind": "participant",
+                "subject": label,
+            }]})
         return json.dumps({"best_explanations": [], "competing_hypotheses_held": [],
                            "question_asked": None, "continuity_claims": []})
 
@@ -308,3 +338,163 @@ def test_a_missing_fixture_fails_with_a_clear_message(
             model_version="v", artifact_id="/a", llama_cpp_build="b", pins=PINS,
             backend=_FakeBackend(),
         )
+
+
+# --- the connected reasoning path, with real synthetic evidence --------------
+
+
+def test_extraction_appraisal_and_r1_are_all_exercised(tmp_path: pathlib.Path) -> None:
+    """The connected path, not a sequence of no-ops.
+
+    The fake backend returns real evidence and real proposals, so extraction
+    feeds appraisal, appraisal founds a lineage, and a second non-exact
+    proposal reaches §2 G case 4 where R1 adjudicates.
+    """
+    backend = _FakeBackend()
+    evidence = _run(tmp_path, backend)
+
+    assert evidence["execution_status"] == "completed"
+    joined = "\n".join(backend.prompts)
+    assert "PARTICIPANT LABELS" in joined, "extraction never ran"
+    assert "CURRENT HYPOTHESES" in joined, "appraisal never ran"
+    assert "matched_ref" in joined, "R1 never ran — no case-4 candidate reached it"
+
+
+def test_the_extraction_audit_is_saved_on_success(tmp_path: pathlib.Path) -> None:
+    """Successful output must say what was extracted, with its standing."""
+    _run(tmp_path, _FakeBackend())
+
+    saved = json.loads((tmp_path / "ev" / "execution_evidence.json").read_text())
+    audit = saved["extraction_audit"]
+    assert audit, "no extraction audit recorded"
+    observed = [r for r in audit if r.get("evidence_count")]
+    assert observed, "no interaction recorded any evidence"
+    standing = observed[0]["evidence"][0]["standing"]
+    assert standing["role"] == "account"
+    assert standing["source_kind"] == "participant"
+    assert standing["source_id"] in ROSTER
+    assert standing["subject_id"] in ROSTER
+
+
+def test_a_later_failure_preserves_completed_extraction(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A failure after extraction must not discard what already succeeded."""
+    # Fail once extraction and the first appraisal have gone through.
+    backend = _FakeBackend(fail_on=3)
+    evidence = _run(tmp_path, backend)
+
+    assert evidence["execution_status"] == "aborted"
+    saved = json.loads((tmp_path / "ev" / "execution_evidence.json").read_text())
+    assert saved["extraction_audit"], "completed extraction was lost on failure"
+    assert saved["abort_error"] and saved["abort_traceback"]
+
+
+def test_a_later_failure_still_records_the_calls_that_happened(
+    tmp_path: pathlib.Path,
+) -> None:
+    backend = _FakeBackend(fail_on=3)
+    _run(tmp_path, backend)
+
+    assert len(backend.prompts) == 3, "calls before the failure were not made"
+    assert (tmp_path / "ev" / "execution_evidence.json").is_file()
+
+
+def test_a_setup_failure_leaves_no_evidence_directory(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run that never started must not claim the directory.
+
+    Otherwise the already-exists guard would refuse the real first attempt as
+    though it were a repeat.
+    """
+    def _boom(**_kwargs: object) -> object:
+        raise RuntimeError("synthetic setup failure")
+
+    monkeypatch.setattr(run003_stage1, "build_runner", _boom)
+    target = tmp_path / "ev-setup"
+
+    with pytest.raises(RuntimeError, match="synthetic setup failure"):
+        run003_stage1.execute(
+            evidence_dir=target, base_url="http://127.0.0.1:0", model_version="v",
+            artifact_id="/a", llama_cpp_build="b", pins=PINS,
+            transcript=_synthetic_transcript(), backend=_FakeBackend(),
+            roster=ROSTER, case_id="c",
+        )
+
+    assert not target.exists(), "an empty evidence directory was left behind"
+
+
+def test_after_a_setup_failure_a_real_attempt_is_still_possible(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The point of cleaning up: the authorised attempt is not burned."""
+    def _boom(**_kwargs: object) -> object:
+        raise RuntimeError("synthetic setup failure")
+
+    monkeypatch.setattr(run003_stage1, "build_runner", _boom)
+    target = tmp_path / "ev-retry"
+    with pytest.raises(RuntimeError):
+        run003_stage1.execute(
+            evidence_dir=target, base_url="http://127.0.0.1:0", model_version="v",
+            artifact_id="/a", llama_cpp_build="b", pins=PINS,
+            transcript=_synthetic_transcript(), backend=_FakeBackend(),
+            roster=ROSTER, case_id="c",
+        )
+    monkeypatch.undo()
+
+    evidence = _run(tmp_path, _FakeBackend(), name="ev-retry")
+    assert evidence["execution_status"] == "completed"
+
+
+def test_the_recording_proxy_adds_no_model_call(tmp_path: pathlib.Path) -> None:
+    """Capturing the audit must not cost a second extraction pass."""
+    backend = _FakeBackend()
+    _run(tmp_path, backend)
+
+    # The appraisal prompt also carries participant labels, so extraction is
+    # identified by its own discriminator rather than by that shared section.
+    extraction_calls = sum(
+        1 for p in backend.prompts
+        if "TEXT:" in p and "CURRENT HYPOTHESES" not in p and "matched_ref" not in p
+    )
+    speaking_turns = sum(
+        1 for i in _synthetic_transcript().interactions if i.text.strip()
+    )
+    assert extraction_calls == speaking_turns, "extraction ran more than once per turn"
+
+
+def test_the_r1_spec_records_identity_hashes_not_extraction_ones(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The recorded R1 provenance must name the identity artifacts.
+
+    Inheriting the extraction spec's ``extra_params`` recorded the extraction
+    hashes against the identity boundary — an audit that looks complete while
+    naming the wrong artifact.
+    """
+    from sanuvia_phase1 import prompts
+
+    config, _, _ = run003_stage1.build_runner(
+        base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
+        llama_cpp_build="b", provenance_path=tmp_path / "p.jsonl",
+        backend=_FakeBackend(), roster=ROSTER, transcript=_synthetic_transcript(),
+    )
+    r1 = dict(config.identity_resolution.extra_params)   # type: ignore[attr-defined]
+
+    assert r1["prompt_sha256"] == prompts.prompt(prompts.IDENTITY_PROMPT_ID).content_sha256
+    assert r1["schema_sha256"] == prompts.schema(prompts.IDENTITY_SCHEMA_ID).content_sha256
+    assert r1["prompt_sha256"] != prompts.prompt(prompts.EXTRACTION_PROMPT_ID).content_sha256
+    # and the extraction spec is untouched
+    ex = dict(config.extraction.extra_params)            # type: ignore[attr-defined]
+    assert ex["prompt_sha256"] == prompts.prompt(prompts.EXTRACTION_PROMPT_ID).content_sha256
+
+
+def test_the_command_line_entry_point_is_connected() -> None:
+    """``python -m ...`` must actually run, not exit silently."""
+    source = pathlib.Path(run003_stage1.__file__).read_text(encoding="utf-8")
+    assert '__name__ == "__main__"' in source, "module has no entry point"
+
+    with pytest.raises(SystemExit) as exc:
+        run003_stage1.main(["--help"])
+    assert exc.value.code == 0
