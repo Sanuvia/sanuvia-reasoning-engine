@@ -21,3 +21,14 @@ mypy_path = ["src", "."]
 module = ["sanuvia.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
+
+# The Case 002 fixture lives in PRIVATE custody and is deliberately not part of
+# this repository, so a public checkout cannot resolve it. The runner imports it
+# lazily, inside a function, and raises a clear error when it is absent.
+#
+# A per-module override rather than an inline ignore: the module IS present on an
+# authoring machine, where `warn_unused_ignores` would then flag the inline
+# comment as unused. This holds in both environments.
+[[tool.mypy.overrides]]
+module = ["fixtures.longitudinal.case_002"]
+ignore_missing_imports = true
