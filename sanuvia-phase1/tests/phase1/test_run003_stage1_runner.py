@@ -83,8 +83,13 @@ def _synthetic_transcript() -> Transcript:
     )
 
 
+ROSTER = ("participant-1", "participant-2")
+
+
 def _run(tmp_path: pathlib.Path, backend: _FakeBackend, name: str = "ev") -> dict[str, object]:
     return run003_stage1.execute(
+        roster=ROSTER,
+        case_id="case-synthetic",
         evidence_dir=tmp_path / name,
         base_url="http://127.0.0.1:0",      # never contacted; backend is injected
         model_version="fake-version",
@@ -103,7 +108,7 @@ def test_the_runner_wires_the_approved_roster_and_settings(tmp_path: pathlib.Pat
     config, client, _ = run003_stage1.build_runner(
         base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
         llama_cpp_build="b", provenance_path=tmp_path / "p.jsonl",
-        backend=_FakeBackend(),
+        backend=_FakeBackend(), roster=ROSTER,
     )
     assert config.participants == ("participant-1", "participant-2")  # type: ignore[attr-defined]
     assert config.extraction.temperature == 0.0                      # type: ignore[attr-defined]
@@ -117,7 +122,7 @@ def test_r1_is_configured_with_its_own_model_spec(tmp_path: pathlib.Path) -> Non
     config, _, _ = run003_stage1.build_runner(
         base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
         llama_cpp_build="b", provenance_path=tmp_path / "p.jsonl",
-        backend=_FakeBackend(),
+        backend=_FakeBackend(), roster=ROSTER,
     )
     spec = config.identity_resolution                                # type: ignore[attr-defined]
     assert spec is not None
@@ -131,7 +136,7 @@ def test_the_client_builds_a_real_bounded_resolver(tmp_path: pathlib.Path) -> No
     _, client, _ = run003_stage1.build_runner(
         base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
         llama_cpp_build="b", provenance_path=tmp_path / "p.jsonl",
-        backend=_FakeBackend(),
+        backend=_FakeBackend(), roster=ROSTER,
     )
     resolver = client.as_identity_resolver()
 
@@ -256,3 +261,47 @@ def test_generation_settings_are_the_frozen_ones(tmp_path: pathlib.Path) -> None
         assert p.seed == 0
         assert p.max_output_tokens == 512
         assert p.context_tokens == 8192
+
+
+# --- the public module must not depend on private material -------------------
+
+
+def test_the_module_imports_without_the_private_fixture() -> None:
+    """A public checkout has no Case 002 fixture — it lives in private custody.
+
+    A module-level import of it would make this module unimportable there, and
+    would make the public test suite depend on private material being on disk.
+    The import is deferred, so importing the runner must not touch it.
+    """
+    import ast
+
+    tree = ast.parse(pathlib.Path(run003_stage1.__file__).read_text(encoding="utf-8"))
+    top_level = [
+        n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))
+    ]
+    modules = {
+        n.module for n in top_level if isinstance(n, ast.ImportFrom) and n.module
+    }
+    assert not any("case_002" in m for m in modules), (
+        "the Case 002 fixture is imported at module level; it must be deferred"
+    )
+
+
+def test_a_missing_fixture_fails_with_a_clear_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """If the fixture genuinely is absent, say so plainly rather than raising a
+    bare ModuleNotFoundError from deep inside the runner."""
+    def _boom() -> tuple[object, str, tuple[str, ...]]:
+        raise RuntimeError(
+            "the Case 002 fixture is not importable here. It is held in private "
+            "custody and is not part of this repository"
+        )
+
+    monkeypatch.setattr(run003_stage1, "_load_case_002", _boom)
+    with pytest.raises(RuntimeError, match="private custody"):
+        run003_stage1.execute(
+            evidence_dir=tmp_path / "ev2", base_url="http://127.0.0.1:0",
+            model_version="v", artifact_id="/a", llama_cpp_build="b", pins=PINS,
+            backend=_FakeBackend(),
+        )

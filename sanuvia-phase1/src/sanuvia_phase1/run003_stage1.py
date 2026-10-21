@@ -44,17 +44,37 @@ import subprocess
 import traceback
 from dataclasses import dataclass
 
-from fixtures.longitudinal.case_002 import (
-    CASE_002_TRANSCRIPT,
-    CASE_ID,
-    ROSTER,
-)
-
 from . import governance, pipeline, prompts
 from .failures import Maybe
 from .llama_server_backend import LlamaServerBackend
 from .manifest import RunManifestBuilder
 from .qwen import GenerationParams, QwenClient, qwen_real_run_config
+
+def _load_case_002() -> tuple[object, str, tuple[str, ...]]:
+    """Import the Case 002 fixture, which lives in PRIVATE custody.
+
+    Deliberately deferred rather than a module-level import. The fixture is not
+    in this repository -- it is held in the private custody repository -- so a
+    public checkout has no such module. A top-level import would make this
+    module unimportable there, and would make the public test suite depend on
+    private material being present on disk, which is exactly the coupling the
+    custody boundary exists to prevent.
+
+    Called only when a real execution needs the real transcript. The offline
+    tests inject a synthetic transcript and never reach this.
+    """
+    try:
+        from fixtures.longitudinal.case_002 import (  # noqa: PLC0415
+            CASE_002_TRANSCRIPT, CASE_ID, ROSTER,
+        )
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+        raise RuntimeError(
+            "the Case 002 fixture is not importable here. It is held in private "
+            "custody and is not part of this repository; place it on the path "
+            "before a real execution, or inject a transcript explicitly."
+        ) from exc
+    return CASE_002_TRANSCRIPT, CASE_ID, ROSTER
+
 
 RUN_ID = "run-003-stage-1"
 PHASE1_VERSION = "0.1.0"
@@ -97,6 +117,7 @@ def build_runner(
     provenance_path: pathlib.Path,
     transcript: object | None = None,
     backend: object | None = None,
+    roster: tuple[str, ...] | None = None,
 ) -> tuple[object, QwenClient, RunManifestBuilder]:
     """Assemble config, backend and client without executing anything.
 
@@ -104,8 +125,9 @@ def build_runner(
     test backend. ``backend`` overrides the real one for exactly that purpose;
     a real run passes ``None`` and gets the llama.cpp backend.
     """
+    used_roster = roster if roster is not None else _load_case_002()[2]
     config = qwen_real_run_config(
-        participants=ROSTER,
+        participants=used_roster,
         model_version=Maybe.available(model_version),
         artifact_id=Maybe.available(artifact_id),
     )
@@ -120,7 +142,9 @@ def build_runner(
         ),
     )
 
-    used_transcript = transcript if transcript is not None else CASE_002_TRANSCRIPT
+    used_transcript = (
+        transcript if transcript is not None else _load_case_002()[0]
+    )
     builder = RunManifestBuilder(
         run_id=RUN_ID,
         created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -161,6 +185,8 @@ def execute(
     pins: Pins,
     transcript: object | None = None,
     backend: object | None = None,
+    roster: tuple[str, ...] | None = None,
+    case_id: str | None = None,
 ) -> dict[str, object]:
     """Run Stage 1 once and write the complete evidence.
 
@@ -175,6 +201,12 @@ def execute(
     evidence_dir.mkdir(parents=True)
     provenance_path = evidence_dir / "backend_calls.jsonl"
 
+    if transcript is None or roster is None or case_id is None:
+        fixture_transcript, fixture_case_id, fixture_roster = _load_case_002()
+        transcript = transcript if transcript is not None else fixture_transcript
+        roster = roster if roster is not None else fixture_roster
+        case_id = case_id if case_id is not None else fixture_case_id
+
     config, client, builder = build_runner(
         base_url=base_url,
         model_version=model_version,
@@ -183,8 +215,9 @@ def execute(
         provenance_path=provenance_path,
         transcript=transcript,
         backend=backend,
+        roster=roster,
     )
-    used_transcript = transcript if transcript is not None else CASE_002_TRANSCRIPT
+    used_transcript = transcript
 
     status = "completed"
     abort_error: str | None = None
@@ -193,12 +226,12 @@ def execute(
     try:
         report = pipeline.run_transcript_demonstration(
             used_transcript,  # type: ignore[arg-type]
-            client.as_extractor(permitted_participants=ROSTER),
+            client.as_extractor(permitted_participants=roster),
             {},  # appraisal_script unused: a real appraiser is injected
             {},  # hypothesis_catalogue unused with a real appraiser
             client.as_stateless_model(),
             client.as_transcript_model(),
-            case_id=CASE_ID,
+            case_id=case_id,
             mode=pipeline.REAL,
             appraiser=client.as_appraiser(),
             config=config,  # type: ignore[arg-type]
@@ -214,7 +247,7 @@ def execute(
     evidence: dict[str, object] = {
         "run_id": RUN_ID,
         "stage": "stage-1",
-        "case_id": CASE_ID,
+        "case_id": case_id,
         "execution_status": status,
         "abort_error": abort_error,
         "abort_traceback": abort_tb,
@@ -225,7 +258,7 @@ def execute(
             "reference_sha256": pins.reference_sha256,
             "tests_sha256": pins.tests_sha256,
         },
-        "roster": list(ROSTER),
+        "roster": list(roster),
         "sequences": 10,
         "interactions": len(used_transcript.interactions),  # type: ignore[attr-defined]
         "generation": {
