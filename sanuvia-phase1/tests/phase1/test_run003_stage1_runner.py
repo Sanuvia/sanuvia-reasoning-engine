@@ -51,11 +51,15 @@ def _label_in(prompt: str) -> str | None:
 class _FakeBackend:
     """Records every prompt; answers with valid-shaped JSON. No network."""
 
-    def __init__(self, *, fail_on: int | None = None) -> None:
+    def __init__(
+        self, *, fail_on: int | None = None, fail_on_baseline_call: int | None = None
+    ) -> None:
         self.prompts: list[str] = []
         self.params: list[GenerationParams] = []
         self.appraisals = 0
+        self.baseline_calls = 0
         self._fail_on = fail_on
+        self._fail_on_baseline_call = fail_on_baseline_call
 
     def describe(self) -> QwenRuntimeInfo:
         return QwenRuntimeInfo(
@@ -97,6 +101,11 @@ class _FakeBackend:
                 "role": "account", "subject_kind": "participant",
                 "subject": label,
             }]})
+        # Anything else is an FM baseline call (both baselines share the shape).
+        self.baseline_calls += 1
+        if (self._fail_on_baseline_call is not None
+                and self.baseline_calls >= self._fail_on_baseline_call):
+            raise ModelError("synthetic backend failure during a baseline")
         return json.dumps({"best_explanations": [], "competing_hypotheses_held": [],
                            "question_asked": None, "continuity_claims": []})
 
@@ -498,3 +507,133 @@ def test_the_command_line_entry_point_is_connected() -> None:
     with pytest.raises(SystemExit) as exc:
         run003_stage1.main(["--help"])
     assert exc.value.code == 0
+
+
+# --- progress preserved as it is produced ------------------------------------
+
+def _progress(tmp_path: pathlib.Path, name: str = "ev") -> list[dict[str, object]]:
+    path = tmp_path / name / "progress.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_a_baseline_failure_keeps_the_completed_sanuvia_trajectory(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The reviewed case: Sanuvia completes, then the first baseline call fails.
+
+    Before, only extraction and the call records survived. Now the finished
+    condition is on disk with every step, as it was produced.
+    """
+    backend = _FakeBackend(fail_on_baseline_call=1)
+    evidence = _run(tmp_path, backend)
+
+    assert evidence["execution_status"] == "aborted"
+    assert "during a baseline" in str(evidence["abort_error"])
+    assert evidence["completed_conditions"] == ["sanuvia_persistent"]
+    assert evidence["steps_completed"] == {"sanuvia_persistent": 3}
+
+    saved = json.loads(
+        (tmp_path / "ev" / "completed_conditions" / "sanuvia_persistent.json").read_text()
+    )
+    assert [r["seq_label"] for r in saved] == ["seq-1", "seq-2", "seq-3"]
+    steps = _progress(tmp_path)
+    assert [(s["condition"], s["position"]) for s in steps] == [
+        ("sanuvia_persistent", 0), ("sanuvia_persistent", 1), ("sanuvia_persistent", 2),
+    ]
+    # The saved evidence file says the same, and no complete report is claimed.
+    on_disk = json.loads((tmp_path / "ev" / "execution_evidence.json").read_text())
+    assert on_disk["completed_conditions"] == ["sanuvia_persistent"]
+    assert not (tmp_path / "ev" / "trajectories.json").exists()
+
+
+def test_a_failure_inside_a_baseline_keeps_its_finished_steps(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Partial progress of the condition that failed is kept too."""
+    evidence = _run(tmp_path, _FakeBackend(fail_on_baseline_call=2))
+
+    assert evidence["execution_status"] == "aborted"
+    assert evidence["completed_conditions"] == ["sanuvia_persistent"]
+    assert evidence["steps_completed"] == {"sanuvia_persistent": 3, "fm_stateless": 1}
+    stateless = [s for s in _progress(tmp_path) if s["condition"] == "fm_stateless"]
+    assert len(stateless) == 1
+    record = stateless[0]["record"]
+    assert isinstance(record, dict) and record["seq_label"] == "seq-1"
+    assert not (tmp_path / "ev" / "completed_conditions" / "fm_stateless.json").exists()
+
+
+def test_a_completed_run_saves_each_condition_as_the_final_report_does(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The observers record exactly what the pipeline returns: same records."""
+    evidence = _run(tmp_path, _FakeBackend())
+
+    assert evidence["execution_status"] == "completed"
+    assert evidence["completed_conditions"] == [
+        "sanuvia_persistent", "fm_stateless", "fm_transcript",
+    ]
+    final = json.loads((tmp_path / "ev" / "trajectories.json").read_text())
+    for condition, records in final.items():
+        saved = json.loads(
+            (tmp_path / "ev" / "completed_conditions" / f"{condition}.json").read_text()
+        )
+        assert saved == records, f"{condition}: saved progress differs from the report"
+    assert len(_progress(tmp_path)) == sum(len(r) for r in final.values())
+
+
+def test_the_observers_add_no_model_call(tmp_path: pathlib.Path) -> None:
+    """Saving progress must not cost a single extra call on the one attempt."""
+    with_observers = _FakeBackend()
+    _run(tmp_path, with_observers, name="a")
+
+    without = _FakeBackend()
+    config, client, _ = run003_stage1.build_runner(
+        base_url="http://127.0.0.1:0", model_version="v", artifact_id="/a",
+        llama_cpp_build="b", provenance_path=tmp_path / "b.jsonl",
+        transcript=_synthetic_transcript(), backend=without, roster=ROSTER,
+    )
+    from sanuvia_phase1 import pipeline
+
+    pipeline.run_transcript_demonstration(
+        _synthetic_transcript(), client.as_extractor(permitted_participants=ROSTER),
+        {}, {}, client.as_stateless_model(), client.as_transcript_model(),
+        case_id="case-synthetic", mode=pipeline.REAL, appraiser=client.as_appraiser(),
+        config=config,  # type: ignore[arg-type]
+        identity_resolver=client.as_identity_resolver(),
+        on_interaction_start=client.begin_interaction,
+    )
+    assert with_observers.prompts == without.prompts
+
+
+# --- setup failure: recorded, attempt not consumed ----------------------------
+
+def test_a_setup_failure_is_recorded_beside_the_directory(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom(**_kwargs: object) -> object:
+        raise RuntimeError("synthetic setup failure")
+
+    monkeypatch.setattr(run003_stage1, "build_runner", _boom)
+    backend = _FakeBackend()
+    target = tmp_path / "ev-setup"
+    with pytest.raises(RuntimeError, match="synthetic setup failure"):
+        run003_stage1.execute(
+            evidence_dir=target, base_url="http://127.0.0.1:0", model_version="v",
+            artifact_id="/a", llama_cpp_build="b", pins=PINS,
+            transcript=_synthetic_transcript(), backend=backend,
+            roster=ROSTER, case_id="c",
+        )
+
+    assert not target.exists(), "the attempt must not be consumed"
+    records = list(tmp_path.glob("ev-setup.setup-failure-*.json"))
+    assert len(records) == 1, "no setup-failure record was kept"
+    record = json.loads(records[0].read_text())
+    assert record["outcome"] == "setup_failure"
+    assert record["error"] == "RuntimeError: synthetic setup failure"
+    assert "synthetic setup failure" in record["traceback"]
+    assert record["backend_calls"] == 0
+    assert record["model_call_occurred"] is False
+    assert record["governed_attempt_consumed"] is False
+    assert record["evidence_dir_removed"] is True
+    assert backend.prompts == []
+

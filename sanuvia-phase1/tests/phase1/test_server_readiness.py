@@ -296,3 +296,125 @@ def test_the_configuration_check_is_described_as_inferred(
 
     assert "inferred" in detail.lower()
     assert "not read from the server" in detail.lower()
+
+
+# --- which artifact the server loaded -----------------------------------------
+
+APPROVED_PATH = "/models/Qwen3-4B-Q4_K_M.gguf"
+APPROVED_SHA = "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"
+GOOD_COMMAND = (
+    f"llama-server -m {APPROVED_PATH} --ctx-size 8192 --host 127.0.0.1 "
+    "--port 8080 --jinja --no-webui -np 1 --no-warmup"
+)
+
+
+def _facts(**over: object) -> readiness.ServerFacts:
+    base: dict[str, object] = {
+        "launch_command": GOOD_COMMAND, "pid": 4242,
+        "props_model_path": APPROVED_PATH, "props_build_info": "b10721-8e53fcefd",
+        "chat_template_sha256": "t" * 64,
+    }
+    base.update(over)
+    return readiness.ServerFacts(**base)  # type: ignore[arg-type]
+
+
+def _identity(
+    tmp_path: pathlib.Path, facts: readiness.ServerFacts, digest: str = APPROVED_SHA
+) -> readiness.ReadinessResult:
+    return readiness.check_server_readiness(
+        provenance_path=str(tmp_path / "probe.jsonl"), backend=_FakeProbe(),
+        approved_model_path=APPROVED_PATH, approved_sha256=APPROVED_SHA,
+        approved_build="10721 8e53fcefd", approved_chat_template_sha256="t" * 64,
+        observe=lambda _url: facts, digest_of=lambda _path: digest,
+    )
+
+
+def test_the_approved_artifact_loaded_by_an_approved_launch_is_ready(
+    tmp_path: pathlib.Path,
+) -> None:
+    result = _identity(tmp_path, _facts())
+
+    assert result.overall == PASS
+    for name in (
+        "launch_command_recorded", "launch_flags_without_reasoning_format_none",
+        "launched_with_approved_artifact", "loaded_artifact_is_approved",
+        "artifact_digest_verified", "runtime_build_matches", "chat_template_unchanged",
+    ):
+        assert _status(result, name) == PASS, name
+    assert result.facts is not None and result.facts.launch_command == GOOD_COMMAND
+
+
+@pytest.mark.parametrize(
+    ("facts", "digest", "blocked"),
+    [
+        (_facts(launch_command=None), APPROVED_SHA, "launch_command_recorded"),
+        (_facts(launch_command=GOOD_COMMAND + " --reasoning-format none"), APPROVED_SHA,
+         "launch_flags_without_reasoning_format_none"),
+        (_facts(launch_command=GOOD_COMMAND.replace(APPROVED_PATH, "/other.gguf")),
+         APPROVED_SHA, "launched_with_approved_artifact"),
+        (_facts(props_model_path="/other.gguf"), APPROVED_SHA, "loaded_artifact_is_approved"),
+        (_facts(), "0" * 64, "artifact_digest_verified"),
+        (_facts(props_build_info="b9999-deadbeef"), APPROVED_SHA, "runtime_build_matches"),
+        (_facts(props_build_info=None), APPROVED_SHA, "runtime_build_matches"),
+        (_facts(chat_template_sha256="x" * 64), APPROVED_SHA, "chat_template_unchanged"),
+    ],
+)
+def test_any_identity_mismatch_blocks(
+    tmp_path: pathlib.Path, facts: readiness.ServerFacts, digest: str, blocked: str
+) -> None:
+    result = _identity(tmp_path, facts, digest)
+
+    assert result.overall == BLOCKED
+    assert _status(result, blocked) == BLOCKED
+
+
+def test_the_launch_command_is_read_directly_when_available(
+    tmp_path: pathlib.Path,
+) -> None:
+    """With the OS record, the flag check is a reading, not an inference."""
+    result = _identity(tmp_path, _facts())
+    detail = next(
+        c.detail for c in result.checks
+        if c.name == "launch_flags_without_reasoning_format_none"
+    )
+    assert "read from the launch command" in detail
+
+
+def test_observe_server_reads_props_and_the_launch_command() -> None:
+    facts = readiness.observe_server(
+        "http://127.0.0.1:8080",
+        http_get=lambda url: {
+            "model_path": APPROVED_PATH, "build_info": "b10721-8e53fcefd",
+            "chat_template": "{{ messages }}",
+        },
+        launch_command_for_port=lambda port: (4242, GOOD_COMMAND) if port == 8080 else (None, None),
+    )
+
+    assert facts.launch_command == GOOD_COMMAND and facts.pid == 4242
+    assert facts.props_model_path == APPROVED_PATH
+    assert facts.props_build_info == "b10721-8e53fcefd"
+    assert facts.chat_template_sha256 is not None
+
+
+def test_unreachable_props_is_unknown_never_fine() -> None:
+    def _down(url: str) -> dict[str, object]:
+        raise OSError("connection refused")
+
+    facts = readiness.observe_server(
+        "http://127.0.0.1:8080", http_get=_down,
+        launch_command_for_port=lambda port: (None, None),
+    )
+    assert facts.props_model_path is None and facts.launch_command is None
+
+
+def test_the_cli_refuses_to_overwrite_readiness_evidence(tmp_path: pathlib.Path) -> None:
+    from sanuvia_phase1.__main__ import main
+
+    existing = tmp_path / "readiness"
+    existing.mkdir()
+    code = main([
+        "server-readiness", "--model-path", APPROVED_PATH,
+        "--output-dir", str(existing),
+    ])
+    assert code == 2
+    assert list(existing.iterdir()) == []

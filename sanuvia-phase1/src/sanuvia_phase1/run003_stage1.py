@@ -31,6 +31,30 @@ passed to the client, as Run 002 did.
 A governed stop or an execution failure is **captured, not swallowed**: the
 status, the error, the traceback and the partial manifest are all written. The
 runner never retries and never substitutes a run.
+
+PROGRESS IS SAVED AS IT IS PRODUCED
+-----------------------------------
+
+The pipeline returns its report only at the very end, so a failure in a later
+condition (a baseline, say) used to discard trajectories that had already
+completed. The runner now passes two observer callbacks to the pipeline and
+writes, the moment each exists:
+
+* ``progress.jsonl`` -- one line per completed step of any condition;
+* ``completed_conditions/<condition>.json`` -- a condition's full trajectory
+  as soon as that condition finishes.
+
+The observers add no model call and change nothing a condition computes; they
+receive records the conditions already produced.
+
+SETUP FAILURE IS RECORDED, NOT CLAIMED
+--------------------------------------
+
+If setup fails before any model call, the (still empty) evidence directory is
+removed so the authorised attempt is not consumed, and a separate record is
+written NEXT TO it -- ``<evidence_dir>.setup-failure-<UTC time>.json`` -- with
+the error, the traceback, the number of backend calls (zero) and an explicit
+statement that the governed attempt was not consumed.
 """
 
 from __future__ import annotations
@@ -39,6 +63,7 @@ import argparse
 import dataclasses
 import datetime
 import json
+import os
 import pathlib
 import subprocess
 import traceback
@@ -203,6 +228,93 @@ def _observation_audit(e: ExtractedEvidence) -> dict[str, object]:
     }
 
 
+def _jsonable(record: object) -> object:
+    return dataclasses.asdict(record) if dataclasses.is_dataclass(record) else record  # type: ignore[arg-type]
+
+
+class _ProgressWriter:
+    """Writes completed work to disk the moment it exists.
+
+    Wired to the pipeline's observer callbacks. Each line is flushed and synced
+    before the next step runs, so a crash, a governed stop or a failing later
+    condition cannot take already-completed trajectories with it.
+    """
+
+    def __init__(self, evidence_dir: pathlib.Path) -> None:
+        self._log = evidence_dir / "progress.jsonl"
+        self._dir = evidence_dir / "completed_conditions"
+        self.completed: list[str] = []
+        self.steps: dict[str, int] = {}
+
+    def step(self, condition: str, position: int, record: object) -> None:
+        self.steps[condition] = position + 1
+        line = json.dumps(
+            {"condition": condition, "position": position, "record": _jsonable(record)},
+            ensure_ascii=False, default=str,
+        )
+        with self._log.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def condition(self, condition: str, records: tuple[object, ...]) -> None:
+        self._dir.mkdir(exist_ok=True)
+        target = self._dir / f"{condition}.json"
+        target.write_text(
+            json.dumps([_jsonable(r) for r in records], indent=2,
+                       ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+        self.completed.append(condition)
+
+
+def _record_setup_failure(
+    evidence_dir: pathlib.Path, provenance_path: pathlib.Path, exc: BaseException
+) -> None:
+    """Keep the diagnostics of a setup failure without claiming the attempt.
+
+    The evidence directory exists before setup only so the provenance log has
+    somewhere to go. If setup fails, nothing ran: the directory is removed when
+    it is still empty, so the already-exists guard does not refuse the real
+    first attempt as a repeat. The error and traceback are written to a
+    separate file beside it, saying that no model call happened.
+    """
+    backend_calls = 0
+    if provenance_path.is_file():
+        backend_calls = sum(
+            1 for line in provenance_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+    removed = False
+    if not any(evidence_dir.iterdir()):
+        evidence_dir.rmdir()
+        removed = True
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    record_path = evidence_dir.with_name(f"{evidence_dir.name}.setup-failure-{stamp}.json")
+    record_path.write_text(json.dumps({
+        "run_id": RUN_ID,
+        "stage": "stage-1",
+        "outcome": "setup_failure",
+        "error": f"{type(exc).__name__}: {exc}",
+        "traceback": "".join(traceback.format_exception(exc)),
+        "backend_calls": backend_calls,
+        "model_call_occurred": backend_calls > 0,
+        "governed_attempt_consumed": backend_calls > 0,
+        "evidence_dir": str(evidence_dir),
+        "evidence_dir_removed": removed,
+        "note": (
+            "Setup failed before the run started. No model call occurred and the "
+            "single authorised attempt was not consumed; the evidence directory "
+            "was removed so that attempt can still be made."
+            if backend_calls == 0 else
+            "Setup failed AFTER backend calls were recorded; the evidence "
+            "directory is kept as evidence."
+        ),
+    }, indent=2), encoding="utf-8")
+    if hasattr(exc, "add_note"):
+        exc.add_note(f"setup failure recorded at {record_path}")
+
+
 def _git_sha(repo_root: pathlib.Path) -> str:
     try:
         out = subprocess.run(
@@ -327,9 +439,8 @@ def execute(
             backend=backend,
             roster=roster,
         )
-    except BaseException:
-        if not any(evidence_dir.iterdir()):
-            evidence_dir.rmdir()
+    except BaseException as exc:
+        _record_setup_failure(evidence_dir, provenance_path, exc)
         raise
     used_transcript = transcript
 
@@ -337,18 +448,7 @@ def execute(
     abort_error: str | None = None
     abort_tb: str | None = None
     report = None
-    partial: dict[str, object] = {}
-
-    def _record_partial(stage: str, payload: object) -> None:
-        """Keep finished work reachable if a later stage fails.
-
-        ``run_transcript_demonstration`` returns one report at the end, so an
-        exception part-way through discards everything already produced. The
-        extraction pass completes before any condition runs, so its audit is
-        captured as soon as it exists rather than waiting for a return value
-        that may never come.
-        """
-        partial[stage] = payload
+    progress = _ProgressWriter(evidence_dir)
 
     # Extraction is captured AS IT HAPPENS, through a recording proxy, not by a
     # second pass. Running the extractor twice would double every extraction
@@ -371,6 +471,8 @@ def execute(
             config=config,  # type: ignore[arg-type]
             identity_resolver=client.as_identity_resolver(),
             on_interaction_start=client.begin_interaction,
+            on_step_complete=progress.step,
+            on_condition_complete=progress.condition,
         )
     except BaseException as exc:  # capture the governed failure; never retry
         status = "aborted"
@@ -382,6 +484,10 @@ def execute(
         # Present whether the run completed or stopped: extraction that
         # succeeded is preserved even when a later stage failed.
         "extraction_audit": recording_extractor.records,
+        # Conditions that finished, and how far each one got, even on abort.
+        # Their trajectories are in completed_conditions/ and progress.jsonl.
+        "completed_conditions": list(progress.completed),
+        "steps_completed": dict(progress.steps),
         "run_id": RUN_ID,
         "stage": "stage-1",
         "case_id": case_id,

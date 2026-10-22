@@ -215,6 +215,10 @@ def run_transcript_demonstration(
     config: RealRunConfig | None = None,
     identity_resolver: "IdentityResolver | None" = None,
     on_interaction_start: Callable[[int, str], None] | None = None,
+    on_step_complete: "Callable[[str, int, TrajectoryRecord], None] | None" = None,
+    on_condition_complete: (
+        "Callable[[str, tuple[TrajectoryRecord, ...]], None] | None"
+    ) = None,
 ) -> TranscriptDemonstrationReport:
     """Drive all three conditions from one transcript and return a mode-tagged report.
 
@@ -232,7 +236,15 @@ def run_transcript_demonstration(
     The mode↔components consistency is checked BEFORE any execution: a GOLDEN run
     may use only scripted doubles, and a REAL run may not fall back to any scripted
     double and must carry a complete :class:`RealRunConfig`. A mis-configured run
-    raises :class:`ConfigurationError` here, before the engine or any model runs."""
+    raises :class:`ConfigurationError` here, before the engine or any model runs.
+
+    ``on_step_complete`` and ``on_condition_complete`` are OBSERVERS only. They
+    receive each trajectory record the moment a condition's step returns it, and
+    each condition's records the moment that condition finishes, so a caller can
+    persist completed work before a later condition fails. They are called after
+    the step, with the record the step already produced; they cannot alter what
+    any condition computes, the order of steps, or the report. Left as ``None``
+    (the default) the function behaves exactly as before."""
     validate_run_configuration(
         mode,
         extractor=extractor,
@@ -256,20 +268,41 @@ def run_transcript_demonstration(
     sanuvia = SanuviaPersistentCondition(
         extracted.case, appraiser, identity_resolver=identity_resolver
     )
+    def _observed(name: str, record: TrajectoryRecord, position: int) -> TrajectoryRecord:
+        if on_step_complete is not None:
+            on_step_complete(name, position, record)
+        return record
+
+    def _completed(name: str, records: tuple[TrajectoryRecord, ...]) -> None:
+        if on_condition_complete is not None:
+            on_condition_complete(name, records)
+
     sanuvia.start()
-    san_records = tuple(sanuvia.step(_mark(i)) for i in extracted.case.interactions)
+    san_records = tuple(
+        _observed("sanuvia_persistent", sanuvia.step(_mark(i)), n)
+        for n, i in enumerate(extracted.case.interactions)
+    )
     sanuvia.finish()
+    _completed("sanuvia_persistent", san_records)
 
     # FM baselines read RAW transcript text — no structured Sanuvia state.
     raw = _raw_text_interactions(transcript)
     stateless = StatelessFmCondition(stateless_model)
     stateless.start()
-    st_records = tuple(stateless.step(_mark(i)) for i in raw)
+    st_records = tuple(
+        _observed("fm_stateless", stateless.step(_mark(i)), n)
+        for n, i in enumerate(raw)
+    )
     stateless.finish()
+    _completed("fm_stateless", st_records)
     context = TranscriptContextFmCondition(transcript_model)
     context.start()
-    tc_records = tuple(context.step(_mark(i)) for i in raw)
+    tc_records = tuple(
+        _observed("fm_transcript", context.step(_mark(i)), n)
+        for n, i in enumerate(raw)
+    )
     context.finish()
+    _completed("fm_transcript", tc_records)
 
     # Fairness guard: same ordered interaction sequence for all three conditions.
     seq = tuple(ti.seq_label for ti in transcript.interactions)

@@ -36,6 +36,22 @@ point-in-time check, not a guarantee about the run that follows.
 It also proves nothing about Case 002, the fixture, R1, or the engine. It never
 touches them.
 
+WHICH ARTIFACT THE SERVER LOADED
+--------------------------------
+
+The behavioural probe alone cannot say which model answered. When the approved
+identifiers are supplied (``approved_model_path``, ``approved_sha256``,
+``approved_build``), readiness also records and checks the machine itself:
+
+* the **launch command** of the process listening on the port, read from the
+  operating system (``lsof`` + ``ps``) -- so ``--reasoning-format none`` is now
+  checked directly, not only inferred, and the ``-m`` artifact is read;
+* the server's own ``/props``: the **model path it loaded** and its
+  **build** (``build_info``), plus the chat-template hash;
+* the **SHA-256 of the approved artifact on disk**, recomputed.
+
+Together these tie the probe's answer to the approved artifact and runtime.
+
 SAFETY
 ------
 
@@ -50,8 +66,15 @@ BLOCKED.
 
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import dataclass
+import os
+import shlex
+import subprocess
+import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 from .failures import ModelError, ModelTimeout
 from .llama_server_backend import BackendCall, LlamaServerBackend
@@ -73,8 +96,159 @@ THINK_SCAFFOLD = "<think>"
 
 
 @dataclass(frozen=True, slots=True)
+class ServerFacts:
+    """What the machine itself says about the running server."""
+
+    launch_command: str | None
+    pid: int | None
+    props_model_path: str | None
+    props_build_info: str | None
+    chat_template_sha256: str | None
+
+
+def _http_get_json(url: str) -> dict[str, object]:
+    with urllib.request.urlopen(url, timeout=10) as response:  # noqa: S310 - local address
+        data = json.loads(response.read().decode("utf-8"))
+    return data if isinstance(data, dict) else {}
+
+
+def _launch_command_for_port(port: int) -> tuple[int | None, str | None]:
+    """PID and full command line of the process LISTENING on ``port``."""
+    try:
+        pids = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            capture_output=True, text=True, timeout=10, check=False,
+        ).stdout.split()
+        if not pids:
+            return None, None
+        pid = int(pids[0])
+        command = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=10, check=False,
+        ).stdout.strip()
+        return pid, command or None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None, None
+
+
+def observe_server(
+    base_url: str,
+    *,
+    http_get: Callable[[str], dict[str, object]] = _http_get_json,
+    launch_command_for_port: Callable[[int], tuple[int | None, str | None]] = (
+        _launch_command_for_port
+    ),
+) -> ServerFacts:
+    """Read the launch command from the OS and the loaded model from ``/props``."""
+    port = urlparse(base_url).port or 80
+    pid, command = launch_command_for_port(port)
+    try:
+        props = http_get(base_url.rstrip("/") + "/props")
+    except Exception:  # unreachable props is recorded as unknown, never as fine
+        props = {}
+    template = props.get("chat_template")
+    return ServerFacts(
+        launch_command=command,
+        pid=pid,
+        props_model_path=props.get("model_path") if isinstance(props.get("model_path"), str) else None,  # type: ignore[arg-type]
+        props_build_info=props.get("build_info") if isinstance(props.get("build_info"), str) else None,  # type: ignore[arg-type]
+        chat_template_sha256=(
+            hashlib.sha256(template.encode("utf-8")).hexdigest()
+            if isinstance(template, str) else None
+        ),
+    )
+
+
+def file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _same_file(a: str | None, b: str) -> bool:
+    return a is not None and os.path.realpath(a) == os.path.realpath(b)
+
+
+def _model_arg(command: str) -> str | None:
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return None
+    for flag in ("-m", "--model"):
+        if flag in argv and argv.index(flag) + 1 < len(argv):
+            return argv[argv.index(flag) + 1]
+    return None
+
+
+def identity_checks(
+    facts: ServerFacts,
+    *,
+    approved_model_path: str,
+    approved_sha256: str,
+    approved_build: str,
+    approved_chat_template_sha256: str | None = None,
+    digest_of: Callable[[str], str] = file_sha256,
+) -> tuple[Check, ...]:
+    """Tie the running server to the approved artifact and runtime."""
+    checks: list[Check] = []
+    command = facts.launch_command
+    if command is None:
+        checks.append(Check("launch_command_recorded", BLOCKED,
+                            "no process found listening on the port; launch command unknown"))
+    else:
+        checks.append(Check("launch_command_recorded", PASS, f"pid {facts.pid}: {command}"))
+        flat = " ".join(command.split())
+        if "--reasoning-format none" in flat or "--reasoning-format=none" in flat:
+            checks.append(Check("launch_flags_without_reasoning_format_none", BLOCKED,
+                                "the server was started WITH --reasoning-format none"))
+        else:
+            checks.append(Check("launch_flags_without_reasoning_format_none", PASS,
+                                "read from the launch command: --reasoning-format none absent"))
+        model_arg = _model_arg(command)
+        checks.append(Check(
+            "launched_with_approved_artifact",
+            PASS if _same_file(model_arg, approved_model_path) else BLOCKED,
+            f"-m {model_arg} (approved: {approved_model_path})",
+        ))
+
+    checks.append(Check(
+        "loaded_artifact_is_approved",
+        PASS if _same_file(facts.props_model_path, approved_model_path) else BLOCKED,
+        f"/props model_path {facts.props_model_path} (approved: {approved_model_path})",
+    ))
+    try:
+        actual = digest_of(approved_model_path)
+    except OSError as exc:
+        checks.append(Check("artifact_digest_verified", BLOCKED, f"cannot read artifact: {exc}"))
+    else:
+        checks.append(Check(
+            "artifact_digest_verified",
+            PASS if actual == approved_sha256 else BLOCKED,
+            f"sha256 {actual} (approved: {approved_sha256})",
+        ))
+    build_ok = facts.props_build_info is not None and all(
+        part in facts.props_build_info for part in approved_build.split()
+    )
+    checks.append(Check(
+        "runtime_build_matches", PASS if build_ok else BLOCKED,
+        f"/props build_info {facts.props_build_info} (approved: {approved_build})",
+    ))
+    if approved_chat_template_sha256 is not None:
+        checks.append(Check(
+            "chat_template_unchanged",
+            PASS if facts.chat_template_sha256 == approved_chat_template_sha256 else BLOCKED,
+            f"/props chat_template sha256 {facts.chat_template_sha256} "
+            f"(approved: {approved_chat_template_sha256})",
+        ))
+    return tuple(checks)
+
+
+@dataclass(frozen=True, slots=True)
 class ReadinessResult:
     checks: tuple[Check, ...]
+    facts: ServerFacts | None = field(default=None)
 
     @property
     def overall(self) -> str:
@@ -106,6 +280,12 @@ def check_server_readiness(
     artifact_id: str = "readiness-probe",
     llama_cpp_build: str = "readiness-probe",
     backend: object | None = None,
+    approved_model_path: str | None = None,
+    approved_sha256: str | None = None,
+    approved_build: str | None = None,
+    approved_chat_template_sha256: str | None = None,
+    observe: Callable[[str], ServerFacts] | None = None,
+    digest_of: Callable[[str], str] = file_sha256,
 ) -> ReadinessResult:
     """Probe the running server once and report readiness.
 
@@ -115,6 +295,17 @@ def check_server_readiness(
     the ``reasoning_content`` invariant.
     """
     checks: list[Check] = []
+    facts: ServerFacts | None = None
+    if approved_model_path and approved_sha256 and approved_build:
+        facts = (observe or observe_server)(base_url)
+        checks.extend(identity_checks(
+            facts,
+            approved_model_path=approved_model_path,
+            approved_sha256=approved_sha256,
+            approved_build=approved_build,
+            approved_chat_template_sha256=approved_chat_template_sha256,
+            digest_of=digest_of,
+        ))
     probe = backend if backend is not None else LlamaServerBackend(
         base_url,
         model_id="qwen3-4b",
@@ -148,7 +339,7 @@ def check_server_readiness(
             "strict_json_boundary_viable",
         ):
             checks.append(Check(name, UNAVAILABLE, "no response: not verifiable"))
-        return ReadinessResult(tuple(checks))
+        return ReadinessResult(tuple(checks), facts)
 
     checks.append(Check("server_reachable", PASS, f"responded at {base_url}"))
 
@@ -206,7 +397,7 @@ def check_server_readiness(
             Check("strict_json_boundary_viable", PASS, "probe response parsed as JSON")
         )
 
-    return ReadinessResult(tuple(checks))
+    return ReadinessResult(tuple(checks), facts)
 
 
 def render(result: ReadinessResult) -> str:
