@@ -49,6 +49,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         "governance",
         help="print the governance / freeze checklist (FROZEN / PENDING / BLOCKING)",
     )
+    readiness_parser = sub.add_parser(
+        "server-readiness",
+        help=(
+            "probe the RUNNING llama-server once and report readiness "
+            "(distinct from preflight-real, which checks configuration and "
+            "installation only and never starts or contacts a server)"
+        ),
+    )
+    readiness_parser.add_argument(
+        "--base-url", default="http://127.0.0.1:8080",
+        help="the running server's address (default: %(default)s)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "preflight-real":
@@ -57,6 +69,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(result.render())
         return 0 if result.overall == "PASS" else 2
+
+    if args.command == "server-readiness":
+        # Runtime readiness, NOT the configuration preflight. It contacts the
+        # running server with one harmless synthetic request. It touches no
+        # case material, no fixture, no R1 path and no Stage 1 pipeline, and it
+        # creates no evidence directory, so it cannot consume the single
+        # authorised execution attempt.
+        import tempfile
+
+        from .readiness import check_server_readiness
+        from .readiness import render as render_readiness
+
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as handle:
+            provenance = handle.name
+        readiness_result = check_server_readiness(
+            base_url=args.base_url, provenance_path=provenance
+        )
+        print(render_readiness(readiness_result))
+        print(f"\nprobe log: {provenance}")
+        return 0 if readiness_result.overall == "PASS" else 2
 
     if args.command == "governance":
         print(governance.render_checklist())
