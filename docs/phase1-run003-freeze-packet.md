@@ -2,6 +2,15 @@
 
 **Prepared:** 2026-10-12 · **Status:** preparation only.
 
+> **Amended 2026-10-24 — governance record `8.0-run003-output-cap-1536-and-chat-template-pin`,
+> hash `sha256:f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac`.**
+> `max_output_tokens` is now **1536**, superseding the 512 recorded below, and
+> the serving chat-template digest is now a frozen item. Values in this
+> document that were written against the 512 cap are marked at the point where
+> they appear. Nothing else in the configuration changed. Run 003 Stage 1
+> attempt 1 (2026-10-23) executed at 512 and **failed**; it is retained as a
+> failed attempt and is not superseded by this amendment.
+
 > **This document does not declare the freeze.** Implementation freeze, Case 002
 > release, Run 003 execution and deployment remain four separate decisions, none
 > of which is taken or implied here. Case 002 was not opened. No model inference
@@ -84,12 +93,13 @@ the governance record.
 
 ### 3.3 Generation parameters — frozen and matched by `qwen_real_run_config()`
 
-`temperature 0.0` · `seed 0 (fixed)` · `max_output_tokens 512` ·
+`temperature 0.0` · `seed 0 (fixed)` · `max_output_tokens 1536` *(amended; was 512)* ·
 `context_window 8192` · `stop_sequences none` · `retries 0` ·
 `quantization Q4_K_M` · `provider local_qwen` (local only, no cloud, no API key)
 
 Preflight check `approved_generation_config` confirms these against governance:
-`temperature=0.0, seed=0, max_output_tokens=512, context_window=8192, stop=none, retries=0`.
+`temperature=0.0, seed=0, max_output_tokens=1536, context_window=8192, stop=none, retries=0`
+*(amended 2026-10-24; the packet as prepared on 2026-10-12 read `max_output_tokens=512`).*
 
 ---
 
@@ -255,7 +265,7 @@ differ from the approved extraction spec.
 | `schema_id` | `schema.identity.v1` | registered |
 | schema SHA-256 | `31e731bed3c0917e15b6f669a8f9329f2adef046fe8673a6e3d24e7a178217e8` | computed |
 | `temperature` / `seed` | `0.0` / `0` fixed | existing frozen pins |
-| `max_output_tokens` / `context_window` | `512` / `8192` | existing frozen pins |
+| `max_output_tokens` / `context_window` | `1536` / `8192` | `1536` amended 2026-10-24 (was `512`); `8192` unchanged |
 | `backend_id` / `quantization` / `stop_sequences` | `llama.cpp-gguf` / `Q4_K_M` / `none` | existing frozen pins |
 
 ### 6.2 The configuration object

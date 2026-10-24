@@ -281,9 +281,9 @@ def _probe_params() -> GenerationParams:
     """Frozen generation settings, so the probe exercises the real path.
 
     ``max_output_tokens`` is the one deliberate departure: the probe needs a
-    few tokens, not 512, and generating the full budget would make readiness
-    needlessly slow. Temperature and seed stay as frozen so the probe runs
-    through the same determinism settings the run will.
+    few tokens, not the frozen 1536, and generating the full budget would
+    make readiness needlessly slow. Temperature and seed stay as frozen so
+    the probe runs through the same determinism settings the run will.
     """
     return GenerationParams(
         temperature=0.0, max_output_tokens=64, context_tokens=8192, seed=0, stop=()

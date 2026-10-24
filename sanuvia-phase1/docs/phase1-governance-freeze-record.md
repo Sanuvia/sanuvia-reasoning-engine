@@ -137,9 +137,10 @@ explicit, separate go-ahead.
 
 ## Governance summary
 
-- **FROZEN / APPROVED (43 items)** — the three-condition structure, same-sequential-
+- **FROZEN / APPROVED (44 items)** — the three-condition structure, same-sequential-
   evidence, Case 001 unchanged, Phase 0 frozen, local-only provider; model Qwen3-4B
-  on llama.cpp GGUF at Q4_K_M with context 8192 / max-out 512 / stop none;
+  on llama.cpp GGUF at Q4_K_M with context 8192 / max-out 1536 / stop none;
+  the pinned serving chat-template digest;
   temperature 0.0 / seed 0 / retries 0; the **verified artifact identity + SHA-256 +
   llama.cpp build**; pinned prompt & schema versions; per-run retention + failure
   integrity; C.4/C.5 raw-observables-only; id-based divergence diagnostic-only; the

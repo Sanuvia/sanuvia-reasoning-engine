@@ -7,6 +7,10 @@
 **Status:** reviewable integration package. Not an implementation freeze, not a
 Case 002 release, not a Run 003 authorization, not a deployment.
 
+> **Amended 2026-10-24 — governance record `8.0-run003-output-cap-1536-and-chat-template-pin`,
+> hash `sha256:f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac`.** The generation row below now reads max-out `1536`;
+> as recorded on 2026-10-11 it read `512`. Nothing else changed.
+
 Closes the three integration prerequisites recorded at the end of the Slice 2
 merge, completes the external identity resolver's wiring, and corrects one
 typing defect introduced by that merge.
@@ -225,10 +229,12 @@ following are FROZEN, sourced to *"Phase 1 Run-001 governance approval
 | `serving_runtime_backend` | llama.cpp (GGUF) |
 | `llama_cpp_build` | build 10721 (commit `8e53fcefd`), macos-x64 prebuilt release |
 | `quantization` | `Q4_K_M` |
-| generation | temperature `0.0`, seed `0` (fixed), max-out `512`, context `8192`, stop `none`, retries `0` |
+| generation | temperature `0.0`, seed `0` (fixed), max-out `1536` *(amended 2026-10-24; was `512`)*, context `8192`, stop `none`, retries `0` |
 
-Freeze record `7.0-extraction-schema-v3-participant-labels`, hash
-`16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c`.
+Freeze record `8.0-run003-output-cap-1536-and-chat-template-pin`, hash
+`f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac` *(amended 2026-10-24; this section was recorded against
+`7.0-extraction-schema-v3-participant-labels`, hash
+`16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c`)*.
 
 ### 7.3 Prompt and schema versions (verified from the live registry)
 
