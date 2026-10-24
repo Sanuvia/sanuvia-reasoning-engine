@@ -9,4 +9,32 @@ dist/
 *.sqlite
 *.db
 .env
+# --- Private custody: Case 002 ---
+# These three artifacts are held in private custody and must never reach this
+# public repository. They are listed by exact path, not by glob, so that adding
+# a Case 002 file under a new name is a deliberate act rather than an accident.
+sanuvia-phase1/fixtures/longitudinal/case_002.py
+sanuvia-phase1/reference/case_002_reference.py
 sanuvia-phase1/tests/phase1/test_case_002_fixture.py
+
+# --- Local-only run evidence ---
+# Raw prompts, raw responses and run evidence. Delivered to the project owner
+# through the private record, never published here.
+local_run003/
+sanuvia-phase1/local_run001/
+sanuvia-phase1/local_run002/
+# ...except the three Run 002 harness scripts, which are already tracked and
+# are public by intent: they drive Case 001, which is the public case. They
+# contain no transcript material.
+!sanuvia-phase1/local_run002/llama_server_backend_run002.py
+!sanuvia-phase1/local_run002/run002_case001_harness.py
+!sanuvia-phase1/local_run002/run002_gate1.py
+
+# --- Local-only working documents ---
+docs/private-annex-case-002.md
+docs/private-repository-authorization-request.md
+docs/github-support-request-object-purge.md
+docs/support-submission-steps.md
+docs/pr7-body.md
+docs/proposed-pr7-description.md
+strip-claude-attribution.sh
