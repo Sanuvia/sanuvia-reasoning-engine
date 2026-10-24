@@ -9,3 +9,4 @@ dist/
 *.sqlite
 *.db
 .env
+sanuvia-phase1/tests/phase1/test_case_002_fixture.py
