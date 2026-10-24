@@ -288,8 +288,8 @@ def _check_approved_generation_config(config: RealRunConfig) -> Check:
             problems.append(f"{spec.role}.temperature={spec.temperature} != 0.0")
         if spec.seed.value != "0":
             problems.append(f"{spec.role}.seed={spec.seed.value} != 0")
-        if spec.max_output_tokens != 512:
-            problems.append(f"{spec.role}.max_output_tokens={spec.max_output_tokens} != 512")
+        if spec.max_output_tokens != 1536:
+            problems.append(f"{spec.role}.max_output_tokens={spec.max_output_tokens} != 1536")
         if spec.context_window != 8192:
             problems.append(f"{spec.role}.context_window={spec.context_window} != 8192")
         if _extra(spec, "stop_sequences") != "none":
@@ -301,7 +301,7 @@ def _check_approved_generation_config(config: RealRunConfig) -> Check:
         return Check("approved_generation_config", BLOCKED, "; ".join(problems))
     return Check(
         "approved_generation_config", PASS,
-        "temperature=0.0, seed=0, max_output_tokens=512, context_window=8192, "
+        "temperature=0.0, seed=0, max_output_tokens=1536, context_window=8192, "
         "stop=none, retries=0",
     )
 

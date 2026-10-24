@@ -4,8 +4,8 @@
 **Companion:** [Experiment Manifest](phase1-experiment-manifest.md) ·
 [Semantic Evaluation Protocol](phase1-semantic-evaluation-protocol.md)
 **Machine-readable source of truth:** `sanuvia_phase1.governance` (`FREEZE_RECORD`)
-**Freeze record version:** `7.0-extraction-schema-v3-participant-labels`
-**Freeze record hash:** `sha256:16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c`
+**Freeze record version:** `8.0-run003-output-cap-1536-and-chat-template-pin`
+**Freeze record hash:** `sha256:f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac`
 
 **Version history (audit trail — never overwritten):**
 | Version | freeze_record_sha256 |
@@ -17,6 +17,7 @@
 | `5.0-appraisal-schema-v3-signature` | `d3e6c79f0475dd46cfd5e5629d95cc9be650eb7d28efb24ac37300280743905c` |
 | `6.0-slice2-extractor-standing` | `f79197af53a2ff04dc77dec84523f59f692f49e1b623f4b5f524880ba58930bf` |
 | `7.0-extraction-schema-v3-participant-labels` | `16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c` |
+| `8.0-run003-output-cap-1536-and-chat-template-pin` | `f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac` |
 
 This record pins the frozen Phase 1 protocol for the first real run. As of
 `3.0-run001-verified`, the exact model artifact identity, its locally-computed
@@ -48,7 +49,7 @@ has been executed and Case 001 has not been run.**
 | `serving_runtime_backend` | llama.cpp (GGUF) |
 | `quantization` | Q4_K_M |
 | `context_window` | 8192 |
-| `max_output_tokens` | 512 |
+| `max_output_tokens` | 1536 |
 | `stop_sequences` | none |
 
 ### Verified artifact / runtime identity (Run 001)
@@ -191,3 +192,44 @@ Two questions that approval does not answer, and that are **not** assumed here:
    it does not run, §2 G parks non-exact candidates and nothing is needed.
 
 *No real Qwen run has occurred and no model inference has been run.*
+
+---
+
+## Amendment 8.0 — output cap, and a pinned chat template
+
+**Date:** 2026-10-24 · **Scope:** two frozen items. Nothing else.
+
+### `max_output_tokens`: 512 → 1536
+
+Run 003 Stage 1 attempt 1 stopped on its first extraction call. The server
+answered; the reply hit `finish_reason: length` at exactly 512 completion
+tokens and was cut mid-string, so strict validation rejected it and the frozen
+zero-retry policy ended the run.
+
+The reply was otherwise well formed: four complete observations with every
+required field, the fifth truncated. Measured from it, one observation costs
+~103 output tokens. The largest interaction groups seven turns, giving a
+worst case near 730 tokens. 1536 is roughly twice that; 1024 would leave only
+~1.4x against an estimate that assumes one observation per turn, and 2048 has
+no measured basis.
+
+Worst case becomes ~554 prompt + 1536 output = ~2,090 of the 8,192 window, so
+the context window is untouched and needs no change.
+
+### `chat_template_sha256`: newly pinned
+
+Readiness verified the serving chat template on 2026-10-22, but the expected
+digest was supplied by hand rather than pinned, so a later run that omitted it
+skipped the check and still reported a complete pass. The observed digest is
+now a frozen item, so the check verifies by default.
+
+### Unchanged
+
+Interaction grouping, model and artifact, prompts, schemas, validators,
+context window, temperature, seed, zero-retry, roster and R1 configuration.
+
+### Comparability caveat
+
+Run 002 executed at `max_output_tokens=512`. Run 003 will execute at 1536.
+Any cross-run comparison spans **different output caps** and must say so.
+Nothing else in the generation configuration differs.

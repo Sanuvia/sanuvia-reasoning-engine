@@ -235,7 +235,25 @@ def identity_checks(
         "runtime_build_matches", PASS if build_ok else BLOCKED,
         f"/props build_info {facts.props_build_info} (approved: {approved_build})",
     ))
-    if approved_chat_template_sha256 is not None:
+    # ALWAYS RECORDED, never skipped.
+    #
+    # This check used to be appended only when an expected digest was supplied,
+    # so omitting --chat-template-sha256 made it VANISH from the result: a run
+    # with one fewer verification reported 11/11 and read as complete, while an
+    # earlier run with the digest reported 12/12. A reader comparing the two
+    # could not see that a check had gone missing rather than passed.
+    #
+    # An unsupplied expectation is now UNAVAILABLE, not absent. The count stays
+    # constant, the observed digest is still recorded so it can be pinned
+    # later, and -- because overall is PASS only when every check is PASS --
+    # the gap blocks rather than passes silently.
+    if approved_chat_template_sha256 is None:
+        checks.append(Check(
+            "chat_template_unchanged", UNAVAILABLE,
+            f"no approved digest supplied, so the template could not be "
+            f"verified; the server reports {facts.chat_template_sha256}",
+        ))
+    else:
         checks.append(Check(
             "chat_template_unchanged",
             PASS if facts.chat_template_sha256 == approved_chat_template_sha256 else BLOCKED,

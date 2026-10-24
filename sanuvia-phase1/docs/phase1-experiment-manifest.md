@@ -83,7 +83,7 @@ Model **Qwen3-4B**, local only, served via **llama.cpp (GGUF)** at **Q4_K_M** â€
 approved and verified for Run 001. The installed artifact identity and SHA-256,
 and the installed llama.cpp build/commit, were verified locally and frozen in
 governance record `3.0-run001-verified`, carried forward unchanged into
-`7.0-extraction-schema-v3-participant-labels`, which pins the v1.5.4
+`8.0-run003-output-cap-1536-and-chat-template-pin`, which pins the v1.5.4
 evidence-appraisal response schema and the extraction schema that moved
 ``subject`` to a request-scoped participant label. The model artifact, runtime
 build and generation parameters are unchanged by those revisions. **No model
