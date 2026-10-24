@@ -152,7 +152,7 @@ class LlamaServerBackend:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": params.temperature,      # frozen: 0.0
             "seed": params.seed,                     # frozen: 0
-            "n_predict": params.max_output_tokens,   # frozen: 512
+            "n_predict": params.max_output_tokens,   # frozen: 1536
             "stream": False,
             "chat_template_kwargs": dict(CHAT_TEMPLATE_KWARGS),  # enable_thinking=false
         }

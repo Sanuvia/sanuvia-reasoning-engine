@@ -83,7 +83,7 @@ Model **Qwen3-4B**, local only, served via **llama.cpp (GGUF)** at **Q4_K_M** �
 approved and verified for Run 001. The installed artifact identity and SHA-256,
 and the installed llama.cpp build/commit, were verified locally and frozen in
 governance record `3.0-run001-verified`, carried forward unchanged into
-`7.0-extraction-schema-v3-participant-labels`, which pins the v1.5.4
+`8.0-run003-output-cap-1536-and-chat-template-pin`, which pins the v1.5.4
 evidence-appraisal response schema and the extraction schema that moved
 ``subject`` to a request-scoped participant label. The model artifact, runtime
 build and generation parameters are unchanged by those revisions. **No model
@@ -96,7 +96,7 @@ inference has been run.**
 | runtime / backend | llama.cpp `build 10721 (commit 8e53fcefd), macos-x64 prebuilt release (v0.3.0-dev)`, injected `QwenBackend` | **FROZEN / VERIFIED** |
 | quantization | `Q4_K_M` | **FROZEN** |
 | context window | `8192` | **FROZEN** |
-| max output tokens | `512` | **FROZEN** |
+| max output tokens | `1536` | **FROZEN** (amended 8.0-run003-output-cap-1536-and-chat-template-pin; was `512`) |
 | stop sequences | none | **FROZEN** |
 | exact version | `Qwen/Qwen3-4B-GGUF@bc640142c66e1fdd12af0bd68f40445458f3869b` · `Qwen3-4B-Q4_K_M.gguf` (2497280256 bytes) | **FROZEN / VERIFIED** |
 | artifact / digest | `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5` | **FROZEN / VERIFIED** |
@@ -140,7 +140,7 @@ implicit experimental defaults). All are **approved and frozen for Run 001**.
 |---|---|---|
 | temperature | `0.0` | **FROZEN** |
 | seed | `0` (policy: fixed) | **FROZEN** (honoured where the backend supports it) |
-| max output tokens | `512` | **FROZEN** |
+| max output tokens | `1536` | **FROZEN** (amended 8.0-run003-output-cap-1536-and-chat-template-pin; was `512`) |
 | context length | `8192` | **FROZEN** |
 | stop sequences | none | **FROZEN** |
 | other backend params | recorded in `ModelSpec.extra_params` | filled from the installed artifact |
@@ -327,7 +327,7 @@ looking at any existing output.
   manifest (§7).
 - Id-based divergence is **diagnostic only** (§12); the freeze rule (§13).
 - **Run-001 approvals:** runtime llama.cpp (GGUF) + quantization Q4_K_M; context
-  8192; max output 512; stop none; temperature 0.0; seed 0; retries 0 (§3, §5, §6);
+  8192; max output 1536 (amended 8.0-run003-output-cap-1536-and-chat-template-pin; was 512); stop none; temperature 0.0; seed 0; retries 0 (§3, §5, §6);
   C.4/C.5 = raw observables only, no aggregate/threshold/pass-fail (§12); the
   semantic 0–2 rubric, two evaluators, blinding (§10–§11); negative-result
   disposition (a null/adverse result is valid, retained unchanged, no

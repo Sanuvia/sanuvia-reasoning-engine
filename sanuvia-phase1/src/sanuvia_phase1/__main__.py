@@ -73,7 +73,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     readiness_parser.add_argument(
         "--chat-template-sha256", default=None,
-        help="optional: the approved chat-template hash to compare with /props",
+        help="override the frozen chat-template digest to compare with /props; "
+             "by default the value pinned in the governance freeze record is "
+             "used, so the check verifies without being asked to",
     )
     args = parser.parse_args(argv)
 
@@ -110,6 +112,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not (version and digest and build):
             print("refusing: the artifact version, SHA-256 and build are not frozen")
             return 2
+        # The pinned digest is the default so the template is verified without
+        # anyone remembering to pass it. Omitting it used to make the check
+        # vanish from the report; it now falls back to the frozen value, and
+        # only an explicit flag overrides it.
+        chat_template_sha256 = args.chat_template_sha256 or _frozen_value(
+            "chat_template_sha256"
+        )
         # "build 10721 (commit 8e53fcefd), ..." -> the parts /props reports.
         build_parts = " ".join(
             p for pair in re.findall(r"build (\d+)|commit ([0-9a-f]+)", build) for p in pair if p
@@ -125,7 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             approved_model_path=args.model_path,
             approved_sha256=digest,
             approved_build=build_parts,
-            approved_chat_template_sha256=args.chat_template_sha256,
+            approved_chat_template_sha256=chat_template_sha256,
         )
         report = render_readiness(readiness_result)
         (out / "readiness.txt").write_text(report + "\n", encoding="utf-8")
@@ -138,7 +147,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "approved": {
                 "model_artifact_version": version, "artifact_sha256": digest,
                 "llama_cpp_build": build, "model_path": args.model_path,
-                "chat_template_sha256": args.chat_template_sha256,
+                "chat_template_sha256": chat_template_sha256,
             },
             "observed": (
                 dataclasses.asdict(readiness_result.facts)

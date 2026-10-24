@@ -30,7 +30,7 @@ RUN001_APPROVAL_SOURCE = "Phase 1 Run-001 governance approval (2026-08-26)"
 RUN001_VERIFICATION_SOURCE = "Run-001 artifact verification (2026-08-31)"
 
 # Current record version and the audit trail of prior pinned hashes.
-FREEZE_RECORD_VERSION = "7.0-extraction-schema-v3-participant-labels"
+FREEZE_RECORD_VERSION = "8.0-run003-output-cap-1536-and-chat-template-pin"
 FREEZE_RECORD_HISTORY: tuple[tuple[str, str], ...] = (
     # (version, freeze_record_sha256) — never overwritten.
     ("1.0-structure", "8a8841ba3003bbab0aadff8fa0f3ccceab6ec965cf209d5cc2f77ae30a91a44f"),
@@ -39,6 +39,7 @@ FREEZE_RECORD_HISTORY: tuple[tuple[str, str], ...] = (
     ("4.0-appraisal-schema-v2", "8cf8dd7d25588dc892211b6fdf7f8e8f74e83a718c3308e372b4af6c06dc925a"),
     ("5.0-appraisal-schema-v3-signature", "d3e6c79f0475dd46cfd5e5629d95cc9be650eb7d28efb24ac37300280743905c"),
     ("6.0-slice2-extractor-standing", "f79197af53a2ff04dc77dec84523f59f692f49e1b623f4b5f524880ba58930bf"),
+    ("7.0-extraction-schema-v3-participant-labels", "16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c"),
 )
 
 
@@ -130,8 +131,14 @@ FREEZE_RECORD: tuple[GovernanceItem, ...] = (
     _frozen("serving_runtime_backend", "Serving / runtime / backend arrangement",
             "llama.cpp (GGUF)", RUN001_APPROVAL_SOURCE),
     _frozen("quantization", "Model quantization", "Q4_K_M", RUN001_APPROVAL_SOURCE),
+    _frozen("chat_template_sha256", "Serving chat-template digest",
+            "57f1fd00f0013a2be96aa79b857391f27e23df5b5f847072b524c897e24d0361",
+            "Run-003 readiness observation (2026-10-22), pinned so the "
+            "check verifies by default rather than being skipped"),
     _frozen("context_window", "Context window", "8192", RUN001_APPROVAL_SOURCE),
-    _frozen("max_output_tokens", "Max output tokens", "512", RUN001_APPROVAL_SOURCE),
+    _frozen("max_output_tokens", "Max output tokens", "1536",
+            "Run-003 output-cap amendment (2026-10-24); supersedes the 512 pinned by "
+            + RUN001_APPROVAL_SOURCE),
     _frozen("stop_sequences", "Stop sequences", "none", RUN001_APPROVAL_SOURCE),
     # --- Generation parameters (approved for Run 001) ---
     _frozen("temperature", "Sampling temperature", "0.0", RUN001_APPROVAL_SOURCE),
