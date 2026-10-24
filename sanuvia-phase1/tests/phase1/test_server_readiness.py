@@ -11,6 +11,7 @@ never reaches the Stage 1 pipeline.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import pathlib
 
@@ -492,3 +493,55 @@ def test_the_pinned_digest_comes_from_governance_not_a_literal() -> None:
     frozen = {i.key: i.value for i in governance.frozen_items()}
     assert "chat_template_sha256" in frozen, "the template digest is not pinned"
     assert len(frozen["chat_template_sha256"] or "") == 64
+
+
+class _StopBeforeContactingAnything(Exception):
+    """Raised by the capture double so no server is ever reached."""
+
+
+def _cli_approved_template(
+    argv: list[str], monkeypatch: pytest.MonkeyPatch
+) -> object:
+    """Run the readiness CLI far enough to see what digest it would check."""
+    from sanuvia_phase1 import __main__ as cli
+
+    seen: dict[str, object] = {}
+
+    def _capture(**kwargs: object) -> object:
+        seen.update(kwargs)
+        raise _StopBeforeContactingAnything
+
+    monkeypatch.setattr("sanuvia_phase1.readiness.check_server_readiness", _capture)
+    with contextlib.suppress(_StopBeforeContactingAnything):
+        cli.main(argv)
+    assert seen, "the CLI never reached the readiness check"
+    return seen.get("approved_chat_template_sha256")
+
+
+def test_the_cli_supplies_the_pinned_digest_when_the_flag_is_omitted(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pinning the digest is only half the fix if the CLI ignores it.
+
+    The 2026-10-23 run omitted the flag and the check vanished from the
+    report. Pinning the value in governance changes nothing unless the
+    command actually reaches for it, so this asserts the wiring rather than
+    the record.
+    """
+    from sanuvia_phase1 import governance
+
+    pinned = {i.key: i.value for i in governance.frozen_items()}["chat_template_sha256"]
+    assert _cli_approved_template([
+        "server-readiness", "--model-path", APPROVED_PATH,
+        "--output-dir", str(tmp_path / "readiness"),
+    ], monkeypatch) == pinned
+
+
+def test_an_explicit_cli_digest_overrides_the_pinned_one(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _cli_approved_template([
+        "server-readiness", "--model-path", APPROVED_PATH,
+        "--output-dir", str(tmp_path / "readiness"),
+        "--chat-template-sha256", "c" * 64,
+    ], monkeypatch) == "c" * 64
