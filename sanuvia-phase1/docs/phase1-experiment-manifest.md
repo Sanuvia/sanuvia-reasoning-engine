@@ -8,7 +8,10 @@ This manifest defines the frozen experimental setup for the first real evaluatio
 It is written to be pre-registered: once approved and frozen (§13), nothing here
 may change after results are observed. Values that are not yet authoritatively
 defined are labelled **PENDING APPROVAL** or **PROPOSED**; no thresholds or scoring
-scales are invented. **The real evaluation has not been run.**
+scales are invented. **The semantic evaluation has not been run and no Run 003
+results exist.** Real inference has occurred: Case 001 was executed under Run
+002, and one Case 002 extraction call was made on 2026-10-23 in a Stage 1
+attempt that failed and was not retried.
 
 Authoritative sources: Sanuvia System Architecture v1.1; Engineering Specification
 v0.4; Reasoning Semantics Specification v0.2; Implementation Programme v1.4; the
@@ -343,4 +346,6 @@ looking at any existing output.
    values.
 2. `python -m sanuvia_phase1 preflight-real` must report **OVERALL: PASS**.
 
-*The real evaluation has not been executed.*
+*The semantic evaluation has not been executed and no Run 003 results exist.
+Inference itself has occurred — see the execution status in the governance
+freeze record.*

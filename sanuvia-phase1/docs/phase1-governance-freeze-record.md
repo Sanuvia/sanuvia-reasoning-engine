@@ -26,8 +26,18 @@ remaining pending item is `eval_hardware` (non-blocking, recorded at run time).
 The record is immutable: its content hash changes if the version or any frozen
 value changes, which by the pre-registration rule requires a new version.
 
-`is_real_run_permitted()` is now **YES** — no blocking items remain. **No model
-has been executed and Case 001 has not been run.**
+`is_real_run_permitted()` is now **YES** — no blocking items remain.
+
+**Execution status (corrected 2026-10-25).** This record previously read "No
+model has been executed and Case 001 has not been run." That ceased to be true
+when Run 002 executed and is corrected here:
+
+- **Case 001 was executed** once under Run 002, under the project owner's
+  explicit authorisation. See the [Run 002 Governance Record](phase1-run002-governance-record.md).
+- **Run 003 Stage 1 was attempted** once against Case 002 on 2026-10-23 and
+  **failed** on output truncation after a single model call. It is retained as
+  a failed attempt, nothing was salvaged from it, and it has not been retried.
+- **The semantic evaluation has not been run**, and no Run 003 results exist.
 
 ---
 
@@ -192,7 +202,10 @@ Two questions that approval does not answer, and that are **not** assumed here:
    Run 003 its provider, model, prompt and schema need their own approval. If
    it does not run, §2 G parks non-exact candidates and nothing is needed.
 
-*No real Qwen run has occurred and no model inference has been run.*
+*Corrected 2026-10-25: this line previously read "No real Qwen run has
+occurred and no model inference has been run." Real inference has occurred —
+Case 001 under Run 002, and one failed Case 002 extraction call on 2026-10-23.
+What has not occurred is a completed Run 003 and the semantic evaluation.*
 
 ---
 

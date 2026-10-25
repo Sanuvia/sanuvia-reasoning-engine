@@ -13,8 +13,14 @@
 
 > **This document does not declare the freeze.** Implementation freeze, Case 002
 > release, Run 003 execution and deployment remain four separate decisions, none
-> of which is taken or implied here. Case 002 was not opened. No model inference
-> was run and no external provider was contacted.
+> of which is taken or implied here.
+>
+> **As prepared on 2026-10-12** Case 002 had not been opened, no model inference
+> had been run and no external provider had been contacted. **That is no longer
+> the current state.** Case 002 was released, and Run 003 Stage 1 was attempted
+> once on 2026-10-23: it made one extraction call and **failed** on output
+> truncation. The attempt is retained as failed, nothing was salvaged, and it
+> has not been retried. Run 003 has not completed and no Run 003 results exist.
 
 Everything below is divided into **verified** (observed on the machine, from the
 repository), **proposed** (constructed from the existing contract, awaiting
@@ -435,8 +441,13 @@ Nothing failed, was skipped, or went unexecuted.
   seal-manifest hash is **transcribed and not verified**, because verifying it
   would require hashing the sealed package.
 - **No fixtures were authored** and nothing was pre-registered.
-- **Run 003 has not been executed.** No weights were loaded, no token was
-  generated, and no model inference was run at any boundary.
+- **Run 003 had not been executed when this verification was performed on
+  2026-10-12.** No weights were loaded, no token was generated, and no model
+  inference was run at any boundary *in that verification*. **Corrected
+  2026-10-25:** inference has since occurred. Stage 1 was attempted once on
+  2026-10-23, made a single extraction call, and failed on output truncation;
+  the attempt stands as failed and was not retried. Run 003 has still not
+  completed.
 - **No external provider was contacted.** Every test in this verification uses a
   fake in-process backend. `provider=local_qwen` for every boundary, and the
   `no_network_dependency` check passes.

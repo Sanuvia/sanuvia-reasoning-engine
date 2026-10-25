@@ -217,4 +217,6 @@ the governance freeze record.
 - Evaluator identities/scheduling and the eval hardware are operational details
   recorded at run time.
 
-*The real evaluation has not been executed.*
+*The semantic evaluation has not been executed. This is a statement about the
+evaluation stage, not about inference: Case 001 ran under Run 002 and a failed
+Case 002 extraction call was made on 2026-10-23.*
