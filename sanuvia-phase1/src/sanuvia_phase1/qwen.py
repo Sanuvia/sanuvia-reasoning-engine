@@ -355,7 +355,7 @@ def qwen_real_run_config(
     quantization: str = "Q4_K_M",
     temperature: float = 0.0,
     seed: int | None = 0,
-    max_output_tokens: int = 512,
+    max_output_tokens: int = 1536,
     context_window: int = 8192,
     stop_sequences: str = "none",
     participants: Sequence[str] = (),

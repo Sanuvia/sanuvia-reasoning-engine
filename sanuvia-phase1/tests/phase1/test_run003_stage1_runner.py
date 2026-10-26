@@ -153,7 +153,7 @@ def test_the_runner_wires_the_approved_roster_and_settings(tmp_path: pathlib.Pat
     assert config.participants == ("participant-1", "participant-2")  # type: ignore[attr-defined]
     assert config.extraction.temperature == 0.0                      # type: ignore[attr-defined]
     assert config.extraction.seed.value == "0"                       # type: ignore[attr-defined]
-    assert config.extraction.max_output_tokens == 512                # type: ignore[attr-defined]
+    assert config.extraction.max_output_tokens == 1536                # type: ignore[attr-defined]
     assert config.extraction.context_window == 8192                  # type: ignore[attr-defined]
 
 
@@ -301,7 +301,7 @@ def test_generation_settings_are_the_frozen_ones(tmp_path: pathlib.Path) -> None
     for p in backend.params:
         assert p.temperature == 0.0
         assert p.seed == 0
-        assert p.max_output_tokens == 512
+        assert p.max_output_tokens == 1536
         assert p.context_tokens == 8192
 
 

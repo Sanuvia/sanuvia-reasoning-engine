@@ -11,6 +11,7 @@ never reaches the Stage 1 pipeline.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import pathlib
 
@@ -19,7 +20,7 @@ import pytest
 from sanuvia_phase1 import readiness
 from sanuvia_phase1.failures import ModelError, ModelTimeout
 from sanuvia_phase1.llama_server_backend import BackendCall
-from sanuvia_phase1.preflight import BLOCKED, PASS, UNAVAILABLE
+from sanuvia_phase1.preflight import BLOCKED, PASS, UNAVAILABLE, Check
 from sanuvia_phase1.qwen import GenerationParams
 
 
@@ -418,3 +419,129 @@ def test_the_cli_refuses_to_overwrite_readiness_evidence(tmp_path: pathlib.Path)
     ])
     assert code == 2
     assert list(existing.iterdir()) == []
+
+
+def _identity_checks(
+    tmp_path: pathlib.Path, *, approved_template: str | None
+) -> tuple[Check, ...]:
+    return readiness.identity_checks(
+        _facts(),
+        approved_model_path=APPROVED_PATH, approved_sha256=APPROVED_SHA,
+        approved_build="10721 8e53fcefd",
+        approved_chat_template_sha256=approved_template,
+        digest_of=lambda _path: APPROVED_SHA,
+    )
+
+
+def _template_status(tmp_path: pathlib.Path, *, approved: str | None) -> str:
+    return next(
+        c.status for c in _identity_checks(tmp_path, approved_template=approved)
+        if c.name == "chat_template_unchanged"
+    )
+
+
+# --- a check must never vanish -----------------------------------------------
+
+
+def test_the_chat_template_check_is_recorded_even_without_an_expected_digest(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The defect this guards against.
+
+    The check used to be appended only when a digest was supplied, so omitting
+    it made the check VANISH: one run reported 11/11 and another 12/12, and
+    the shorter result still read as complete. A missing verification must be
+    visible, not absent.
+    """
+    from sanuvia_phase1 import readiness as r
+
+    names_without = {
+        c.name for c in _identity_checks(tmp_path, approved_template=None)
+    }
+    names_with = {
+        c.name for c in _identity_checks(tmp_path, approved_template="t" * 64)
+    }
+
+    assert "chat_template_unchanged" in names_without
+    assert names_without == names_with, "the check set changed with the input"
+
+
+def test_an_unsupplied_digest_is_unavailable_and_blocks(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Unverifiable must never read as fine."""
+    checks = _identity_checks(tmp_path, approved_template=None)
+    entry = next(c for c in checks if c.name == "chat_template_unchanged")
+
+    assert entry.status == UNAVAILABLE
+    assert "could not be verified" in entry.detail
+    # and the observed digest is still recorded, so it can be pinned later
+    assert "server reports" in entry.detail
+
+
+def test_a_matching_digest_passes_and_a_mismatch_blocks(
+    tmp_path: pathlib.Path,
+) -> None:
+    assert _template_status(tmp_path, approved="t" * 64) == PASS
+    assert _template_status(tmp_path, approved="b" * 64) == BLOCKED
+
+
+def test_the_pinned_digest_comes_from_governance_not_a_literal() -> None:
+    """So the check verifies by default rather than needing a hand-supplied value."""
+    from sanuvia_phase1 import governance
+
+    frozen = {i.key: i.value for i in governance.frozen_items()}
+    assert "chat_template_sha256" in frozen, "the template digest is not pinned"
+    assert len(frozen["chat_template_sha256"] or "") == 64
+
+
+class _StopBeforeContactingAnything(Exception):
+    """Raised by the capture double so no server is ever reached."""
+
+
+def _cli_approved_template(
+    argv: list[str], monkeypatch: pytest.MonkeyPatch
+) -> object:
+    """Run the readiness CLI far enough to see what digest it would check."""
+    from sanuvia_phase1 import __main__ as cli
+
+    seen: dict[str, object] = {}
+
+    def _capture(**kwargs: object) -> object:
+        seen.update(kwargs)
+        raise _StopBeforeContactingAnything
+
+    monkeypatch.setattr("sanuvia_phase1.readiness.check_server_readiness", _capture)
+    with contextlib.suppress(_StopBeforeContactingAnything):
+        cli.main(argv)
+    assert seen, "the CLI never reached the readiness check"
+    return seen.get("approved_chat_template_sha256")
+
+
+def test_the_cli_supplies_the_pinned_digest_when_the_flag_is_omitted(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pinning the digest is only half the fix if the CLI ignores it.
+
+    The 2026-10-23 run omitted the flag and the check vanished from the
+    report. Pinning the value in governance changes nothing unless the
+    command actually reaches for it, so this asserts the wiring rather than
+    the record.
+    """
+    from sanuvia_phase1 import governance
+
+    pinned = {i.key: i.value for i in governance.frozen_items()}["chat_template_sha256"]
+    assert _cli_approved_template([
+        "server-readiness", "--model-path", APPROVED_PATH,
+        "--output-dir", str(tmp_path / "readiness"),
+    ], monkeypatch) == pinned
+
+
+def test_an_explicit_cli_digest_overrides_the_pinned_one(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _cli_approved_template([
+        "server-readiness", "--model-path", APPROVED_PATH,
+        "--output-dir", str(tmp_path / "readiness"),
+        "--chat-template-sha256", "c" * 64,
+    ], monkeypatch) == "c" * 64

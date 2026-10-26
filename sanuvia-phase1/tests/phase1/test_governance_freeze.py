@@ -20,7 +20,7 @@ from sanuvia_phase1.transcript import Transcript, TranscriptInteraction
 # the extraction schema moved ``subject`` to a request-scoped participant label,
 # which bumps the extraction prompt/schema ids the record pins. The prior pinned
 # hash is preserved in ``FREEZE_RECORD_HISTORY``, never overwritten.
-_EXPECTED_FREEZE_HASH = "16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c"
+_EXPECTED_FREEZE_HASH = "f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac"
 
 # The verified artifact/digest are now frozen; no blocking items remain.
 _BLOCKING_KEYS: set[str] = set()
@@ -82,7 +82,7 @@ def test_run001_governance_decisions_are_frozen() -> None:
     assert frozen["serving_runtime_backend"] == "llama.cpp (GGUF)"
     assert frozen["model_family"] == "Qwen3-4B"
     assert frozen["context_window"] == "8192"
-    assert frozen["max_output_tokens"] == "512"
+    assert frozen["max_output_tokens"] == "1536"
     assert frozen["stop_sequences"] == "none"
     # approved semantic protocol pinned
     for key in ("semantic_dimensions", "semantic_scale", "semantic_evaluators", "semantic_blinding"):
@@ -159,4 +159,22 @@ def test_doc_lists_every_key_and_the_freeze_hash() -> None:
         assert item.key in text, f"governance doc missing key {item.key}"
     for section in ("Frozen / approved", "Pending governance approval", "Blocking the real run"):
         assert section in text
-    assert "No real Qwen run has occurred" in text
+
+
+def test_doc_does_not_claim_inference_has_never_happened() -> None:
+    """This assertion used to pin the opposite claim, and went stale unnoticed.
+
+    The doc used to end "No real Qwen run has occurred and no model inference
+    has been run", and this test required that sentence to be present. It
+    stopped being true when Run 002 executed Case 001, and the test went on
+    passing because it only checked the words were there, not that they were
+    accurate. A test can keep a false statement alive; this one did.
+
+    What is asserted now is the execution status the record must carry.
+    """
+    text = _DOC.read_text(encoding="utf-8")
+    assert "No real Qwen run has occurred and no model inference has been run.*" not in text
+    assert "Case 001 was executed" in text
+    assert "Run 003 Stage 1 was attempted" in text
+    assert "failed" in text
+    assert "The semantic evaluation has not been run" in text

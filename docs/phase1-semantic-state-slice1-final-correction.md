@@ -167,6 +167,8 @@ weakened.
 | Model / provider / prompts / thresholds / frontend | unchanged |
 
 **No model inference was run.** Every test uses a fake client or a scripted
-double.
+double. *(That statement is scoped to the Slice 1 work recorded here and to the
+date of this record. Real inference has since occurred elsewhere: Case 001
+under Run 002, and one failed Case 002 extraction call on 2026-10-23.)*
 
 Not merged. Not frozen. Not deployed. `main` untouched.

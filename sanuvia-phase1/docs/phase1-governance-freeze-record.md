@@ -4,8 +4,8 @@
 **Companion:** [Experiment Manifest](phase1-experiment-manifest.md) ·
 [Semantic Evaluation Protocol](phase1-semantic-evaluation-protocol.md)
 **Machine-readable source of truth:** `sanuvia_phase1.governance` (`FREEZE_RECORD`)
-**Freeze record version:** `7.0-extraction-schema-v3-participant-labels`
-**Freeze record hash:** `sha256:16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c`
+**Freeze record version:** `8.0-run003-output-cap-1536-and-chat-template-pin`
+**Freeze record hash:** `sha256:f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac`
 
 **Version history (audit trail — never overwritten):**
 | Version | freeze_record_sha256 |
@@ -17,6 +17,7 @@
 | `5.0-appraisal-schema-v3-signature` | `d3e6c79f0475dd46cfd5e5629d95cc9be650eb7d28efb24ac37300280743905c` |
 | `6.0-slice2-extractor-standing` | `f79197af53a2ff04dc77dec84523f59f692f49e1b623f4b5f524880ba58930bf` |
 | `7.0-extraction-schema-v3-participant-labels` | `16c7cbad9b364b0db86b9219a6dc2f0d768ba9afb9237246d678454aa8bf371c` |
+| `8.0-run003-output-cap-1536-and-chat-template-pin` | `f62c33b1dd72d623c685267cb54e5eade5bfeb41e86b9a7c556a7f5384a17bac` |
 
 This record pins the frozen Phase 1 protocol for the first real run. As of
 `3.0-run001-verified`, the exact model artifact identity, its locally-computed
@@ -25,8 +26,18 @@ remaining pending item is `eval_hardware` (non-blocking, recorded at run time).
 The record is immutable: its content hash changes if the version or any frozen
 value changes, which by the pre-registration rule requires a new version.
 
-`is_real_run_permitted()` is now **YES** — no blocking items remain. **No model
-has been executed and Case 001 has not been run.**
+`is_real_run_permitted()` is now **YES** — no blocking items remain.
+
+**Execution status (corrected 2026-10-25).** This record previously read "No
+model has been executed and Case 001 has not been run." That ceased to be true
+when Run 002 executed and is corrected here:
+
+- **Case 001 was executed** once under Run 002, under the project owner's
+  explicit authorisation. See the [Run 002 Governance Record](phase1-run002-governance-record.md).
+- **Run 003 Stage 1 was attempted** once against Case 002 on 2026-10-23 and
+  **failed** on output truncation after a single model call. It is retained as
+  a failed attempt, nothing was salvaged from it, and it has not been retried.
+- **The semantic evaluation has not been run**, and no Run 003 results exist.
 
 ---
 
@@ -48,7 +59,7 @@ has been executed and Case 001 has not been run.**
 | `serving_runtime_backend` | llama.cpp (GGUF) |
 | `quantization` | Q4_K_M |
 | `context_window` | 8192 |
-| `max_output_tokens` | 512 |
+| `max_output_tokens` | 1536 |
 | `stop_sequences` | none |
 
 ### Verified artifact / runtime identity (Run 001)
@@ -136,9 +147,10 @@ explicit, separate go-ahead.
 
 ## Governance summary
 
-- **FROZEN / APPROVED (43 items)** — the three-condition structure, same-sequential-
+- **FROZEN / APPROVED (44 items)** — the three-condition structure, same-sequential-
   evidence, Case 001 unchanged, Phase 0 frozen, local-only provider; model Qwen3-4B
-  on llama.cpp GGUF at Q4_K_M with context 8192 / max-out 512 / stop none;
+  on llama.cpp GGUF at Q4_K_M with context 8192 / max-out 1536 / stop none;
+  the pinned serving chat-template digest;
   temperature 0.0 / seed 0 / retries 0; the **verified artifact identity + SHA-256 +
   llama.cpp build**; pinned prompt & schema versions; per-run retention + failure
   integrity; C.4/C.5 raw-observables-only; id-based divergence diagnostic-only; the
@@ -190,4 +202,48 @@ Two questions that approval does not answer, and that are **not** assumed here:
    Run 003 its provider, model, prompt and schema need their own approval. If
    it does not run, §2 G parks non-exact candidates and nothing is needed.
 
-*No real Qwen run has occurred and no model inference has been run.*
+*Corrected 2026-10-25: this line previously read "No real Qwen run has
+occurred and no model inference has been run." Real inference has occurred —
+Case 001 under Run 002, and one failed Case 002 extraction call on 2026-10-23.
+What has not occurred is a completed Run 003 and the semantic evaluation.*
+
+---
+
+## Amendment 8.0 — output cap, and a pinned chat template
+
+**Date:** 2026-10-24 · **Scope:** two frozen items. Nothing else.
+
+### `max_output_tokens`: 512 → 1536
+
+Run 003 Stage 1 attempt 1 stopped on its first extraction call. The server
+answered; the reply hit `finish_reason: length` at exactly 512 completion
+tokens and was cut mid-string, so strict validation rejected it and the frozen
+zero-retry policy ended the run.
+
+The reply was otherwise well formed: four complete observations with every
+required field, the fifth truncated. Measured from it, one observation costs
+~103 output tokens. The largest interaction groups seven turns, giving a
+worst case near 730 tokens. 1536 is roughly twice that; 1024 would leave only
+~1.4x against an estimate that assumes one observation per turn, and 2048 has
+no measured basis.
+
+Worst case becomes ~554 prompt + 1536 output = ~2,090 of the 8,192 window, so
+the context window is untouched and needs no change.
+
+### `chat_template_sha256`: newly pinned
+
+Readiness verified the serving chat template on 2026-10-22, but the expected
+digest was supplied by hand rather than pinned, so a later run that omitted it
+skipped the check and still reported a complete pass. The observed digest is
+now a frozen item, so the check verifies by default.
+
+### Unchanged
+
+Interaction grouping, model and artifact, prompts, schemas, validators,
+context window, temperature, seed, zero-retry, roster and R1 configuration.
+
+### Comparability caveat
+
+Run 002 executed at `max_output_tokens=512`. Run 003 will execute at 1536.
+Any cross-run comparison spans **different output caps** and must say so.
+Nothing else in the generation configuration differs.

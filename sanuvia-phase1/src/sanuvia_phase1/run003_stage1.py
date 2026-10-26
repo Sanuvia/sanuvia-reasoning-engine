@@ -111,7 +111,7 @@ PHASE1_VERSION = "0.1.0"
 
 #: The frozen generation parameters, restated so a drift is a visible edit.
 TEMPERATURE = 0.0
-MAX_OUTPUT_TOKENS = 512
+MAX_OUTPUT_TOKENS = 1536
 CONTEXT_TOKENS = 8192
 SEED = 0
 
